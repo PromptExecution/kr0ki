@@ -1,6 +1,8 @@
 # PRD-KR0KI-001 — kr0ki foundational requirements
 
-**Status:** foundational (requirements only — no implementation, no plan yet)
+**Status:** foundational. **P0 (FR2 + FR5 — the decision-independent render loop) is
+implemented and merged** (`crates/kr0ki-core`, `crates/kr0ki-server`, PR #1). Everything
+on the SysML-model side (FR1/FR3/FR4) remains requirements-only, blocked on §5.
 **Owner:** PromptExecution (@elasticdotventures)
 **Created:** 2026-09-05
 **Supersedes:** nothing. **Superseded by:** nothing yet.
@@ -155,14 +157,19 @@ render options), not from a mutable "latest" pointer. Consequences:
 
 - **FR1** — Accept `iso_ir` graph JSON and render it to Mermaid and D2, following
   `dispatch_sysml.rs`'s node/edge → diagram conventions (`edge_type: "sequence"` etc.).
-- **FR2** — Accept raw Kroki-family text and proxy it to the vendored `kroki-mcp`
-  (`SECURE` mode — input is LLM-authored, `!include`/`!includeurl` is an SSRF vector,
-  per `infrastructure#217`).
+- **FR2** ✅ *(P0, PR #1)* — Accept raw Kroki-family text and render it. P0 talks HTTP
+  directly to a Kroki instance (`HttpKrokiBackend`); the vendored `kroki-mcp` hop is
+  deferred (adds nothing for raw text). `SECURE` mode is the backend Kroki's config,
+  not kr0ki's — input is LLM-authored, `!include`/`!includeurl` is an SSRF vector
+  (`infrastructure#217`).
 - **FR3** — Accept `systhread-core` isometric layout JSON and render via its `render.rs`.
 - **FR4** — Accept the typed SysML-v2/KerML view model (`nem-poweragent-lab#53`) and
   lower it to the appropriate view projection before rendering.
-- **FR5** — Content-address every render: `key = H(serialized_kerml_at_commit ‖
-  render_input ‖ render_options)`. On cache hit, return the CDN URL without rendering.
+- **FR5** ◑ *(P0 partial, PR #1)* — Content-address every render:
+  `key = SHA256("kr0ki/v1" ‖ format ‖ output ‖ source)`, lowercase hex. P0 has the
+  keying + a local `FsCache` origin store (atomic writes, sharded layout) and serves
+  hits from `GET /cache/{key}`. The `serialized_kerml_at_commit` term applies only to
+  the SysML-model path (absent in P0). The CDN tier is still D5.
 - **FR6** — Resolve intra-ecosystem references carried by an artifact (datum ids,
   `iso_ir` node ids, other kr0ki artifact keys) to resolvable URLs, as of the artifact's
   commit.
@@ -213,9 +220,13 @@ landing anything here.**
 
 ## 6. Next steps
 
-1. Get D1–D5 answers (or explicit "proceed with X" from the owners).
-2. Write `PLAN-KR0KI-002` — the implementation plan — only after §5 is settled.
-3. Land the b00t registration datum (FR8) — the one piece with no blocking dependency.
+1. ~~Land the b00t registration datum (FR8)~~ — in flight (`_b00t_#1272`, `kr0ki.repo.toml`).
+2. ~~Build the decision-independent render loop (FR2 + partial FR5)~~ — **done**, PR #1
+   (`kr0ki-core` + `kr0ki-server`, 17 tests, live-verified against `kroki.io`).
+3. Get D1–D6 answers (or explicit "proceed with X" from the owners).
+4. Add caller auth (FR7) so the P0 service can leave localhost.
+5. Wire the CDN tier (D5) in front of `FsCache` — completes FR5.
+6. Write `PLAN-KR0KI-002` (the SysML-model side, FR1/FR3/FR4) — only after §5 is settled.
 
 ---
 
