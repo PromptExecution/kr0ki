@@ -17,6 +17,21 @@ kr0ki MUST NOT infer Kubernetes architecture from diagram syntax or from raw
 (`ufo_types::{UfoStereotype, UfoRelation, OntologicalEdge}`) is the pivot; this
 recognizer operates on it, and everything downstream is derived, never re-inferred.
 
+### Prior art to port: KubeDiagrams
+
+`philippemerle/KubeDiagrams` (Apache-2.0) ships `bin/kube-diagrams.yaml` — a
+battle-tested **GVK → relationship extraction catalogue** (~51 kinds + the full Gateway
+API): for each `Kind/apiGroup/version`, an `edges:` snippet enumerates the JSONPaths at
+which that kind references another (ownerReferences, `spec.selector`, volume / env /
+serviceAccount refs, PVC↔PV↔StorageClass, ingress/route→service, NetworkPolicy,
+webhooks, HPA/VPA `scaleTargetRef`, RBAC `roleRef`/`subjects`, …). KubeDiagrams
+collapses all of that to ~6 coarse edge kinds at render time; **this recognizer keeps
+the per-JSONPath distinction** and maps each call site to one of the canonical
+relations below. Translate the ruleset into a static Rust table (their snippets run via
+`exec()` — do not port that mechanism); attribute in a `NOTICE`. See
+[`EVAL-kubediagrams.md`](EVAL-kubediagrams.md) §2(b), §3 for the site→relation table and
+§4 for using KubeDiagrams as a CI topology-recall oracle.
+
 ---
 
 ## 1. The endurant / perdurant / moment / abstract bridge
