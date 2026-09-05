@@ -176,7 +176,29 @@ A typed `Model` (the reference's `SysGraph`) holding `elements`, `relations`, an
 resolved `views` is acceptable at this layer. serde JSON, round-trip ("ouroboros")
 tested — the same bar as `systhread-core`'s `PositionedGraph`.
 
-### 2.7 `SchemaVersion` — rejected
+### 2.7 SysML v2 text MUST be grammar-validated — always
+
+Any typed element or view that emits SysML v2 / KerML concrete text MUST have that text
+parsed by [`sysml-v2-parser`](https://crates.io/crates/sysml-v2-parser) before it is
+written, cached, or handed to a renderer — never "visually inspected", never assumed
+well-formed because a template produced it.
+
+- The gate is `ufo_types::sysml::validate_sysml_v2` (wraps `sysml-v2-parser`'s resilient
+  `parse_for_editor`; zero diagnostics ⇒ pass). Reuse it — do not hand-roll a second
+  parser wrapper. It is **syntax only** by design; deeper semantic checks stay behind an
+  oracle boundary (design doc §7), but the syntax gate is non-optional and runs on every
+  emit path.
+- `sysml-derive`'s `#[derive(SysmlBlock)]` already holds itself to this bar
+  ("real-grammar-validated ... not just visually inspected"); the typed layer inherits
+  the same contract, and its golden fixtures MUST be validated output, not just
+  byte-stable output.
+- **Version:** pin `sysml-v2-parser` to exactly the version `ufo-types` tracks and bump
+  the two in lockstep (`ufo-types` v0.11.0 → `0.54`; crates.io latest is `0.55.0` as of
+  2026-08-27). A parser-version skew between `ufo-types` and this layer means the two
+  disagree on what "valid SysML v2" is — treat the pin as a wire-format constant, like
+  `LAYOUT_SEED`.
+
+### 2.8 `SchemaVersion` — rejected
 
 No `{ major, minor }` field. Stability is enforced by golden fixtures + `sha256`
 content hashes + frozen wire constants (`systhread-core`'s `LAYOUT_SEED` is the

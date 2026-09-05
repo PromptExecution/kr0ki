@@ -233,7 +233,10 @@ landing anything here.**
    variants), typed `Relation` over the KerML relationship set + one `Domain` escape
    hatch, deterministic `Provenance`, `id: String` (git/content hash optional), views &
    viewpoints as `ViewDefinition` / `ViewpointDefinition` **data** (no sealed trait), no
-   `SchemaVersion`. The v1 diagram-kind taxonomy (`DiagramKind` / `UmlRelation`) is
+   `SchemaVersion`. Every SysML-v2 text emit path MUST pass
+   `ufo_types::sysml::validate_sysml_v2` (`sysml-v2-parser`, version-pinned in lockstep
+   with `ufo-types`) — grammar-validated, never visually inspected. The v1 diagram-kind
+   taxonomy (`DiagramKind` / `UmlRelation`) is
    rejected outright — it describes SysML 1.x's derivation from UML 2, which v2 does not
    have.
 
