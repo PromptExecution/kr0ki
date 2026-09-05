@@ -1,0 +1,19 @@
+[package]
+name = "kr0ki-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "kr0ki P0 render loop — Kroki-family text to SVG, content-addressed cache. No SysML-model path (blocked on PRD-KR0KI-001 §5)."
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde = { workspace = true }
+sha2.workspace = true
+tokio = { workspace = true }
+reqwest = { workspace = true }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "fs", "net", "rt-multi-thread"] }
