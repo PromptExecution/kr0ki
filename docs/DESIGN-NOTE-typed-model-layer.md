@@ -29,7 +29,7 @@ It was reviewed against what is actually shipped:
 - `nem-poweragent-lab` design doc `2026-08-26-systhread-3d-explorer-design.md` §3/§7 —
   specifies (deferred, unbuilt) a typed intermediate model above `Node`/`Edge` that
   retains "the source SysML/KerML construct and UFO stereotype for each visual element",
-  per-element source provenance, and **multiple viewpoint projections over one model**.
+  per-element source provenance, and **multiple `ViewDefinition`s over one model**.
 - `kr0ki` P0 — `DiagramFormat` (8 companion-free Kroki slugs) + `RenderBackend` trait +
   content-addressed `FsCache`. Consumes text, not a model. Zero coupling to any model
   crate.
@@ -165,10 +165,12 @@ closed set closed without forcing every domain edge through it, and without a fr
   is the one place the reference's "traits providing … rendering capabilities" intent
   fits cleanly. kr0ki P0 already embodies the split: `RenderBackend` trait +
   `DiagramFormat` data.
-- **Naming is blocked on D6.** This note uses the OMG SysML v2 spec terms
-  (`ViewDefinition`, `ViewpointDefinition`) deliberately, because they are the spec's —
-  but the b00t-surface names ("view", "viewpoint", "projection", "thread") stay frozen
-  pending D6, which is entangled with D1.
+- **Naming: D6 RESOLVED 2026-09-05** ([`VOCABULARY.md`](VOCABULARY.md)). The b00t
+  surface adopts the OMG SysML v2 / KerML spec terms verbatim (`ViewDefinition`,
+  `ViewpointDefinition`, `ViewUsage`, `RenderingUsage`, `Expose`, `FeatureChain`) with
+  no informal synonyms; "digital thread" is always qualified; **"projection" is
+  banned** (say `ViewDefinition` + `Expose`). This un-entangles the naming question
+  from D1 — spec names are stable, so nothing here can be invalidated by a D1 outcome.
 
 ### 2.6 Container — a typed envelope is fine *here* (it is not `iso_ir`)
 
@@ -230,7 +232,7 @@ Independently corroborated by `2026-08-26-systhread-3d-explorer-design.md`:
 
 - a typed model layer **above** the `Node`/`Edge` floor, not replacing it (§3);
 - per-element source provenance (§7 acceptance hooks);
-- **multiple** viewpoint projections over one model, not one universal graph (§7);
+- **multiple** `ViewDefinition`s over one model, not one universal graph (§7);
 - sum types for genuinely incompatible variants (verbatim the `Layout::{TwoD,ThreeD}`
   rationale already in `positioned.rs`);
 - serde JSON as the interchange boundary with round-trip tests (already how
@@ -241,5 +243,5 @@ Independently corroborated by `2026-08-26-systhread-3d-explorer-design.md`:
 | Dep | Question | Effect on this layer |
 |---|---|---|
 | [`ledgrrr#202`](https://github.com/PromptExecution/ledgrrr/issues/202) (D1) | `sysml-derive` extend-vs-wrap-vs-re-export for `UfoStereotype`-tagged types | how a typed `Element` gets its SysML v2 text |
-| `nem-poweragent-lab#53` follow-up (D3) | does the typed layer live in `ufo-types`, `systhread-core`, or its own crate | where these types are defined |
-| D6 (entangled with D1) | vocabulary: "view" / "viewpoint" / "projection" / "thread" collisions | the b00t-surface names for §2.5 |
+| `nem-poweragent-lab#53` follow-up (D3) | does the typed layer live in `ufo-types`, `systhread-core`, or its own crate | where these types are defined — *operator-resolved 2026-09-05: `ufo-types` (`sysml_model` + `ontology` + `view` merged)* |
+| ~~D6~~ | ~~vocabulary: "view" / "viewpoint" / "projection" / "thread" collisions~~ | **RESOLVED 2026-09-05** — [`VOCABULARY.md`](VOCABULARY.md): OMG spec terms verbatim, "projection" banned, "digital thread" always qualified; un-entangled from D1 |
