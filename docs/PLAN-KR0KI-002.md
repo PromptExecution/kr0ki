@@ -85,10 +85,22 @@ re-inferred.
 └─────────────────────────────────┘
 ```
 
+**Fast-path leaf (NOT part of the pipeline):** a sandboxed `KubeDiagramsBackend`
+(`RenderBackend`) may render Kubernetes YAML bundles straight to SVG via
+`philippemerle/KubeDiagrams` for the "just draw my cluster" case, behind a distinct
+route/format. It bypasses boxes 2-4 by design and must be labelled as a leaf feature,
+never sold as the SysML path. Content-address the normalised `dot_json`, pin Graphviz,
+never expose KubeDiagrams' `-c` (arbitrary Python). See
+[`EVAL-kubediagrams.md`](EVAL-kubediagrams.md).
+
 ### 2.1 First pattern recognizer: Kubernetes
 
 The Kubernetes recognizer (box 3) lifts a UFO semantic graph derived from cluster
-state / manifests into SysML constructs using the UFO 4-category split:
+state / manifests into SysML constructs using the UFO 4-category split. Its extraction
+ruleset is **ported from `philippemerle/KubeDiagrams`' `kube-diagrams.yaml`** (Apache-2.0)
+— a ~51-kind GVK→relationship catalogue — keeping the per-JSONPath relation distinction
+KubeDiagrams collapses at render time. See [`EVAL-kubediagrams.md`](EVAL-kubediagrams.md)
+§2(b)/§3.
 
 - **Endurants** (things that persist through time): Cluster, Node, Namespace, Pod,
   Service, ConfigMap.
@@ -133,8 +145,13 @@ recognizer rule-set version so a recognizer change invalidates derived views.
 ## 4. Conformance
 
 The `Systems-Modeling/SysML-v2-Release` corpus, exercised through `sysml-v2-parser`
-(version pinned in lockstep with `ufo-types`, per the design note §2.7). Lands as a
-**separate PR on branch `feat/conformance-harness`** — not in scope here.
+(version pinned in lockstep with `ufo-types`, per the design note §2.7). Landed on
+`main` (`kr0ki#5`): validation corpus 56/56, standard library 94/94.
+
+**Kubernetes recognizer oracle:** once the box-3 recognizer exists, diff its topology
+output against `KubeDiagrams`' `dot_json` over the KubeDiagrams `examples/` corpus
+(argo / istio / cert-manager / kube-prometheus-stack / online-boutique) in CI — a
+topology-recall regression signal. See [`EVAL-kubediagrams.md`](EVAL-kubediagrams.md) §2(c).
 
 ## 5. FR-by-FR status
 

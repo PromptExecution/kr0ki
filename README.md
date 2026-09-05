@@ -52,9 +52,11 @@ kr0ki/
 │   ├── PRD-KR0KI-001-foundational.md    ← the requirements document
 │   ├── DESIGN-NOTE-typed-model-layer.md ← reviewed shape of the deferred SysML-v2 typed layer (pre-D1/D6)
 │   ├── PLAN-KR0KI-002.md                ← the SysML-model ingestion path (5-box pipeline; client path unblocked 2026-09-05)
-│   ├── PATTERNS-kubernetes.md           ← first pattern recognizer (stub — consultant mapping table TODO)
+│   ├── PATTERNS-kubernetes.md           ← first pattern recognizer (UFO bridge + 25 canonical relations + KubeDiagrams prior art)
 │   ├── EVAL-flexo.md                    ← Flexo MMS / flexo-mms-sysmlv2 evaluation (primary API target)
-│   └── EVAL-syson.md                    ← Eclipse SysON evaluation (reference oracle, not a competitor)
+│   ├── EVAL-syson.md                    ← Eclipse SysON evaluation (reference oracle, not a competitor)
+│   ├── EVAL-kubediagrams.md             ← KubeDiagrams for k8s/IaC rendering — backend (leaf) vs recognizer prior art vs oracle
+│   └── CONFORMANCE.md                   ← SysML-v2-Release conformance harness (phase 1)
 └── vendor/
     └── kroki-mcp/                       ← submodule, PromptExecution/kroki-mcp @ 08765f64
 ```
