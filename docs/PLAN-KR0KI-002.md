@@ -8,8 +8,8 @@ FR4 / FR5-model). **Typed-layer shape:**
 **Status:** the **client path is unblocked** by the operator on **2026-09-05** — decision
 **D3** ("where does the typed layer live") is resolved in favour of *kr0ki consumes an
 upstream OMG-API model server; it does not host the model*. The
-`ViewpointDefinition` / `sysml-derive` **authoring** path stays **blocked on D1 and
-D6**. This plan covers ingestion + projection + caching of a model kr0ki reads from an
+`sysml-derive` **authoring** path stays **blocked on D1** (D6 — vocabulary — resolved
+2026-09-05, [`VOCABULARY.md`](VOCABULARY.md)). This plan covers ingestion + view rendering + caching of a model kr0ki reads from an
 external server. It does **not** cover kr0ki emitting SysML v2 / KerML text.
 
 ---
@@ -72,10 +72,10 @@ re-inferred.
 └────────────┬────────────────────┘
              ▼
 ┌─ 4 ─────────────────────────────┐
-│  SysML v2 viewpoints            │   ufo_types::sysml_model::{ElementKind, Relation}
-│                                 │   — MERGED (ufo-types#20 / v0.12.0). This is the
-│                                 │   *viewpoint* layer, DOWNSTREAM of the UFO graph —
-│                                 │   not the same thing as the UFO graph.
+│  SysML v2 model constructs      │   ufo_types::sysml_model::{ElementKind, Relation}
+│  (KerML abstract syntax)        │   — MERGED (ufo-types#20 / v0.12.0). DOWNSTREAM of
+│                                 │   the UFO graph. A `ViewDefinition` here is one
+│                                 │   ElementKind, not the layer's name (D6).
 └────────────┬────────────────────┘
              ▼
 ┌─ 5 ─────────────────────────────┐
@@ -130,7 +130,7 @@ Extends P0's `cache_key` (`kr0ki-core::cache`):
 
 ```
 model_cache_key = SHA256( "kr0ki/v1"
-                        ‖ view_kind                       // sysml_model viewpoint kind
+                        ‖ view_kind                       // ufo_types::SysmlViewKind
                         ‖ notation                        // DiagramFormat: mermaid|d2|…
                         ‖ ModelSnapshot.content_hash )     // from kr0ki-sysmlv2-client
 ```
@@ -159,7 +159,7 @@ topology-recall regression signal. See [`EVAL-kubediagrams.md`](EVAL-kubediagram
 |---|---|---|
 | **FR1** | `iso_ir` graph JSON → Mermaid + D2 | ◑ **blocked on the UFO semantic-graph layer (`ufo-types`, in flight) + a pattern recognizer.** No direct `iso_ir`→diagram lowering — it must route through boxes 2→3→4. Client + `ModelSnapshot` (box 1 arm) done. |
 | **FR3** | `systhread-core` isometric layout JSON → its `render.rs` | unchanged — separate renderer (box 5), not on the UFO-graph critical path |
-| **FR4** | typed SysML-v2/KerML view model → per-view projection | ◑ **blocked on the UFO semantic-graph layer (`ufo-types`, in flight) + a pattern recognizer.** Projection consumes box 4 (`ufo_types::sysml_model::{ElementKind, Relation}`, merged), which is itself derived from the UFO graph via a recognizer — not lowered directly from `ModelSnapshot`. |
+| **FR4** | typed SysML-v2/KerML view model → per-`ViewDefinition` rendering | ◑ **blocked on the UFO semantic-graph layer (`ufo-types`, in flight) + a pattern recognizer.** The view consumes box 4 (`ufo_types::sysml_model::{ElementKind, Relation}`, merged), which is itself derived from the UFO graph via a recognizer — not lowered directly from `ModelSnapshot`. |
 | **FR5** (model) | content-address the model render | ◑ hash done (`ModelSnapshot.content_hash`); key extension §3 TBD; CDN tier = **D5** |
 | **FR6** | intra-ecosystem reference resolver | unchanged — needs `ledgrrr` |
 | **FR7** | caller auth on the service | unchanged — P0 gap, tracked in PRD §6.4 |
@@ -171,13 +171,16 @@ topology-recall regression signal. See [`EVAL-kubediagrams.md`](EVAL-kubediagram
   does not block ingestion — it blocks the authoring adapter.
 - **D5** — CDN (Cloudflare R2 + Workers). Blocks the cache *tier*, not the key
   derivation.
-- **D6** — view / viewpoint / projection / thread vocabulary. Box 4 uses the merged
-  `ufo_types::sysml_model` names, so the b00t-surface naming decision can land later
-  without a breaking rename here.
+- ~~**D6**~~ — view / viewpoint / projection / thread vocabulary. **RESOLVED
+  2026-09-05** ([`VOCABULARY.md`](VOCABULARY.md)): OMG SysML v2 / KerML spec terms
+  verbatim, no informal synonyms, "digital thread" always qualified, "projection"
+  banned. `ufo_types::sysml_model` / `view` / `ontology` are already compliant.
 
-`D2` (holon-viz as a real dep) and `D3` (typed-layer home) are **no longer blocking**:
-D3 is resolved (kr0ki consumes, does not host), and D2 only bites the `CytoscapeGraph`
-wrapping question which this ingestion path does not touch.
+`D2` (holon-viz as a real dep), `D3` (typed-layer home) and `D6` (vocabulary) are **no
+longer blocking**: D3 is resolved (kr0ki consumes, does not host), D6 is resolved
+(spec vocabulary verbatim), and D2 only bites the `CytoscapeGraph` wrapping question
+which this ingestion path does not touch. **D1** (`sysml-derive` posture) remains the
+only §5 decision that gates the authoring path.
 
 ### New upstream dependency introduced by the five-box pipeline
 

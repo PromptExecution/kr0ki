@@ -78,7 +78,7 @@ from a CDN. That is precisely the gap SysON does *not* fill. No overlap.
 ## Reusable pieces
 
 - **`ViewUsage.exposedElement`** is valuable: it tells kr0ki *which elements belong in
-  which view* directly from the model, so kr0ki's per-view projection (FR4) does not
+  which view* directly from the model, so kr0ki's per-`ViewDefinition` rendering (FR4) does not
   have to reinvent scoping heuristics.
 - Java libraries `syson-sysml-metamodel`, `syson-sysml-import`, `syson-sysml-export`,
   `syson-sysml-validation` exist and are reasonably factored — but they are **JVM**, so

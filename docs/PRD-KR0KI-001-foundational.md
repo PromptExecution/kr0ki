@@ -164,7 +164,7 @@ render options), not from a mutable "latest" pointer. Consequences:
   (`infrastructure#217`).
 - **FR3** — Accept `systhread-core` isometric layout JSON and render via its `render.rs`.
 - **FR4** — Accept the typed SysML-v2/KerML view model (`nem-poweragent-lab#53`) and
-  lower it to the appropriate view projection before rendering.
+  lower it to the appropriate `ViewDefinition` before rendering.
 - **FR5** ◑ *(P0 partial, PR #1)* — Content-address every render:
   `key = SHA256("kr0ki/v1" ‖ format ‖ output ‖ source)`, lowercase hex. P0 has the
   keying + a local `FsCache` origin store (atomic writes, sharded layout) and serves
@@ -208,9 +208,9 @@ kr0ki sits downstream of three unresolved upstream questions. This PRD explicitl
 | D3 | Does the typed SysML-v2/KerML view model live in `ufo-types`, `systhread-core`, or its own crate? | `nem-poweragent-lab#53` follow-up | Determines kr0ki's FR4 input type's home. |
 | D4 | DNS/subdomain: who provisions `kr0ki.b00t.promptexecution.com` and where (pingap config in `b00t-node.yaml.tpl`)? | `PromptExecution/infrastructure` | Blocks FR7. |
 | D5 | CDN: Cloudflare R2 + Workers, matching `_b00t_#1069`'s edge pattern? | `PromptExecution/infrastructure` | Blocks FR5's cache tier. |
-| D6 | Vocabulary collisions: systhread "thread" vs KerML feature-chain, "viewpoint" overload, "projection" vs SysML view/viewpoint | entangled with D1 | kr0ki's render-input contract names these; a rename upstream is a breaking change here. Resolve alongside D1. |
+| ~~D6~~ | ~~Vocabulary collisions: systhread "thread" vs KerML feature-chain, "viewpoint" overload, "projection" vs SysML view/viewpoint~~ | kr0ki | **RESOLVED 2026-09-05** — [`VOCABULARY.md`](VOCABULARY.md): adopt OMG SysML v2 / KerML spec terms verbatim, no informal synonyms, "digital thread" always qualified, "projection" banned. Un-entangled from D1 (spec names are stable — no b00t-invented name for D1 to invalidate). |
 
-The bridge-session review pass (2026-09-05) flagged that D1/D2/D6 overlap almost
+The bridge-session review pass (2026-09-05) flagged that D1/D2/D6 overlapped almost
 exactly with `systhread`/`systhread-explorer`'s own open questions, and that resolution
 MUST reconcile against existing prior art (`systhread-core` already exists; `_b00t_#1177`
 is closed) rather than treating it as greenfield — **cross-check both threads before
@@ -223,7 +223,7 @@ landing anything here.**
 1. ~~Land the b00t registration datum (FR8)~~ — **done** (`_b00t_#1272`, `kr0ki.repo.toml`).
 2. ~~Build the decision-independent render loop (FR2 + partial FR5)~~ — **done**, PR #1
    (`kr0ki-core` + `kr0ki-server`, 17 tests, live-verified against `kroki.io`).
-3. Get D1–D6 answers (or explicit "proceed with X" from the owners).
+3. Get the remaining D-answers (or explicit "proceed with X" from the owners). **Resolved so far:** D3 (typed layer lives in `ufo-types`), D6 (vocabulary — [`VOCABULARY.md`](VOCABULARY.md)). **Still open:** D1 (`sysml-derive`), D2 (`holon-viz` dep), D4 (DNS), D5 (CDN).
 4. Add caller auth (FR7) so the P0 service can leave localhost.
 5. Wire the CDN tier (D5) in front of `FsCache` — completes FR5.
 6. Write `PLAN-KR0KI-002` (the SysML-model side, FR1/FR3/FR4). **`PLAN-KR0KI-002` now
@@ -232,7 +232,7 @@ landing anything here.**
    2026-09-05** — decision **D3** is resolved (*kr0ki consumes an upstream OMG Systems
    Modeling API server; it does not host the model*), so `crates/kr0ki-sysmlv2-client`
    (a server-agnostic OMG-API REST client → content-hashed `ModelSnapshot`) shipped
-   ahead of the rest of §5. **D1 and D6 still gate the authoring path** — anything that
+   ahead of the rest of §5. **D1 still gates the authoring path** (D6 — vocabulary — resolved 2026-09-05) — anything that
    *emits* SysML v2 / KerML text, and the typed adapter above `ModelSnapshot`.
    Reviewed (not yet approved) starting shape for that deferred typed layer:
    [`DESIGN-NOTE-typed-model-layer.md`](DESIGN-NOTE-typed-model-layer.md) — **SysML v2 /
