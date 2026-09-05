@@ -99,8 +99,10 @@ state / manifests into SysML constructs using the UFO 4-category split:
 - **Abstracts** (non-spatiotemporal): selectors, constraints, quantities.
 
 The full `k8s → UFO stereotype + relation-normalization` table (external consultant
-input) lives in [`docs/PATTERNS-kubernetes.md`](PATTERNS-kubernetes.md) — a separate
-follow-up, stubbed in this PR. Do not duplicate it here.
+input) lives in [`docs/PATTERNS-kubernetes.md`](PATTERNS-kubernetes.md) — the endurant/
+perdurant/moment/abstract bridge, the 25-row canonical relationship vocabulary with its
+Kubernetes synonyms, the explicit non-conflations, and the concept→`UfoStereotype`
+table. Not duplicated here.
 
 ### 2.2 Where this PR's `ModelSnapshot` sits
 
