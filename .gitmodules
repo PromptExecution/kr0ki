@@ -1,0 +1,3 @@
+[submodule "vendor/kroki-mcp"]
+	path = vendor/kroki-mcp
+	url = https://github.com/PromptExecution/kroki-mcp.git
