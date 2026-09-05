@@ -17,3 +17,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "fs", "net", "rt-multi-thread"] }
+# Phase 1 SysML-v2 conformance harness (tests/conformance.rs): gate kr0ki's
+# SysML-v2 handling against the OMG SysML-v2-Release corpus by consuming this
+# pure-Rust parser rather than reimplementing one.
+sysml-v2-parser = "0.55"
