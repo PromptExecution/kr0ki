@@ -201,10 +201,13 @@ kr0ki sits downstream of three unresolved upstream questions. This PRD explicitl
 | D3 | Does the typed SysML-v2/KerML view model live in `ufo-types`, `systhread-core`, or its own crate? | `nem-poweragent-lab#53` follow-up | Determines kr0ki's FR4 input type's home. |
 | D4 | DNS/subdomain: who provisions `kr0ki.b00t.promptexecution.com` and where (pingap config in `b00t-node.yaml.tpl`)? | `PromptExecution/infrastructure` | Blocks FR7. |
 | D5 | CDN: Cloudflare R2 + Workers, matching `_b00t_#1069`'s edge pattern? | `PromptExecution/infrastructure` | Blocks FR5's cache tier. |
+| D6 | Vocabulary collisions: systhread "thread" vs KerML feature-chain, "viewpoint" overload, "projection" vs SysML view/viewpoint | entangled with D1 | kr0ki's render-input contract names these; a rename upstream is a breaking change here. Resolve alongside D1. |
 
-The bridge-session review pass (2026-09-05) flagged that D1/D2 overlap almost exactly
-with `systhread`/`systhread-explorer`'s own open questions — **cross-check both threads
-before landing anything here.**
+The bridge-session review pass (2026-09-05) flagged that D1/D2/D6 overlap almost
+exactly with `systhread`/`systhread-explorer`'s own open questions, and that resolution
+MUST reconcile against existing prior art (`systhread-core` already exists; `_b00t_#1177`
+is closed) rather than treating it as greenfield — **cross-check both threads before
+landing anything here.**
 
 ---
 
