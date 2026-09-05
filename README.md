@@ -42,3 +42,37 @@ kr0ki/
 └── vendor/
     └── kroki-mcp/                      ← submodule, PromptExecution/kroki-mcp @ 08765f64
 ```
+
+## P0 — the render loop (built 2026-09-05)
+
+The decision-independent slice of PRD-KR0KI-001 (FR2 + FR5) is implemented and tested:
+raw Kroki-family diagram text → rendered SVG, with a content-addressed cache. Nothing
+here depends on `ufo-types` / `systhread-core` / `holon-viz` — the SysML-model
+ingestion path (FR1/FR3/FR4) stays blocked on §5 decisions D1–D6.
+
+```
+crates/
+├── kr0ki-core/    RenderService = cache in front of a RenderBackend
+│   ├── format.rs  DiagramFormat — the 8 companion-free Kroki formats only (NFR3)
+│   ├── cache.rs   cache_key() = SHA256(domain ‖ 0x1f-delimited fields) ; FsCache (atomic writes)
+│   └── render.rs  HttpKrokiBackend — POST {base}/{slug}/{output}
+└── kr0ki-server/  axum service
+    GET  /health           {"status":"ok",...}
+    GET  /formats          supported slugs
+    POST /render/{format}  body = diagram source → SVG  (X-Kr0ki-Cache: hit|miss, X-Kr0ki-Key)
+    GET  /cache/{key}      previously rendered artifact by content hash
+```
+
+**Verified:** `cargo test --workspace` (17 pass) · `cargo clippy -- -D warnings` clean ·
+live render against `https://kroki.io` (miss → SVG → byte-identical cache hit) · running
+server smoke-tested end to end.
+
+**Not in P0:** caller auth (FR7 — bind to localhost / trusted proxy only), CDN tier
+(FR5's real target = D5), the vendored `kroki-mcp` (direct HTTP is enough for raw text),
+PNG/PDF output, and the entire SysML-model path.
+
+```bash
+just test          # unit + in-process HTTP
+just kroki-up      # local SECURE-mode Kroki on :8000
+just run 127.0.0.1:8787 http://localhost:8000
+```
