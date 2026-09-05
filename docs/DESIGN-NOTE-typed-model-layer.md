@@ -205,6 +205,23 @@ content hashes + frozen wire constants (`systhread-core`'s `LAYOUT_SEED` is the
 precedent: "treat it as a wire-format constant, not a tuning knob"). A version field
 invites the drift the fixture discipline exists to prevent.
 
+### 2.9 Disposition of `DiagramKind` / `BehaviorDiagram` / `StructureDiagram` / `UmlRelation`
+
+The review was asked to "land `DiagramKind` + `UmlRelation` as data-level sum types,
+colliding with nothing". They cannot be landed as written — see §1 — but the request's
+*intent* (a closed, data-level classification of "what kind of render is this", not a
+trait hierarchy) is sound and has a v2 disposition. It splits in two:
+
+| v1 construct | v2 replacement | Where it lives | Status |
+|---|---|---|---|
+| `DiagramKind` — semantic *view* kind (Behavior / Requirement / Structure) | SysML v2 `ViewpointDefinition` / `ViewDefinition` — a stakeholder concern + an `Expose` query + a `RenderingUsage`, authored as KerML **data** | the typed layer's model, read from `.sysml` / a datum | deferred — naming blocked on **D6**, home blocked on **D3** |
+| `DiagramKind` — concrete *notation* to emit (SVG via PlantUML vs. GraphViz vs. Mermaid vs. isometric) | `kr0ki::format::DiagramFormat` — a closed `#[derive(Copy)]` enum, exactly the "data-level sum type, no trait" shape the request asked for | **`kr0ki-core`, already shipped** (PR #1) | **done** — this is the part that could land collision-free, and it already has |
+| `UmlRelation { SameAsUml2, ModifiedFromUml2, NewInSysml }` | — none — | — | **deleted.** It expresses "how does this SysML 1.x diagram differ from UML 2"; v2 is not a UML-2 derivative, so there is nothing to classify. No replacement type. |
+
+So the answer to "land it" is: the notation axis is already landed as `DiagramFormat`;
+the view-kind axis is v2 model data, not a Rust enum, and is D3/D6-blocked; `UmlRelation`
+has no successor. Nothing new to add.
+
 ---
 
 ## 3. What the reference got right
