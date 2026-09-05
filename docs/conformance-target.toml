@@ -1,0 +1,26 @@
+# kr0ki SysML-v2 conformance target — single source of truth.
+#
+# Consumed by:
+#   - scripts/fetch-sysml-v2-release.sh   (reads release_tag, downloads that tag)
+#   - crates/kr0ki-core/tests/conformance.rs
+#   - .github/workflows/ci.yml            (cache key via hashFiles on this file)
+#
+# Phase 1 gates kr0ki's SysML-v2 handling by *consuming* the `sysml-v2-parser`
+# crate (pure-Rust nom parser) against the OMG SysML-v2-Release model corpus.
+# We do not reimplement a parser — kr0ki owns only its lowering deltas.
+#
+# Bump `release_tag` only as a deliberate corpus refresh: re-run the fetch
+# script, re-run the conformance tests, and move BASELINE / LIB_BASELINE in
+# conformance.rs to the new measured numbers (a drop below baseline fails CI;
+# an improvement is a prompt to raise the constant).
+
+release_repo = "https://github.com/Systems-Modeling/SysML-v2-Release"
+release_tag = "2026-07"
+sysml_v2_parser = "0.55"
+
+# The corpus (all *.sysml / *.kerml models + the standard library) is licensed
+# EPL-2.0 at the repo level (single LICENSE, no per-file headers). It is
+# *fetched on demand, never vendored* into this repo. The spec PDFs under the
+# release's doc/ tree are OMG-copyright and are deliberately NOT fetched.
+license = "EPL-2.0"
+vendored = false

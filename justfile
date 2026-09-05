@@ -15,6 +15,12 @@ test:
 test-live backend="https://kroki.io":
     KR0KI_TEST_BACKEND={{backend}} cargo test -p kr0ki-core --test live_render -- --ignored --nocapture
 
+# SysML-v2-Release conformance harness (phase 1): fetch the pinned corpus, then
+# gate kr0ki's SysML-v2 handling via the `sysml-v2-parser` crate. See docs/CONFORMANCE.md.
+conformance:
+    bash scripts/fetch-sysml-v2-release.sh
+    cargo test -p kr0ki-core --test conformance -- --ignored --nocapture
+
 # Lint + format gate (matches CI).
 check:
     cargo fmt --all -- --check
