@@ -14,11 +14,14 @@ and an existing isometric renderer (`systhread-core`'s `layout.rs`/`render.rs`),
 and adds the one thing neither has: a caching, cross-referencing service surface.
 
 > Status: **foundational**. The decision-independent render loop (P0 — FR2 + FR5) is
-> [built and merged](#p0--the-render-loop-built-2026-09-05); the SysML-model path
-> (FR1/FR3/FR4) stays requirements-only, blocked on decisions D1–D6.
+> [built and merged](#p0--the-render-loop-built-2026-09-05). The SysML-model path
+> (FR1/FR3/FR4) has started: its **client** — a generic OMG *Systems Modeling API*
+> REST client — is in `crates/kr0ki-sysmlv2-client` (D3 resolved 2026-09-05); the typed
+> adapter above it, and anything that emits SysML v2 text, stays blocked on D1/D6.
 > Read [`docs/PRD-KR0KI-001-foundational.md`](docs/PRD-KR0KI-001-foundational.md) first,
-> then [`docs/DESIGN-NOTE-typed-model-layer.md`](docs/DESIGN-NOTE-typed-model-layer.md)
-> for the reviewed (not yet approved) shape of that deferred layer.
+> then [`docs/PLAN-KR0KI-002.md`](docs/PLAN-KR0KI-002.md) for the model path and
+> [`docs/DESIGN-NOTE-typed-model-layer.md`](docs/DESIGN-NOTE-typed-model-layer.md) for
+> the reviewed (not yet approved) shape of the deferred typed layer.
 
 ## Orientation for agents
 
@@ -41,12 +44,42 @@ and adds the one thing neither has: a caching, cross-referencing service surface
 ```
 kr0ki/
 ├── README.md
+├── crates/
+│   ├── kr0ki-core/               ← P0 render loop (RenderService = cache + RenderBackend)
+│   ├── kr0ki-server/             ← P0 axum service
+│   └── kr0ki-sysmlv2-client/     ← generic OMG "Systems Modeling API" REST client (SysML-model path)
 ├── docs/
-│   ├── PRD-KR0KI-001-foundational.md   ← the requirements document
-│   └── DESIGN-NOTE-typed-model-layer.md ← reviewed shape of the deferred SysML-v2 layer (pre-D1/D3/D6)
+│   ├── PRD-KR0KI-001-foundational.md    ← the requirements document
+│   ├── DESIGN-NOTE-typed-model-layer.md ← reviewed shape of the deferred SysML-v2 typed layer (pre-D1/D6)
+│   ├── PLAN-KR0KI-002.md                ← the SysML-model ingestion path (5-box pipeline; client path unblocked 2026-09-05)
+│   ├── PATTERNS-kubernetes.md           ← first pattern recognizer (stub — consultant mapping table TODO)
+│   ├── EVAL-flexo.md                    ← Flexo MMS / flexo-mms-sysmlv2 evaluation (primary API target)
+│   └── EVAL-syson.md                    ← Eclipse SysON evaluation (reference oracle, not a competitor)
 └── vendor/
-    └── kroki-mcp/                      ← submodule, PromptExecution/kroki-mcp @ 08765f64
+    └── kroki-mcp/                       ← submodule, PromptExecution/kroki-mcp @ 08765f64
 ```
+
+### SysML-model path (in progress)
+
+`crates/kr0ki-sysmlv2-client` is the first increment of the SysML-model ingestion path.
+It is a **server-agnostic** async REST client for the OMG *Systems Modeling API and
+Services* PSM — it works against Flexo `flexo-mms-sysmlv2`, the OMG Java pilot
+`Systems-Modeling/SysML-v2-API-Services`, `Open-MBEE/OpenSysML`, and Eclipse SysON's
+`/api/rest/`. It is **not Flexo-coupled**. It reads projects / branches / tags / commits
+/ elements / relationships / roots and produces a content-hashed `ModelSnapshot` — the
+model-side cache key for PRD FR5, since no target server exposes its own content hash.
+
+This is possible now because the operator resolved decision **D3** on 2026-09-05: *kr0ki
+consumes an upstream OMG-API model server; it does not host the model.*
+
+`ModelSnapshot` feeds the **SysML-v2 source** arm of a five-box ingestion pipeline
+(`source → canonical UFO-typed semantic graph → pattern recognizers → SysML v2
+viewpoints → kr0ki renderer adapters`). kr0ki MUST NOT infer architecture from diagram
+syntax or raw `iso_ir` strings — the UFO semantic graph (owned by `ufo-types`, a
+follow-up PR in flight) is the pivot. FR1/FR4 are therefore blocked on that layer plus a
+pattern recognizer (Kubernetes first); the typed adapter and any SysML-v2 text emit stay
+blocked on D1/D6. See [`docs/PLAN-KR0KI-002.md`](docs/PLAN-KR0KI-002.md) and
+[`docs/PATTERNS-kubernetes.md`](docs/PATTERNS-kubernetes.md).
 
 ## P0 — the render loop (built 2026-09-05)
 

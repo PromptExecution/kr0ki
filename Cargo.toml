@@ -1,11 +1,15 @@
 # kr0ki workspace.
-# P0 (this): the decision-independent render loop — Kroki-family text -> SVG, with
-# content-addressed caching. The SysML-model-ingestion path (ufo-types / systhread-core /
-# holon-viz) is deliberately absent — it's blocked on PRD-KR0KI-001 §5 decisions D1-D6.
+# P0: the decision-independent render loop — Kroki-family text -> SVG, with
+# content-addressed caching (kr0ki-core / kr0ki-server).
+# First SysML-model-ingestion increment: kr0ki-sysmlv2-client — a generic OMG "Systems
+# Modeling API and Services" REST client (D3 resolved 2026-09-05: kr0ki *consumes* an
+# upstream OMG-API model server, it does not host the model). The typed adapter above
+# ModelSnapshot, and anything touching ufo-types / systhread-core / holon-viz, stays
+# blocked on PRD-KR0KI-001 §5 decisions D1/D6 — see docs/PLAN-KR0KI-002.md.
 
 [workspace]
 resolver = "2"
-members = ["crates/kr0ki-core", "crates/kr0ki-server"]
+members = ["crates/kr0ki-core", "crates/kr0ki-server", "crates/kr0ki-sysmlv2-client"]
 
 [workspace.package]
 version = "0.0.1"

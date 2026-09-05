@@ -226,8 +226,15 @@ landing anything here.**
 3. Get D1–D6 answers (or explicit "proceed with X" from the owners).
 4. Add caller auth (FR7) so the P0 service can leave localhost.
 5. Wire the CDN tier (D5) in front of `FsCache` — completes FR5.
-6. Write `PLAN-KR0KI-002` (the SysML-model side, FR1/FR3/FR4) — only after §5 is settled.
-   Reviewed (not yet approved) starting shape:
+6. Write `PLAN-KR0KI-002` (the SysML-model side, FR1/FR3/FR4). **`PLAN-KR0KI-002` now
+   exists** ([`PLAN-KR0KI-002.md`](PLAN-KR0KI-002.md)) for the **client path**: the
+   "only after §5 is settled" gate was **operator-lifted for that path only on
+   2026-09-05** — decision **D3** is resolved (*kr0ki consumes an upstream OMG Systems
+   Modeling API server; it does not host the model*), so `crates/kr0ki-sysmlv2-client`
+   (a server-agnostic OMG-API REST client → content-hashed `ModelSnapshot`) shipped
+   ahead of the rest of §5. **D1 and D6 still gate the authoring path** — anything that
+   *emits* SysML v2 / KerML text, and the typed adapter above `ModelSnapshot`.
+   Reviewed (not yet approved) starting shape for that deferred typed layer:
    [`DESIGN-NOTE-typed-model-layer.md`](DESIGN-NOTE-typed-model-layer.md) — **SysML v2 /
    KerML only**; closed `ElementKind` (v2 abstract syntax, def/usage-paired, no domain
    variants), typed `Relation` over the KerML relationship set + one `Domain` escape
