@@ -51,7 +51,8 @@ kr0ki/
 ├── docs/
 │   ├── PRD-KR0KI-001-foundational.md    ← the requirements document
 │   ├── DESIGN-NOTE-typed-model-layer.md ← reviewed shape of the deferred SysML-v2 typed layer (pre-D1/D6)
-│   ├── PLAN-KR0KI-002.md                ← the SysML-model ingestion path (client path unblocked 2026-09-05)
+│   ├── PLAN-KR0KI-002.md                ← the SysML-model ingestion path (5-box pipeline; client path unblocked 2026-09-05)
+│   ├── PATTERNS-kubernetes.md           ← first pattern recognizer (stub — consultant mapping table TODO)
 │   ├── EVAL-flexo.md                    ← Flexo MMS / flexo-mms-sysmlv2 evaluation (primary API target)
 │   └── EVAL-syson.md                    ← Eclipse SysON evaluation (reference oracle, not a competitor)
 └── vendor/
@@ -69,9 +70,16 @@ Services* PSM — it works against Flexo `flexo-mms-sysmlv2`, the OMG Java pilot
 model-side cache key for PRD FR5, since no target server exposes its own content hash.
 
 This is possible now because the operator resolved decision **D3** on 2026-09-05: *kr0ki
-consumes an upstream OMG-API model server; it does not host the model.* The typed adapter
-above `ModelSnapshot` (and anything that *emits* SysML v2 text) stays blocked on D1/D6.
-See [`docs/PLAN-KR0KI-002.md`](docs/PLAN-KR0KI-002.md).
+consumes an upstream OMG-API model server; it does not host the model.*
+
+`ModelSnapshot` feeds the **SysML-v2 source** arm of a five-box ingestion pipeline
+(`source → canonical UFO-typed semantic graph → pattern recognizers → SysML v2
+viewpoints → kr0ki renderer adapters`). kr0ki MUST NOT infer architecture from diagram
+syntax or raw `iso_ir` strings — the UFO semantic graph (owned by `ufo-types`, a
+follow-up PR in flight) is the pivot. FR1/FR4 are therefore blocked on that layer plus a
+pattern recognizer (Kubernetes first); the typed adapter and any SysML-v2 text emit stay
+blocked on D1/D6. See [`docs/PLAN-KR0KI-002.md`](docs/PLAN-KR0KI-002.md) and
+[`docs/PATTERNS-kubernetes.md`](docs/PATTERNS-kubernetes.md).
 
 ## P0 — the render loop (built 2026-09-05)
 
