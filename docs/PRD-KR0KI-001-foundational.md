@@ -220,13 +220,25 @@ landing anything here.**
 
 ## 6. Next steps
 
-1. ~~Land the b00t registration datum (FR8)~~ — in flight (`_b00t_#1272`, `kr0ki.repo.toml`).
+1. ~~Land the b00t registration datum (FR8)~~ — **done** (`_b00t_#1272`, `kr0ki.repo.toml`).
 2. ~~Build the decision-independent render loop (FR2 + partial FR5)~~ — **done**, PR #1
    (`kr0ki-core` + `kr0ki-server`, 17 tests, live-verified against `kroki.io`).
 3. Get D1–D6 answers (or explicit "proceed with X" from the owners).
 4. Add caller auth (FR7) so the P0 service can leave localhost.
 5. Wire the CDN tier (D5) in front of `FsCache` — completes FR5.
 6. Write `PLAN-KR0KI-002` (the SysML-model side, FR1/FR3/FR4) — only after §5 is settled.
+   Reviewed (not yet approved) starting shape:
+   [`DESIGN-NOTE-typed-model-layer.md`](DESIGN-NOTE-typed-model-layer.md) — **SysML v2 /
+   KerML only**; closed `ElementKind` (v2 abstract syntax, def/usage-paired, no domain
+   variants), typed `Relation` over the KerML relationship set + one `Domain` escape
+   hatch, deterministic `Provenance`, `id: String` (git/content hash optional), views &
+   viewpoints as `ViewDefinition` / `ViewpointDefinition` **data** (no sealed trait), no
+   `SchemaVersion`. Every SysML-v2 text emit path MUST pass
+   `ufo_types::sysml::validate_sysml_v2` (`sysml-v2-parser`, version-pinned in lockstep
+   with `ufo-types`) — grammar-validated, never visually inspected. The v1 diagram-kind
+   taxonomy (`DiagramKind` / `UmlRelation`) is
+   rejected outright — it describes SysML 1.x's derivation from UML 2, which v2 does not
+   have.
 
 ---
 
