@@ -13,8 +13,12 @@ wraps an existing multi-format renderer ([`kroki-mcp`](vendor/kroki-mcp), vendor
 and an existing isometric renderer (`systhread-core`'s `layout.rs`/`render.rs`),
 and adds the one thing neither has: a caching, cross-referencing service surface.
 
-> Status: **foundational** — requirements only. No implementation yet.
-> Read [`docs/PRD-KR0KI-001-foundational.md`](docs/PRD-KR0KI-001-foundational.md) first.
+> Status: **foundational**. The decision-independent render loop (P0 — FR2 + FR5) is
+> [built and merged](#p0--the-render-loop-built-2026-09-05); the SysML-model path
+> (FR1/FR3/FR4) stays requirements-only, blocked on decisions D1–D6.
+> Read [`docs/PRD-KR0KI-001-foundational.md`](docs/PRD-KR0KI-001-foundational.md) first,
+> then [`docs/DESIGN-NOTE-typed-model-layer.md`](docs/DESIGN-NOTE-typed-model-layer.md)
+> for the reviewed (not yet approved) shape of that deferred layer.
 
 ## Orientation for agents
 
@@ -38,7 +42,8 @@ and adds the one thing neither has: a caching, cross-referencing service surface
 kr0ki/
 ├── README.md
 ├── docs/
-│   └── PRD-KR0KI-001-foundational.md   ← the requirements document
+│   ├── PRD-KR0KI-001-foundational.md   ← the requirements document
+│   └── DESIGN-NOTE-typed-model-layer.md ← reviewed shape of the deferred SysML-v2 layer (pre-D1/D3/D6)
 └── vendor/
     └── kroki-mcp/                      ← submodule, PromptExecution/kroki-mcp @ 08765f64
 ```
