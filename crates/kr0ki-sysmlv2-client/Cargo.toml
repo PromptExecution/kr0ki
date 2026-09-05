@@ -1,0 +1,19 @@
+[package]
+name = "kr0ki-sysmlv2-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Async REST client for the OMG Systems Modeling API and Services (SysML v2). Server-agnostic: Flexo flexo-mms-sysmlv2, the OMG Java pilot, Open-MBEE/OpenSysML, Eclipse SysON."
+
+[dependencies]
+serde = { workspace = true }
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+reqwest = { workspace = true, features = ["json"] }
+tokio = { workspace = true }
+
+[dev-dependencies]
+wiremock = "0.6"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
