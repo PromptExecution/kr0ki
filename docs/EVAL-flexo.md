@@ -85,8 +85,10 @@ the model path:
    ones. Small.
 2. wiring **`ModelSnapshot.content_hash` into the render cache** — the FR5 *model* path,
    extending P0's `cache_key` with the view kind + notation (see `PLAN-KR0KI-002` §3).
-3. the **`ModelSnapshot` → `iso_ir` adapter** (`PLAN-KR0KI-002` §2) — the real remaining
-   design work, and it is D1/D6-gated, not client work.
+3. the downstream chain **`ModelSnapshot` → canonical UFO-typed semantic graph →
+   pattern recognizer → SysML v2 viewpoint → renderer adapter** (`PLAN-KR0KI-002` §2) —
+   the real remaining design work. The UFO-graph layer is owned by `ufo-types` (PR in
+   flight), not kr0ki; kr0ki MUST NOT lower `ModelSnapshot` straight to diagram syntax.
 
 The **CDN tier** of the cache (FR5's real target) stays blocked on PRD decision **D5**
 regardless.
