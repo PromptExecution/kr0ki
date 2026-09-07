@@ -57,7 +57,8 @@ kr0ki/
 │   ├── EVAL-syson.md                    ← Eclipse SysON evaluation (reference oracle, not a competitor)
 │   ├── EVAL-kubediagrams.md             ← KubeDiagrams for k8s/IaC rendering — backend (leaf) vs recognizer prior art vs oracle
 │   ├── VOCABULARY.md                    ← D6 resolution — OMG SysML v2 spec terms verbatim; "projection" banned
-│   └── CONFORMANCE.md                   ← SysML-v2-Release conformance harness (phase 1)
+│   ├── CONFORMANCE.md                   ← SysML-v2-Release conformance harness (phase 1)
+│   └── TODO.md                          ← the working list — what is left, by pipeline box
 └── vendor/
     └── kroki-mcp/                       ← submodule, PromptExecution/kroki-mcp @ 08765f64
 ```
