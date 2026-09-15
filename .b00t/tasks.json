@@ -74,6 +74,22 @@
       "priority": 3,
       "tags": [],
       "created_at": "2026-09-15T12:27:13Z"
+    },
+    {
+      "id": 10,
+      "title": "kr0ki: enrich playb00k with rendered Rust flows, SysML v2/KerML views, and capability examples",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-15T22:37:22Z"
+    },
+    {
+      "id": 11,
+      "title": "kr0ki: define ledgrrr holon-viz D2 emitter plus kr0ki-client E2E contract",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-15T22:58:30Z"
     }
   ],
   "version": "1"

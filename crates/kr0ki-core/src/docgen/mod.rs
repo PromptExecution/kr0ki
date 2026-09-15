@@ -209,6 +209,11 @@ mod tests {
         for file in ["index.html", "api.json", "api.tomllm", "api.rustdoc"] {
             assert!(directory.join(file).is_file(), "missing {file}");
         }
+        let html = std::fs::read_to_string(directory.join("index.html")).unwrap();
+        assert!(html.contains("Rendered Rust flow"));
+        assert!(html.contains("KerML representation"));
+        assert!(html.contains("SysML v2 representation"));
+        assert!(html.contains("http://192.168.1.137:8787/docs"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 }

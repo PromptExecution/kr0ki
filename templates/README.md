@@ -7,6 +7,8 @@ This directory contains a **reusable pattern template** for b00tyverse services 
 | File | Purpose |
 |---|---|
 | `b00t-stack-orchestration.d2` | **Executable diagram** — valid D2 source describing the b00t orchestration pattern. Render it via kr0ki P0 (`POST /render/d2`) to produce the canonical architecture SVG. |
+| `kr0ki-render-flow.d2` | **Executable Rust-flow diagram** — Box-5 HTTP → route → cache/backend → artifact flow, rendered on live `/docs`. |
+| `kr0ki-render-flow.kerml` / `.sysml` | **Inspectable model fixtures** — KerML and SysML v2 structural representations of the same implemented Rust flow. |
 | `datum.template.toml` | **b00t registration datum** — copy, fill in `name`, `repo`, `upstream.*`, and submit to `elasticdotventures/_b00t_` (FR8). |
 | `service-integration.template.rs` | **Rust integration snippet** — how a sibling service calls kr0ki-core's `RenderService` programmatically (type-entangled, not duplicated). |
 
@@ -19,14 +21,22 @@ This directory contains a **reusable pattern template** for b00tyverse services 
 ### Via kr0ki-server (P0)
 
 ```bash
-# 1. Start kr0ki (binds localhost:8787 by default)
-just run
+# 1. Start or refresh the local k0s Pod, then use its LAN address.
+just pod-up
 
 # 2. In another shell, render the template to SVG
-curl -X POST http://localhost:8787/render/d2 \
+curl -X POST http://192.168.1.137:8787/render/d2 \
   --data-binary @templates/b00t-stack-orchestration.d2 \
   --output b00t-stack-orchestration.svg
+
+# 3. Prove the live playb00k's diagram and cache contract.
+just playbook-e2e
 ```
+
+The local page is `http://192.168.1.137:8787/docs`. Its Rust-flow image is a
+real `RenderService` D2 request (`/docs/examples/kr0ki-render-flow.svg`), not a
+mock or static screenshot. The same source has KerML/SysML v2 fixtures on the
+page for model-level inspection.
 
 ### Via kr0ki-core (programmatic)
 

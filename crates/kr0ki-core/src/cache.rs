@@ -72,6 +72,33 @@ pub fn cache_key(format: DiagramFormat, output: OutputKind, source: &str) -> Str
     s
 }
 
+/// The cache key for one SysML-model render (PLAN-KR0KI-002 §3).
+///
+/// `key = SHA256("kr0ki/v1" ‖ 0x1f ‖ view_kind ‖ 0x1f ‖ notation ‖ 0x1f ‖ content_hash)`,
+/// lowercase hex. The `content_hash` is the `ModelSnapshot.content_hash` from
+/// `kr0ki-sysmlv2-client` — deterministic and order-independent, so a new commit
+/// yields a new key and invalidates derived diagrams. `view_kind` is the string form
+/// of the view's `ufo_types::SysmlViewKind` (accepted as `&str` here so this crate
+/// stays free of a `ufo-types` dependency). `notation` is the diagram notation slug
+/// (`mermaid`, `d2`, …). When the box-3 recognizer lands, its rule-set version hash
+/// folds in here too.
+pub fn model_cache_key(view_kind: &str, notation: &str, content_hash: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(b"kr0ki/v1");
+    h.update([0x1f]);
+    h.update(view_kind.as_bytes());
+    h.update([0x1f]);
+    h.update(notation.as_bytes());
+    h.update([0x1f]);
+    h.update(content_hash.as_bytes());
+    let digest = h.finalize();
+    let mut s = String::with_capacity(64);
+    for b in digest {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}
+
 /// Filesystem-backed origin cache. Layout: `<root>/<key[0..2]>/<key>.<ext>` — the
 /// two-char shard keeps directory fan-out sane at volume.
 #[derive(Debug, Clone)]
@@ -196,6 +223,34 @@ mod tests {
         );
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[test]
+    fn model_key_is_deterministic_and_hex() {
+        let a = model_cache_key("overview", "d2", "ab12");
+        let b = model_cache_key("overview", "d2", "ab12");
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 64);
+        assert!(a.bytes().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn model_key_varies_on_every_field() {
+        let base = model_cache_key("overview", "d2", "ab12");
+        assert_ne!(base, model_cache_key("sequence", "d2", "ab12"));
+        assert_ne!(base, model_cache_key("overview", "mermaid", "ab12"));
+        // Same view + notation, different commit content hash -> different key.
+        assert_ne!(base, model_cache_key("overview", "d2", "cd34"));
+    }
+
+    #[test]
+    fn model_key_differs_from_text_key_for_same_source() {
+        // The model path keys on the snapshot hash, not the lowered text: two
+        // snapshots with different content but identical lowered text must not
+        // collide.
+        let text = cache_key(DiagramFormat::D2, OutputKind::Svg, "a -> b");
+        let model = model_cache_key("overview", "d2", "ab12");
+        assert_ne!(text, model);
     }
 
     #[test]

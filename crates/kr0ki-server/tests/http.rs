@@ -188,7 +188,36 @@ async fn docs_html_returns_valid_page() {
     assert!(body.contains("<!DOCTYPE html>"));
     assert!(body.contains("kr0ki documentation"));
     assert!(body.contains("Diagram Example"));
+    assert!(body.contains("/docs/examples/kr0ki-render-flow.svg"));
     assert!(body.contains("/docs/api.json"));
+}
+
+#[tokio::test]
+async fn docs_rust_flow_uses_the_render_service_cache() {
+    use kr0ki_core::{cache::OutputKind, format::DiagramFormat};
+
+    let state = test_state("docsflow");
+    let source = include_str!("../../../templates/kr0ki-render-flow.d2");
+    let key = kr0ki_core::cache::cache_key(DiagramFormat::D2, OutputKind::Svg, source);
+    state
+        .service
+        .cache()
+        .put(&key, OutputKind::Svg, b"<svg id=\"cached-flow\"/>")
+        .await
+        .unwrap();
+
+    let app = test_app(state);
+    let resp = app
+        .oneshot(
+            Request::get("/docs/examples/kr0ki-render-flow.svg")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("cached-flow"));
 }
 
 #[tokio::test]

@@ -1,0 +1,20 @@
+# kr0ki Box-5 Rust code-flow — executable playb00k view source.
+direction: right
+client: HTTP caller { shape: person }
+router: Axum router { shape: hexagon }
+service: RenderService { shape: rectangle; style.fill: "#d8eaff" }
+cache: FsCache { shape: cylinder; style.fill: "#e9f7df" }
+backend: HttpKrokiBackend { shape: rectangle; style.fill: "#fff0cc" }
+kroki: Kroki renderer { shape: cloud }
+artifact: SVG or PNG { shape: document; style.fill: "#f7e6ff" }
+client -> router: POST /render/:format
+router -> service: route + auth
+service -> cache: lookup
+cache -> service: hit or miss
+service -> backend: miss only
+backend -> kroki: render
+kroki -> backend: bytes
+backend -> service: artifact
+service -> cache: atomic write
+service -> client: headers + bytes
+client -> artifact: receives

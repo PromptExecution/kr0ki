@@ -13,7 +13,7 @@ pub mod docgen;
 pub mod format;
 pub mod render;
 
-use cache::{cache_key, CacheStatus, FsCache, OutputKind};
+use cache::{cache_key, model_cache_key, CacheStatus, FsCache, OutputKind};
 use format::DiagramFormat;
 use render::{RenderBackend, RenderError};
 
@@ -71,6 +71,40 @@ impl<B: RenderBackend> RenderService<B> {
         let bytes = self.backend.render(format, output, source).await?;
         // A backend failure above short-circuits; only a real artifact is cached, so a
         // transient outage never poisons the cache with an error page.
+        self.cache.put(&key, output, &bytes).await?;
+
+        Ok(Rendered {
+            key,
+            bytes,
+            output,
+            status: CacheStatus::Miss,
+        })
+    }
+
+    /// Render a SysML-model diagram: `source` is the lowered diagram text for the
+    /// given view, and `content_hash` is the `ModelSnapshot.content_hash` that the
+    /// key is derived from (PLAN-KR0KI-002 §3). A new commit changes the hash and
+    /// therefore the key, so a stale derived diagram can never be served.
+    pub async fn render_model(
+        &self,
+        view_kind: &str,
+        format: DiagramFormat,
+        output: OutputKind,
+        source: &str,
+        content_hash: &str,
+    ) -> Result<Rendered, ServiceError> {
+        let key = model_cache_key(view_kind, format.kroki_slug(), content_hash);
+
+        if let Some(bytes) = self.cache.get(&key, output).await? {
+            return Ok(Rendered {
+                key,
+                bytes,
+                output,
+                status: CacheStatus::Hit,
+            });
+        }
+
+        let bytes = self.backend.render(format, output, source).await?;
         self.cache.put(&key, output, &bytes).await?;
 
         Ok(Rendered {
@@ -145,6 +179,65 @@ mod tests {
         assert_eq!(r2.key, r1.key);
 
         assert_eq!(calls.load(Ordering::SeqCst), 1, "backend hit exactly once");
+
+        let _ = tokio::fs::remove_dir_all(cache.root()).await;
+    }
+
+    #[tokio::test]
+    async fn model_render_caches_on_content_hash() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let backend = CountingBackend {
+            calls: calls.clone(),
+            body: b"<svg>model</svg>".to_vec(),
+        };
+        let cache = tmp_cache("model");
+        let svc = RenderService::new(backend, cache.clone());
+
+        // Same view + same commit hash -> second call is a hit.
+        let r1 = svc
+            .render_model(
+                "overview",
+                DiagramFormat::D2,
+                OutputKind::Svg,
+                "a -> b",
+                "hash-a",
+            )
+            .await
+            .unwrap();
+        assert_eq!(r1.status, CacheStatus::Miss);
+
+        let r2 = svc
+            .render_model(
+                "overview",
+                DiagramFormat::D2,
+                OutputKind::Svg,
+                "a -> b",
+                "hash-a",
+            )
+            .await
+            .unwrap();
+        assert_eq!(r2.status, CacheStatus::Hit);
+        assert_eq!(r2.key, r1.key);
+
+        // Same lowered source, new commit hash -> miss again (key differs).
+        let r3 = svc
+            .render_model(
+                "overview",
+                DiagramFormat::D2,
+                OutputKind::Svg,
+                "a -> b",
+                "hash-b",
+            )
+            .await
+            .unwrap();
+        assert_eq!(r3.status, CacheStatus::Miss);
+        assert_ne!(r3.key, r1.key);
+
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "backend hit once per distinct key"
+        );
 
         let _ = tokio::fs::remove_dir_all(cache.root()).await;
     }

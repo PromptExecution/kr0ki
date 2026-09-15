@@ -137,6 +137,16 @@ structured docs in b00t `docgen.rs` formats. Pattern derived from `b00t-cli/src/
 — not duplicated, but extended for Rust source. Endpoints above are live; visit `/docs` after
 starting the server.
 
+**LAN docs:** use [`http://192.168.1.137:8787/docs`](http://192.168.1.137:8787/docs)
+from another device on the network. The playb00k includes the implemented Rust render flow,
+rendered alongside inspectable KerML and SysML v2 fixtures, then concrete health/render/cache/
+docgen examples and test recipes. The fixture is documentation, not a replacement for the
+deferred upstream `ModelSnapshot → UFO → recognizer → ViewDefinition` path.
+
+Run `just playbook-e2e` after `just pod-up` to validate the deployed page itself:
+health, the genuine D2-backed Rust-flow SVG, repeated render bytes/cache key, and a
+second-request cache hit.
+
 ## Templates — b00t stack orchestration pattern
 
 `templates/` contains a **functional template** for services that consume kr0ki as their rendering cut-node:
