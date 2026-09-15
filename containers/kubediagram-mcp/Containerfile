@@ -1,0 +1,15 @@
+FROM docker.io/alpine/helm:3 AS helm
+
+FROM docker.io/python:3.13-alpine
+
+RUN apk add --no-cache graphviz bash build-base graphviz-dev \
+    && pip install --no-cache-dir PyYAML diagrams pygraphviz==1.14 graphviz2drawio \
+    && apk del build-base graphviz-dev
+
+COPY vendor/kubediagrams/bin /usr/local/bin/
+COPY --from=helm /usr/bin/helm /usr/local/bin/helm
+
+WORKDIR /opt/kubediagram-mcp
+COPY containers/kubediagram-mcp/bridge.py /opt/kubediagram-mcp/bridge.py
+
+ENTRYPOINT ["python3", "/opt/kubediagram-mcp/bridge.py"]

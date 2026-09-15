@@ -1,3 +1,6 @@
 [submodule "vendor/kroki-mcp"]
 	path = vendor/kroki-mcp
 	url = https://github.com/PromptExecution/kroki-mcp.git
+[submodule "vendor/kubediagrams"]
+	path = vendor/kubediagrams
+	url = https://github.com/PromptExecution/KubeDiagrams.git

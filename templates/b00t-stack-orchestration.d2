@@ -1,0 +1,99 @@
+# b00t Stack Orchestration Pattern — Executable Diagram Template
+# Render: POST /render/d2 with this file as body → SVG via kr0ki
+# https://github.com/PromptExecution/kr0ki
+
+direction: right
+
+# ── Upstream Model Side (not kr0ki's; owned by systhread / ufo-types / ledgrrr) ──
+model_side: {
+  shape: rectangle
+  style.fill: "#e8f4f8"
+  label: |md
+    **MODEL SIDE** (upstream)
+    Owned by `systhread` / `ufo-types` / `ledgrrr`
+  |
+
+  rust_types: Rust types { shape: circle; style.fill: "#c8e6c9" }
+  iso_ir: iso_ir Node/Edge { shape: circle; style.fill: "#c8e6c9" }
+  kerml: KerML snapshot { shape: circle; style.fill: "#c8e6c9" }
+  ufo_graph: UFO semantic graph { shape: circle; style.fill: "#c8e6c9" }
+  sysml_views: SysML v2 viewpoints { shape: circle; style.fill: "#c8e6c9" }
+
+  rust_types -> iso_ir: derive
+  iso_ir -> ufo_graph: lift
+  kerml -> ufo_graph: deserialize
+  ufo_graph -> sysml_views: expose
+}
+
+# ── The Cut-Node: kr0ki (rendering + CDN cache) ──
+kr0ki: {
+  shape: rectangle
+  style.fill: "#fff3e0"
+  style.stroke: "#e65100"
+  style.stroke-width: 2
+  label: |md
+    **kr0ki** — cut-node
+    Render + Cache + Artifact Resolver
+  |
+
+  cache: Content-addressed cache { shape: cylinder; style.fill: "#ffe0b2" }
+  render_2d: 2D RenderBackend { shape: rectangle; style.fill: "#ffe0b2" }
+  render_iso: Isometric 3D RenderBackend { shape: rectangle; style.fill: "#ffe0b2" }
+  resolver: Artifact ref resolver { shape: rectangle; style.fill: "#ffe0b2" }
+
+  cache -> render_2d: miss
+  cache -> render_iso: miss
+  cache -> resolver: refs
+}
+
+# ── 2D / 3D Rendering Library as a Service ──
+render_library: {
+  shape: rectangle
+  style.fill: "#f3e5f5"
+  label: |md
+    **Rendering Library as a Service**
+    (Kroki-family + systhread-core)
+  |
+
+  kroki_family: {
+    label: Kroki-family 2D
+    style.fill: "#e1bee7"
+    plantuml: PlantUML
+    graphviz: GraphViz
+    d2: D2
+    vegalite: Vega-Lite
+    c4: C4 PlantUML
+  }
+
+  systhread: {
+    label: systhread-core isometric
+    style.fill: "#e1bee7"
+    layout: Cassowary layout
+    svg_out: SVG output
+  }
+}
+
+# ── Downstream Consumers (leaves; not kr0ki's core) ──
+consumers: {
+  shape: rectangle
+  style.fill: "#e8f5e9"
+  label: |md
+    **Downstream Consumers**
+    (leaves — attach to kr0ki surface)
+  |
+
+  docs: Docs site
+  comic: Comic engine
+  explorer: 3D explorer
+  cli: b00t CLI
+}
+
+# ── Crossings ──
+model_side.sysml_views -> kr0ki.cache: validated model
+kr0ki.render_2d -> render_library.kroki_family: POST slash slug slash svg
+kr0ki.render_iso -> render_library.systhread.layout: layout JSON
+render_library.systhread.svg_out -> kr0ki.cache: artifact
+kr0ki.cache -> consumers.docs: SVG
+kr0ki.cache -> consumers.comic: SVG
+kr0ki.cache -> consumers.explorer: SVG refs
+kr0ki.resolver -> consumers.cli: datum URLs

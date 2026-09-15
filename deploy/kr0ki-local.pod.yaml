@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kr0ki-local
+  namespace: kr0ki
+  labels:
+    app.kubernetes.io/name: kr0ki
+    app.kubernetes.io/part-of: b00tyverse
+spec:
+  restartPolicy: Always
+  containers:
+    - name: kroki
+      image: docker.io/yuzutech/kroki:latest
+      env:
+        - name: KROKI_SAFE_MODE
+          value: secure
+      ports:
+        - containerPort: 8000
+      resources:
+        limits:
+          cpu: "1"
+          memory: 2Gi
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+    - name: kr0ki
+      image: localhost/kr0ki-server:dev
+      imagePullPolicy: Never
+      env:
+        - name: KR0KI_BIND
+          value: 0.0.0.0:8787
+        - name: KR0KI_BACKEND_URL
+          value: http://127.0.0.1:8000
+        - name: KR0KI_CACHE_DIR
+          value: /var/lib/kr0ki/cache
+      ports:
+        - containerPort: 8787
+          hostPort: 8787
+      resources:
+        limits:
+          cpu: "1"
+          memory: 512Mi
+      volumeMounts:
+        - name: kr0ki-cache
+          mountPath: /var/lib/kr0ki/cache
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        readOnlyRootFilesystem: true
+    - name: kr0ki-mcp
+      image: localhost/kr0ki-mcp:dev
+      imagePullPolicy: Never
+      command: ["sleep", "infinity"]
+      env:
+        - name: KR0KI_URL
+          value: http://127.0.0.1:8787
+      resources:
+        limits:
+          cpu: "250m"
+          memory: 128Mi
+      volumeMounts:
+        - name: kubediagram-tmp
+          mountPath: /tmp
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        readOnlyRootFilesystem: true
+  volumes:
+    - name: kr0ki-cache
+      emptyDir: {}
+    - name: kubediagram-tmp
+      emptyDir: {}

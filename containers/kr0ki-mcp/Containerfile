@@ -1,0 +1,13 @@
+FROM docker.io/library/python:3.13-alpine
+
+RUN apk add --no-cache graphviz bash build-base graphviz-dev \
+    && pip install --no-cache-dir PyYAML diagrams pygraphviz==1.14 graphviz2drawio \
+    && apk del build-base graphviz-dev
+
+WORKDIR /opt/kr0ki-mcp
+COPY containers/kr0ki-mcp/bridge.py /opt/kr0ki-mcp/bridge.py
+COPY containers/kubediagram-mcp/bridge.py /opt/kubediagram-mcp/bridge.py
+COPY vendor/kubediagrams/bin /usr/local/bin/
+
+USER 65532:65532
+ENTRYPOINT ["python3", "/opt/kr0ki-mcp/bridge.py"]

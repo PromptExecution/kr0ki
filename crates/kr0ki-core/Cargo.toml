@@ -14,6 +14,10 @@ sha2.workspace = true
 tokio = { workspace = true }
 reqwest = { workspace = true }
 tracing.workspace = true
+syn = { version = "2", features = ["full", "parsing", "visit"] }
+serde_json = { workspace = true }
+quote = "1"
+walkdir = "2"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "fs", "net", "rt-multi-thread"] }

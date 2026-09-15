@@ -1,0 +1,31 @@
+# b00t service registration datum template
+# Copy to elasticdotventures/_b00t_/datums/{service}.repo.toml and fill the blanks.
+# See kr0ki/templates/README.md for usage.
+
+[repo]
+name = "{service-name}"          # e.g. "cim-gridy", "kroki-b00t"
+repo = "PromptExecution/{repo}"  # GitHub org/repo
+branch = "main"
+tag = ""
+
+[upstream]
+# The model-side dependency that feeds this service's render inputs.
+# For kr0ki itself, this is systhread-core / ufo-types / ledgrrr.
+# For a downstream leaf, this is the project that produces its diagram text.
+model = "elasticdotventures/_b00t_"
+model_path = "types/b00tyverse.kerm"
+
+# The rendering cut-node this service consumes (or is).
+# Leaves point at kr0ki; kr0ki points at Kroki / systhread-core.
+render = "PromptExecution/kr0ki"
+
+[render]
+# If this service is a render consumer (not kr0ki itself), how it calls the cut-node.
+endpoint = "https://kr0ki.b00t.promptexecution.com"
+# Auth: FR7 blocks public access; until then, localhost / trusted-proxy only.
+
+[datum]
+# b00t discoverability tags.
+tags = ["diagram", "b00tyverse", "{domain}"]
+# The MCP surface this service exposes (if any). kr0ki's is TBD (NFR5).
+mcp = ""

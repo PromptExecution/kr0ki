@@ -99,22 +99,65 @@ crates/
 │   ├── cache.rs   cache_key() = SHA256(domain ‖ 0x1f-delimited fields) ; FsCache (atomic writes)
 │   └── render.rs  HttpKrokiBackend — POST {base}/{slug}/{output}
 └── kr0ki-server/  axum service
-    GET  /health           {"status":"ok",...}
-    GET  /formats          supported slugs
-    POST /render/{format}  body = diagram source → SVG  (X-Kr0ki-Cache: hit|miss, X-Kr0ki-Key)
-    GET  /cache/{key}      previously rendered artifact by content hash
+    GET  /health                              {"status":"ok",...}
+    GET  /formats                             supported slugs
+    POST /render/{format}?output=svg|png      body = diagram source → SVG or PNG
+                                              (X-Kr0ki-Cache: hit|miss, X-Kr0ki-Key)
+    GET  /cache/{key}?output=svg|png          previously rendered artifact by content hash
 ```
 
 **Verified:** `cargo test --workspace` (17 pass) · `cargo clippy -- -D warnings` clean ·
 live render against `https://kroki.io` (miss → SVG → byte-identical cache hit) · running
 server smoke-tested end to end.
 
-**Not in P0:** caller auth (FR7 — bind to localhost / trusted proxy only), CDN tier
-(FR5's real target = D5), the vendored `kroki-mcp` (direct HTTP is enough for raw text),
-PNG/PDF output, and the entire SysML-model path.
+**Now in P0+:** caller auth (FR7 minimal — `KR0KI_AUTH_TOKEN` env var gates all routes
+except `/health` with `Authorization: Bearer <token>`), PNG output (`?output=png` on
+render and cache endpoints). **Still not in P0+:** CDN tier (FR5's real target = D5),
+the vendored `kroki-mcp` (direct HTTP is enough for raw text), PDF output, and the
+entire SysML-model path.
+
+## Endpoints
+
+| Route | Method | Query | Body | Response |
+|---|---|---|---|---|
+| `/health` | GET | — | — | `{"status":"ok","service":"kr0ki","version":"..."}` |
+| `/formats` | GET | — | — | `["plantuml","c4plantuml","graphviz","d2",...]` |
+| `/render/{format}` | POST | `?output=svg\|png` | raw diagram text | rendered bytes + `Content-Type` + `X-Kr0ki-Cache` + `X-Kr0ki-Key` |
+| `/cache/{key}` | GET | `?output=svg\|png` | — | cached bytes or 404 |
+| `/docs` | GET | — | — | HTML docs (harvested from kr0ki source) |
+| `/docs/api.json` | GET | — | — | JSON symbol export |
+| `/docs/api.tomllm` | GET | — | — | b00t-format .tomllm export |
+| `/docs/api.rustdoc` | GET | — | — | rustdoc-style export |
+
+Auth: set `KR0KI_AUTH_TOKEN` env var to require `Authorization: Bearer <token>` on all
+routes except `/health`.
+
+**Docgen / mdb00k:** kr0ki harvests its own Rust source at runtime (via `syn`) and serves
+structured docs in b00t `docgen.rs` formats. Pattern derived from `b00t-cli/src/commands/docgen.rs`
+— not duplicated, but extended for Rust source. Endpoints above are live; visit `/docs` after
+starting the server.
+
+## Templates — b00t stack orchestration pattern
+
+`templates/` contains a **functional template** for services that consume kr0ki as their rendering cut-node:
+
+| File | Purpose |
+|---|---|
+| [`templates/b00t-stack-orchestration.d2`](templates/b00t-stack-orchestration.d2) | **Executable diagram** — valid D2 source rendered by kr0ki P0 (`POST /render/d2`). Describes the b00t orchestration invariant: N services × 1 cut-node = DAG, not mesh. |
+| [`templates/datum.template.toml`](templates/datum.template.toml) | **b00t registration datum** — copy and submit to `elasticdotventures/_b00t_` (FR8). |
+| [`templates/service-integration.template.rs`](templates/service-integration.template.rs) | **Rust integration snippet** — how a sibling service calls `RenderService` programmatically. |
+
+Render the template:
+```bash
+just render-template              # via public Kroki
+just render-template http://localhost:8787   # via local kr0ki-server
+```
+
+The template is exercised in CI by `crates/kr0ki-core/tests/template_render.rs` (env-gated on `KR0KI_TEST_BACKEND`, same pattern as `live_render.rs`).
 
 ```bash
 just test          # unit + in-process HTTP
 just kroki-up      # local SECURE-mode Kroki on :8000
+just run           # default: bind 0.0.0.0:8787, backend https://kroki.io
 just run 127.0.0.1:8787 http://localhost:8000
 ```
