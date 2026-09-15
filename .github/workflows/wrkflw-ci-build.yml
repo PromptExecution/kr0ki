@@ -1,0 +1,31 @@
+# wrkflw-ci-build: local CI gate for kr0ki (emulation mode, no Docker)
+# Run with: wrkflw run .github/workflows/wrkflw-ci-build.yml
+# Or:       just ci-local
+#
+# Follows l3dg3rr wrkflw pattern: workflow_dispatch only, emulation-friendly.
+# GithubActionsCompatible / CodeRunnerActionProcess (see WRKFLW.tomllmd)
+name: wrkflw-ci-build
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: "Local CI gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Test
+        run: cargo test --workspace

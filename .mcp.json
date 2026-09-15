@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "kr0ki-mcp": {
+      "args": [
+        "--context",
+        "Default",
+        "-n",
+        "kr0ki",
+        "exec",
+        "-i",
+        "pod/kr0ki-local",
+        "-c",
+        "kr0ki-mcp",
+        "--",
+        "python3",
+        "/opt/kr0ki-mcp/bridge.py"
+      ],
+      "command": "kubectl"
+    }
+  }
+}

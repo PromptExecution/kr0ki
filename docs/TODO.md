@@ -6,7 +6,7 @@ in [`PLAN-KR0KI-002.md`](PLAN-KR0KI-002.md); the typed-layer shape in
 [`DESIGN-NOTE-typed-model-layer.md`](DESIGN-NOTE-typed-model-layer.md). This file just
 tracks *what is left to do*, ordered by the five-box pipeline.
 
-_Last updated: 2026-09-05._
+_Last updated: 2026-09-15._
 
 ---
 
@@ -31,6 +31,10 @@ _Last updated: 2026-09-05._
 - [x] **D3** resolved — the typed layer lives in `ufo-types`.
 - [x] **D6** resolved — [`VOCABULARY.md`](VOCABULARY.md): OMG spec terms verbatim,
   "projection" banned, "digital thread" always qualified.
+- [x] **FR7 minimal — caller auth** — `KR0KI_AUTH_TOKEN` env var gates all routes except `/health` with `Authorization: Bearer <token>`. axum middleware in `kr0ki-server/src/app.rs`. HTTP tests verify 401/200. Suitable for localhost/trusted-proxy only until D4/D5 land.
+- [x] **PNG output** — `OutputKind::Png` added; `?output=png` query param on `/render/{format}` and `/cache/{key}`. Live-verified against kroki.io for GraphViz (D2 returns 400 from Kroki — upstream limitation). Byte-identical cache hit verified in `tests/live_png.rs`.
+- [x] **Docgen / mdb00k** — `kr0ki-core/src/docgen/` harvests own Rust source via `syn`, serves `/docs` (HTML), `/docs/api.json`, `/docs/api.tomllm` (b00t format), `/docs/api.rustdoc`. Pattern derived from `b00t-cli/src/commands/docgen.rs` — clean-room Rust implementation matching b00t output conventions. 50 symbols harvested from workspace. Server binds `0.0.0.0:8787` by default; logs hostname + docs URL on startup.
+- [x] **AGENTS.md + HANDOFF.pm** — ecosystem orientation and comprehensive handoff written.
 
 ---
 
@@ -104,16 +108,16 @@ _Last updated: 2026-09-05._
   container / sidecar, not in the Rust image. (`EVAL-kubediagrams.md` §2a/§4)
 - [ ] **Wire `vendor/kroki-mcp`** — P0 talks direct HTTP; the MCP hop matters for SVG
   normalisation / inline-embedding (`render.rs` module doc).
-- [ ] **PNG / PDF output** — later Kroki capability; `OutputKind` currently `Svg` only.
+- [x] **PNG output** — `OutputKind::Png` implemented and live-tested. See Done.
+- [ ] **PDF output** — later Kroki capability; not yet available.
 
 ## Cross-cutting
 
 - [ ] **FR6 — artifact reference resolver** — given a rendered artifact, resolve the
   references it carries (datum ids, `iso_ir` node ids, other kr0ki keys) to URLs, *as
   of the artifact's commit*. May call `ledgrrr`; does not implement graph reasoning.
-- [ ] **FR7 — caller auth** — the service will hold ecosystem credentials; no
-  unauthenticated render calls (learn from the `xero-mcp-server-b00t` review). Blocks
-  the service leaving localhost. `main.rs` currently logs a loud `warn!` about this.
+- [x] **FR7 minimal** — `KR0KI_AUTH_TOKEN` bearer auth implemented. See Done above.
+  Full OAuth/JWT rate-limited auth deferred until D4/D5 land.
 - [ ] **CDN tier (FR5 / D5)** — Cloudflare R2 + Workers in front of `FsCache`; a cache
   hit must never start a renderer (NFR4).
 - [ ] **NFR5 — b00t interface** — agent-facing ops through `mcp__b00t-mcp__*` / `b00t`
@@ -137,6 +141,21 @@ _Last updated: 2026-09-05._
   (contained in the harness with a 256 MiB worker). Reduce to a minimal standalone
   repro on the crate's own public `parse()` API, then file upstream + `b00t task add`.
 
+## Gaps discovered during 2026-09-15 session
+
+These were not in this file at the start of the session. They should be addressed or
+tracked as they affect production readiness.
+
+| # | Gap | Severity | Mitigation |
+|---|---|---|---|
+| 1 | Docgen workspace root detection uses string-search `[workspace]` in `Cargo.toml` — brittle if vendored | Low | Switch to `cargo metadata --format-version=1` if robustness needed |
+| 2 | Docgen does not harvest `impl` blocks, associated items, or private items | Low | Extend `syn::visit` if needed; currently public API only |
+| 3 | `/docs` HTML references `templates/b00t-stack-orchestration.d2` by relative filesystem path — breaks if CWD ≠ repo root | Low | Use `include_str!` or resolve relative to executable path |
+| 4 | No CI coverage specifically targets the docgen endpoints | Medium | Extend the existing GitHub Actions workflow; validate it locally with `wrkflw` |
+| 5 | b00t MCP bridge down (`bad handshake: expected ident at line 1 column 2`) | External | Use direct HTTP or `b00t-cli` instead; not a kr0ki bug |
+| 6 | D2 template edge labels with `{slug}` syntax break D2 parser | Fixed | Replaced with `slash slug slash` syntax |
+| 7 | `ModelSnapshot.content_hash` not yet wired into cache key | Medium | Plumbing ready in `cache.rs`; see §2 of `HANDOFF.pm` |
+
 ## Open decisions (not kr0ki's to make)
 
 - [ ] **D1** — `sysml-derive` extend-vs-wrap-vs-re-export for `UfoStereotype`-tagged
@@ -157,3 +176,18 @@ _Last updated: 2026-09-05._
 - [ ] Re-run the datum-graph pre-commit hook locally once (needs a warm `b00t-cli`
   build) — the last three datum PRs were admin-merged past a backed-up `cargo check`
   queue after `validate graph references` passed.
+
+## b00t platform backlog (external)
+
+- [ ] **Credential-provenance / CVE-review hook** — detect when an agent encounters a
+  credential-bearing Git remote, determine its provenance with `git config --show-origin`
+  without echoing the secret, and classify it as credential-helper behavior or a
+  suspicious repository-local override. Route only validated findings to a CVE-style
+  b00t review record; its accepted event credits the reporting model with `:cake:` / 🍰
+  through a ledgrrr hook. The reward must follow reviewer validation, not a lexical
+  credential match. Tracked in b00t task #3.
+- [ ] **Podman-kube memory-hook compatibility** — b00t's OCI limits hook must exempt
+  only the unlimit-able Podman infra process (`/catatonit -P`), while preserving limits
+  for every workload. The root-owned hook requires an operator-applied semantic patch;
+  kr0ki's manifests already declare per-workload limits and use b00t's auditable
+  `b00t.unlimited=ack` annotation. Tracked in b00t task #4.

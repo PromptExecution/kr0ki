@@ -1,0 +1,16 @@
+FROM docker.io/library/rust:1.98-alpine AS build
+
+RUN apk add --no-cache musl-dev
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+RUN cargo build --release -p kr0ki-server
+
+FROM docker.io/library/alpine:3.22
+
+RUN addgroup -S kr0ki && adduser -S -G kr0ki kr0ki
+COPY --from=build /src/target/release/kr0ki /usr/local/bin/kr0ki
+
+USER kr0ki
+EXPOSE 8787
+ENTRYPOINT ["kr0ki"]

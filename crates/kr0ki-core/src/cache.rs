@@ -11,22 +11,35 @@ use sha2::{Digest, Sha256};
 
 use crate::format::DiagramFormat;
 
-/// Output artifact type. P0 renders SVG only; PNG/PDF are a later Kroki capability.
+/// Output artifact type. P0 renders SVG; PNG is a later Kroki capability (not all
+/// formats support it — Kroki returns 400 when PNG is unavailable for a format).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OutputKind {
     Svg,
+    Png,
 }
 
 impl OutputKind {
     pub const fn ext(self) -> &'static str {
         match self {
             Self::Svg => "svg",
+            Self::Png => "png",
         }
     }
 
     pub const fn content_type(self) -> &'static str {
         match self {
             Self::Svg => "image/svg+xml",
+            Self::Png => "image/png",
+        }
+    }
+
+    /// Parse from a query-param or header value.
+    pub fn from_param(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "svg" => Some(Self::Svg),
+            "png" => Some(Self::Png),
+            _ => None,
         }
     }
 }
@@ -163,5 +176,51 @@ mod tests {
         );
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn png_round_trip_uses_png_extension() {
+        let dir = std::env::temp_dir().join(format!("kr0ki-png-test-{}", std::process::id()));
+        let cache = FsCache::new(&dir);
+        let key = cache_key(DiagramFormat::PlantUml, OutputKind::Png, "a -> b");
+
+        cache
+            .put(&key, OutputKind::Png, b"\x89PNG\r\n")
+            .await
+            .unwrap();
+        let path = cache.path_for(&key, OutputKind::Png);
+        assert!(path.to_string_lossy().ends_with(".png"));
+        assert_eq!(
+            cache.get(&key, OutputKind::Png).await.unwrap(),
+            Some(b"\x89PNG\r\n".to_vec())
+        );
+
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[test]
+    fn output_kind_from_param() {
+        assert_eq!(OutputKind::from_param("svg"), Some(OutputKind::Svg));
+        assert_eq!(OutputKind::from_param("SVG"), Some(OutputKind::Svg));
+        assert_eq!(OutputKind::from_param("png"), Some(OutputKind::Png));
+        assert_eq!(OutputKind::from_param("pdf"), None);
+    }
+
+    #[test]
+    fn png_key_differs_from_svg_key() {
+        let svg = cache_key(
+            DiagramFormat::GraphViz,
+            OutputKind::Svg,
+            "digraph { a -> b }",
+        );
+        let png = cache_key(
+            DiagramFormat::GraphViz,
+            OutputKind::Png,
+            "digraph { a -> b }",
+        );
+        assert_ne!(
+            svg, png,
+            "same source with different output kind must have different cache keys"
+        );
     }
 }

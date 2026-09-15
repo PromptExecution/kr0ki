@@ -12,6 +12,8 @@ use tower::ServiceExt; // oneshot
 // The server crate is a bin; pull the router module in via path.
 #[path = "../src/app.rs"]
 mod app;
+#[path = "../src/docs.rs"]
+mod docs;
 use app::{router, AppState};
 
 fn test_state(tag: &str) -> AppState {
@@ -25,6 +27,10 @@ fn test_state(tag: &str) -> AppState {
     }
 }
 
+fn test_app(state: AppState) -> axum::Router {
+    router(state, None)
+}
+
 async fn body_string(resp: axum::response::Response) -> (StatusCode, String) {
     let status = resp.status();
     let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
@@ -35,7 +41,7 @@ async fn body_string(resp: axum::response::Response) -> (StatusCode, String) {
 
 #[tokio::test]
 async fn health_ok() {
-    let app = router(test_state("health"));
+    let app = test_app(test_state("health"));
     let resp = app
         .oneshot(Request::get("/health").body(Body::empty()).unwrap())
         .await
@@ -48,7 +54,7 @@ async fn health_ok() {
 
 #[tokio::test]
 async fn formats_lists_supported_slugs_only() {
-    let app = router(test_state("formats"));
+    let app = test_app(test_state("formats"));
     let resp = app
         .oneshot(Request::get("/formats").body(Body::empty()).unwrap())
         .await
@@ -64,7 +70,7 @@ async fn formats_lists_supported_slugs_only() {
 
 #[tokio::test]
 async fn render_unknown_format_is_400_before_any_backend_call() {
-    let app = router(test_state("badfmt"));
+    let app = test_app(test_state("badfmt"));
     let resp = app
         .oneshot(
             Request::post("/render/mermaid")
@@ -80,7 +86,7 @@ async fn render_unknown_format_is_400_before_any_backend_call() {
 
 #[tokio::test]
 async fn render_empty_body_is_400() {
-    let app = router(test_state("empty"));
+    let app = test_app(test_state("empty"));
     let resp = app
         .oneshot(Request::post("/render/d2").body(Body::empty()).unwrap())
         .await
@@ -91,8 +97,56 @@ async fn render_empty_body_is_400() {
 }
 
 #[tokio::test]
+async fn auth_required_rejects_missing_token() {
+    let app = router(test_state("authed"), Some("secret".to_string()));
+    let resp = app
+        .oneshot(Request::get("/formats").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(body.contains("unauthorized"));
+}
+
+#[tokio::test]
+async fn auth_required_accepts_valid_bearer() {
+    let app = router(test_state("authed-ok"), Some("secret".to_string()));
+    let resp = app
+        .oneshot(
+            Request::get("/health")
+                .header("Authorization", "Bearer secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("status"));
+}
+
+#[tokio::test]
+async fn render_png_query_param_rejected_without_backend() {
+    // We can't hit a real backend in unit tests, but we can verify the route
+    // accepts ?output=png and forwards it to the service (which will fail on the
+    // unreachable backend address, returning 502).
+    let app = test_app(test_state("png-route"));
+    let resp = app
+        .oneshot(
+            Request::post("/render/graphviz?output=png")
+                .body(Body::from("digraph { a -> b }"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(body.contains("backend_unavailable"));
+}
+
+#[tokio::test]
 async fn cache_get_rejects_malformed_key() {
-    let app = router(test_state("badkey"));
+    let app = test_app(test_state("badkey"));
     let resp = app
         .oneshot(
             Request::get("/cache/not-a-hash")
@@ -107,7 +161,7 @@ async fn cache_get_rejects_malformed_key() {
 
 #[tokio::test]
 async fn cache_get_miss_is_404() {
-    let app = router(test_state("miss"));
+    let app = test_app(test_state("miss"));
     let key = "0".repeat(64);
     let resp = app
         .oneshot(
@@ -120,4 +174,72 @@ async fn cache_get_miss_is_404() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(body.contains("not_found"));
+}
+
+#[tokio::test]
+async fn docs_html_returns_valid_page() {
+    let app = test_app(test_state("docshtml"));
+    let resp = app
+        .oneshot(Request::get("/docs").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("<!DOCTYPE html>"));
+    assert!(body.contains("kr0ki documentation"));
+    assert!(body.contains("Diagram Example"));
+    assert!(body.contains("/docs/api.json"));
+}
+
+#[tokio::test]
+async fn docs_json_returns_symbol_array() {
+    let app = test_app(test_state("docsjson"));
+    let resp = app
+        .oneshot(Request::get("/docs/api.json").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let arr = parsed.as_array().expect("json is an array");
+    assert!(!arr.is_empty(), "harvested at least one symbol");
+    let first = &arr[0];
+    assert!(first.get("name").is_some());
+    assert!(first.get("qualified_name").is_some());
+    assert!(first.get("signature").is_some());
+}
+
+#[tokio::test]
+async fn docs_tomllm_has_boilerplate() {
+    let app = test_app(test_state("docstoml"));
+    let resp = app
+        .oneshot(
+            Request::get("/docs/api.tomllm")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("b00t:map v1"));
+    assert!(body.contains("[[kr0ki_core::"));
+}
+
+#[tokio::test]
+async fn docs_rustdoc_has_source_marker() {
+    let app = test_app(test_state("docsrust"));
+    let resp = app
+        .oneshot(
+            Request::get("/docs/api.rustdoc")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("/// # Source"));
+    // The rustdoc format uses qualified_name in the header, not body text
+    assert!(body.contains("/// `"));
 }

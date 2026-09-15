@@ -1,0 +1,72 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "title": "kr0ki: configure local kr0ki-mcp, Codex MCP manifest, SOUL patterns, and validate maintenance baseline",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-15T11:11:23Z",
+      "updated_at": "2026-09-15T12:26:11Z"
+    },
+    {
+      "id": 2,
+      "title": "bug: b00t exec local test escalation cannot reach configured adversarial model endpoint http://127.0.0.1:30801/v1/chat/completions",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-15T11:14:06Z"
+    },
+    {
+      "id": 3,
+      "title": "b00t backlog: provenance-aware credential diagnostic hook — classify credential-helper remotes, route validated CVE-style reports to ledgrrr, award cake to reporting model",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-15T11:34:49Z"
+    },
+    {
+      "id": 4,
+      "title": "bug: b00t-limits-hook exits 1 and blocks rootless podman kube play for kr0ki-local",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-15T11:39:41Z"
+    },
+    {
+      "id": 5,
+      "title": "bug: b00t mcp install <name> dotmcpjson fails instead of initializing an absent project .mcp.json",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-15T11:42:45Z"
+    },
+    {
+      "id": 6,
+      "title": "bug: b00t soul distill panics with Cannot start a runtime from within a runtime instead of appending SOUL.md",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-15T11:44:57Z"
+    },
+    {
+      "id": 7,
+      "title": "kr0ki: consolidate public MCP surface under kr0ki-mcp; make KubeDiagrams an internal worker, not a separately installed MCP",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-15T11:53:39Z",
+      "updated_at": "2026-09-15T12:26:11Z"
+    },
+    {
+      "id": 8,
+      "title": "kr0ki: restore sm3lly local k0s controller and validate kubectl Default deployment",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-15T12:08:13Z",
+      "updated_at": "2026-09-15T12:16:46Z"
+    }
+  ],
+  "version": "1"
+}

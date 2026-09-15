@@ -1,14 +1,14 @@
-//! kr0ki P0 server entrypoint.
+//! kr0ki server entrypoint.
 //!
 //! Config (env):
 //!   KR0KI_BIND         default 0.0.0.0:8787
 //!   KR0KI_CACHE_DIR    default ./.kr0ki-cache
 //!   KR0KI_BACKEND_URL  default https://kroki.io   (point at a SECURE-mode Kroki)
-//!
-//! Auth (PRD FR7) is NOT in P0 — this is bind-to-localhost / behind-a-trusted-proxy
-//! only until the auth boundary lands. Logged loudly at startup.
+//!   KR0KI_AUTH_TOKEN   if set, require `Authorization: Bearer <token>` on every
+//!                      request except /health (FR7 minimal implementation).
 
 mod app;
+mod docs;
 
 use std::sync::Arc;
 
@@ -30,12 +30,24 @@ async fn main() -> anyhow::Result<()> {
     let cache_dir = std::env::var("KR0KI_CACHE_DIR").unwrap_or_else(|_| "./.kr0ki-cache".into());
     let backend_url =
         std::env::var("KR0KI_BACKEND_URL").unwrap_or_else(|_| "https://kroki.io".into());
+    let auth_token = std::env::var("KR0KI_AUTH_TOKEN").ok();
 
-    tracing::warn!(
-        "kr0ki P0: no caller auth (PRD FR7 not implemented) — bind to localhost or run \
-         behind a trusted authenticating proxy only"
-    );
-    tracing::info!(%bind, %cache_dir, %backend_url, "starting kr0ki");
+    let hostname = std::process::Command::new("hostname")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "localhost".to_string());
+
+    if auth_token.is_none() {
+        tracing::warn!(
+            "kr0ki: KR0KI_AUTH_TOKEN not set — no caller auth. Bind to localhost \
+             or run behind a trusted proxy only."
+        );
+    } else {
+        tracing::info!("caller auth enabled (FR7 minimal)");
+    }
+    tracing::info!(%bind, %cache_dir, %backend_url, %hostname, "starting kr0ki");
 
     let service = RenderService::new(
         HttpKrokiBackend::new(&backend_url),
@@ -48,9 +60,13 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&bind)
         .await
         .with_context(|| format!("binding {bind}"))?;
-    tracing::info!("listening on {}", listener.local_addr()?);
+    let local_addr = listener.local_addr()?;
+    tracing::info!(
+        "listening on {local_addr} — docs at http://{hostname}:{}/docs",
+        local_addr.port()
+    );
 
-    axum::serve(listener, router(state))
+    axum::serve(listener, router(state, auth_token))
         .await
         .context("server error")?;
     Ok(())

@@ -26,13 +26,43 @@ pub struct AppState {
     pub service: Arc<Service>,
 }
 
-pub fn router(state: AppState) -> Router {
-    Router::new()
+/// If `auth_token` is Some, inject a `RequireAuth` layer that rejects requests
+/// missing `Authorization: Bearer <token>`.
+pub fn router(state: AppState, auth_token: Option<String>) -> Router {
+    let r = Router::new()
         .route("/health", get(health))
         .route("/formats", get(formats))
         .route("/render/:format", post(render))
         .route("/cache/:key", get(cache_get))
-        .with_state(state)
+        .merge(crate::docs::routes())
+        .with_state(state);
+
+    if let Some(token) = auth_token {
+        r.layer(axum::middleware::from_fn(move |req, next| {
+            require_bearer(req, next, token.clone())
+        }))
+    } else {
+        r
+    }
+}
+
+async fn require_bearer(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+    token: String,
+) -> Response {
+    let hdr = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
+    match hdr {
+        Some(v) if v == format!("Bearer {token}") => next.run(req).await,
+        _ => error_json(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "missing or invalid bearer token",
+        ),
+    }
 }
 
 #[derive(Serialize)]
@@ -54,11 +84,12 @@ async fn formats() -> Json<Vec<&'static str>> {
     Json(DiagramFormat::ALL.iter().map(|f| f.kroki_slug()).collect())
 }
 
-/// `POST /render/{format}` — body is the raw diagram source. Returns SVG.
+/// `POST /render/{format}?output=svg|png` — body is the raw diagram source.
 /// `X-Kr0ki-Cache: hit|miss` and `X-Kr0ki-Key: <sha256>` on success.
 async fn render(
     State(state): State<AppState>,
     Path(format): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
     body: Bytes,
 ) -> Response {
     let format = match DiagramFormat::from_str(&format) {
@@ -90,7 +121,12 @@ async fn render(
         }
     };
 
-    match state.service.render(format, OutputKind::Svg, source).await {
+    let output = params
+        .get("output")
+        .and_then(|v| OutputKind::from_param(v))
+        .unwrap_or(OutputKind::Svg);
+
+    match state.service.render(format, output, source).await {
         Ok(r) => {
             let cache_hdr = match r.status {
                 CacheStatus::Hit => "hit",
@@ -99,10 +135,7 @@ async fn render(
             (
                 StatusCode::OK,
                 [
-                    (
-                        header::CONTENT_TYPE,
-                        OutputKind::Svg.content_type().to_string(),
-                    ),
+                    (header::CONTENT_TYPE, output.content_type().to_string()),
                     (
                         header::HeaderName::from_static("x-kr0ki-cache"),
                         cache_hdr.to_string(),
@@ -127,9 +160,12 @@ async fn render(
     }
 }
 
-/// `GET /cache/{key}` — serve a previously rendered artifact by its content hash.
-/// P0 serves SVG only, so the key alone is enough.
-async fn cache_get(State(state): State<AppState>, Path(key): Path<String>) -> Response {
+/// `GET /cache/{key}?output=svg|png` — serve a previously rendered artifact.
+async fn cache_get(
+    State(state): State<AppState>,
+    Path(key): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
     if key.len() != 64 || !key.bytes().all(|c| c.is_ascii_hexdigit()) {
         return error_json(
             StatusCode::BAD_REQUEST,
@@ -137,10 +173,15 @@ async fn cache_get(State(state): State<AppState>, Path(key): Path<String>) -> Re
             "key must be 64 hex chars",
         );
     }
-    match state.service.cache().get(&key, OutputKind::Svg).await {
+    let output = params
+        .get("output")
+        .and_then(|v| OutputKind::from_param(v))
+        .unwrap_or(OutputKind::Svg);
+
+    match state.service.cache().get(&key, output).await {
         Ok(Some(bytes)) => (
             StatusCode::OK,
-            [(header::CONTENT_TYPE, OutputKind::Svg.content_type())],
+            [(header::CONTENT_TYPE, output.content_type())],
             bytes,
         )
             .into_response(),
@@ -157,7 +198,7 @@ async fn cache_get(State(state): State<AppState>, Path(key): Path<String>) -> Re
     }
 }
 
-fn error_json(status: StatusCode, code: &str, message: &str) -> Response {
+pub(crate) fn error_json(status: StatusCode, code: &str, message: &str) -> Response {
     (
         status,
         Json(serde_json::json!({ "error": code, "message": message })),

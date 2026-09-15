@@ -9,6 +9,7 @@
 //! `systhread-core`, or `holon-viz`.
 
 pub mod cache;
+pub mod docgen;
 pub mod format;
 pub mod render;
 
