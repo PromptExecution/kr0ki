@@ -66,6 +66,14 @@
       "tags": [],
       "created_at": "2026-09-15T12:08:13Z",
       "updated_at": "2026-09-15T12:16:46Z"
+    },
+    {
+      "id": 9,
+      "title": "bug: b00t exec guard falsely blocks non-executing command text containing just test",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-15T12:27:13Z"
     }
   ],
   "version": "1"
