@@ -7,6 +7,11 @@
 
 use super::Symbol;
 
+const RUST_FLOW_D2: &str = include_str!("../../../../templates/kr0ki-render-flow.d2");
+const RUST_FLOW_KERML: &str = include_str!("../../../../templates/kr0ki-render-flow.kerml");
+const RUST_FLOW_SYSML: &str = include_str!("../../../../templates/kr0ki-render-flow.sysml");
+const SM3LLY_DOCS_URL: &str = "http://192.168.1.137:8787/docs";
+
 /// JSON — machine-readable, lossless.
 pub fn format_json(symbols: &[Symbol]) -> anyhow::Result<String> {
     Ok(serde_json::to_string_pretty(symbols)?)
@@ -88,6 +93,21 @@ pub fn format_rustdoc(symbols: &[Symbol]) -> String {
 /// HTML — standalone page (MVP). No external CSS/JS frameworks.
 /// Includes a diagram example rendered by kr0ki itself.
 pub fn format_html(symbols: &[Symbol], title: &str, diagram_example_d2: &str) -> String {
+    format_html_with_live_flow(symbols, title, diagram_example_d2, None)
+}
+
+/// HTML documentation with an optional service-rendered Rust flow image.
+///
+/// Static mdb00k exports deliberately pass `None`: GitHub Pages has no kr0ki
+/// renderer behind it, so the portable structural SVG remains available. The
+/// live server passes its same-origin endpoint, which exercises the complete
+/// D2 -> kr0ki -> Kroki render path.
+pub fn format_html_with_live_flow(
+    symbols: &[Symbol],
+    title: &str,
+    diagram_example_d2: &str,
+    live_flow_url: Option<&str>,
+) -> String {
     let mut body = String::new();
 
     // Table of contents by kind
@@ -140,6 +160,41 @@ pub fn format_html(symbols: &[Symbol], title: &str, diagram_example_d2: &str) ->
         d2_source = html_escape(diagram_example_d2),
     );
 
+    let flow_visual = match live_flow_url {
+        Some(url) => format!(
+            r#"<img src="{url}" alt="Rendered kr0ki Rust code flow" loading="lazy">"#,
+            url = html_escape(url)
+        ),
+        None => rendered_rust_flow_svg().to_string(),
+    };
+    let rust_flow_section = format!(
+        r#"<h2 id="rust-flow">Rendered Rust flow → KerML / SysML v2</h2>
+<p>This playb00k fixture models the implemented <strong>Box-5</strong> path: Axum route → <code>RenderService</code> → cache/backend → artifact. It is not a substitute for the deferred upstream <code>ModelSnapshot → UFO → recognizer → ViewDefinition</code> pipeline.</p>
+<figure class="flow-view">{flow_visual}<figcaption>Cache hits bypass <code>HttpKrokiBackend</code>; misses render and atomically write the artifact.</figcaption></figure>
+<details><summary>D2 source</summary><pre><code>{d2}</code></pre></details>
+<details><summary>KerML representation</summary><pre><code>{kerml}</code></pre></details>
+<details><summary>SysML v2 representation</summary><pre><code>{sysml}</code></pre></details>"#,
+        flow_visual = flow_visual,
+        d2 = html_escape(RUST_FLOW_D2),
+        kerml = html_escape(RUST_FLOW_KERML),
+        sysml = html_escape(RUST_FLOW_SYSML),
+    );
+    let capability_section = format!(
+        r#"<h2 id="capabilities">Capability examples and test evidence</h2>
+<p>LAN documentation: <a href="{url}"><code>{url}</code></a>. Current page origin: <code id="live-origin"></code>.</p>
+<pre><code>export KR0KI_URL=http://192.168.1.137:8787
+curl "$KR0KI_URL/health"
+curl "$KR0KI_URL/formats"
+curl -X POST "$KR0KI_URL/render/graphviz?output=svg" --data-binary 'digraph {{ kr0ki -&gt; cache }}' --output flow.svg
+curl "$KR0KI_URL/docs/api.tomllm"
+
+just test       # unit + in-process HTTP
+just check      # formatting + clippy
+just test-live  # opt-in live render</code></pre>
+<script>document.getElementById("live-origin").textContent = window.location.origin;</script>"#,
+        url = SM3LLY_DOCS_URL,
+    );
+
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -182,6 +237,10 @@ img {{ max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 6px
 {body}
 <hr>
 {diagram_section}
+<hr>
+{rust_flow_section}
+<hr>
+{capability_section}
 <footer><p>kr0ki v{version} — <a href="https://github.com/PromptExecution/kr0ki">source</a></p></footer>
 </body>
 </html>
@@ -189,8 +248,14 @@ img {{ max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 6px
         title = html_escape(title),
         body = body,
         diagram_section = diagram_section,
+        rust_flow_section = rust_flow_section,
+        capability_section = capability_section,
         version = env!("CARGO_PKG_VERSION"),
     )
+}
+
+fn rendered_rust_flow_svg() -> &'static str {
+    r##"<svg viewBox="0 0 900 190" role="img" aria-label="kr0ki Rust render flow" xmlns="http://www.w3.org/2000/svg"><defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs><g fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#a)"><path d="M125 70H180"/><path d="M305 70H360"/><path d="M485 70H540"/><path d="M665 70H720"/><path d="M422 105V150H600"/></g><g font-family="system-ui,sans-serif" text-anchor="middle" fill="currentColor"><rect x="20" y="35" width="105" height="70" rx="9" fill="#d8eaff" stroke="currentColor"/><text x="72" y="65">HTTP</text><text x="72" y="86">caller</text><rect x="180" y="35" width="125" height="70" rx="9" fill="#d8eaff" stroke="currentColor"/><text x="242" y="65">Axum</text><text x="242" y="86">route</text><rect x="360" y="35" width="125" height="70" rx="9" fill="#d8eaff" stroke="currentColor"/><text x="422" y="65">Render</text><text x="422" y="86">Service</text><rect x="540" y="35" width="125" height="70" rx="9" fill="#e9f7df" stroke="currentColor"/><text x="602" y="77">FsCache</text><rect x="720" y="35" width="155" height="70" rx="9" fill="#fff0cc" stroke="currentColor"/><text x="797" y="65">HttpKroki</text><text x="797" y="86">Backend</text><text x="510" y="158" font-size="13">cache hit returns artifact; miss calls backend</text></g></svg>"##
 }
 
 fn html_escape(s: &str) -> String {
@@ -245,6 +310,9 @@ mod tests {
         assert!(out.contains("</html>"));
         assert!(out.contains("pub async fn render()"));
         assert!(out.contains("Diagram Example"));
+        assert!(out.contains("Rendered Rust flow"));
+        assert!(out.contains("SysML v2 representation"));
+        assert!(out.contains(SM3LLY_DOCS_URL));
     }
 
     #[test]

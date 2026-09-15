@@ -44,13 +44,17 @@ render-template kroki="https://kroki.io":
 run bind="0.0.0.0:8787" backend="https://kroki.io":
     KR0KI_BIND={{bind}} KR0KI_BACKEND_URL={{backend}} cargo run -p kr0ki-server
 
-# Open the generated docs in the default browser (server must be running).
-docs-open:
-    xdg-open http://localhost:8787/docs || open http://localhost:8787/docs || echo "open http://localhost:8787/docs"
+# Open LAN-reachable docs in the default browser (server must be running).
+docs-open docs_url="http://192.168.1.137:8787/docs":
+    xdg-open {{docs_url}} || open {{docs_url}} || echo "open {{docs_url}}"
 
 # Generate the static GitHub Pages-compatible mdb00k/playb00k bundle.
 static-docs output="site":
     cargo run -p kr0ki-core --bin mdb00k -- {{output}}
+
+# Live end-to-end playb00k proof against the LAN-reachable k0s service.
+playbook-e2e kr0ki_url="http://192.168.1.137:8787":
+    bash scripts/playbook-e2e.sh {{kr0ki_url}}
 
 # Bring up a local SECURE-mode Kroki to render against.
 kroki-up:
@@ -72,6 +76,9 @@ pod-up: pod-build
     just k0s-load localhost/kr0ki-server:dev
     just k0s-load localhost/kr0ki-mcp:dev
     kubectl --context Default apply -f deploy/namespace.yaml
+    # This is a standalone Pod, not a Deployment: apply alone preserves old
+    # containers when the tag is unchanged. Recreate after import for hot reload.
+    kubectl --context Default -n kr0ki delete pod --ignore-not-found kr0ki-local
     kubectl --context Default apply -f deploy/kr0ki-local.pod.yaml
 
 pod-down:

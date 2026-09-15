@@ -35,6 +35,8 @@ _Last updated: 2026-09-15._
 - [x] **PNG output** — `OutputKind::Png` added; `?output=png` query param on `/render/{format}` and `/cache/{key}`. Live-verified against kroki.io for GraphViz (D2 returns 400 from Kroki — upstream limitation). Byte-identical cache hit verified in `tests/live_png.rs`.
 - [x] **Docgen / mdb00k** — `kr0ki-core/src/docgen/` harvests own Rust source via `syn`, serves `/docs` (HTML), `/docs/api.json`, `/docs/api.tomllm` (b00t format), `/docs/api.rustdoc`. Pattern derived from `b00t-cli/src/commands/docgen.rs` — clean-room Rust implementation matching b00t output conventions. 50 symbols harvested from workspace. Server binds `0.0.0.0:8787` by default; logs hostname + docs URL on startup.
 - [x] **AGENTS.md + HANDOFF.pm** — ecosystem orientation and comprehensive handoff written.
+- [x] **`ModelSnapshot.content_hash` in the render cache key** — `model_cache_key(view_kind, notation, content_hash) = SHA256("kr0ki/v1" ‖ 0x1f ‖ view_kind ‖ 0x1f ‖ notation ‖ 0x1f ‖ content_hash)` (PLAN §3) in `kr0ki-core::cache`; `RenderService::render_model()` uses it, so the SysML path participates in cache identity. 4 tests (determinism, per-field variance, differs from text key, caches on hash).
+- [x] **Live playb00k render harness** — `/docs/examples/kr0ki-render-flow.svg` renders the executable D2 Rust-flow fixture through the same `RenderService` as callers; `/docs` includes it with KerML/SysML v2 source fixtures. `just playbook-e2e` verifies the deployed page, SVG, artifact identity, and cache hit. `pod-up` recreates its standalone Pod after image import so this is hot-reloadable.
 
 ---
 
@@ -44,9 +46,10 @@ _Last updated: 2026-09-15._
   `GET /projects/{id}/commits` newest-first (or `…/branches/{b}`) to detect new
   `(projectId, commitId)`, enqueue a render. `Tag` ids are a natural "render releases"
   trigger. `previousCommit` is `null` in Flexo's PSM → no cheap deltas; re-snapshot.
-- [ ] **Wire `ModelSnapshot.content_hash` into the render cache key** — `model_cache_key
+- [x] **Wire `ModelSnapshot.content_hash` into the render cache key** — `model_cache_key
   = SHA256("kr0ki/v1" ‖ view_kind ‖ notation ‖ ModelSnapshot.content_hash)`
-  (PLAN §3). Extends `kr0ki-core::cache::cache_key`.
+  (PLAN §3). Implemented as `kr0ki-core::cache::model_cache_key` +
+  `RenderService::render_model`; 4 tests. See Done below.
 - [ ] **`page-after` bracket-form fallback** — client uses hyphenated `page-after` /
   `page-size`; some OMG-pilot servers use JSON:API `page[after]`. Make `Page`
   construction configurable per target. (client crate docs flag the swap point.)
@@ -122,6 +125,12 @@ _Last updated: 2026-09-15._
   hit must never start a renderer (NFR4).
 - [ ] **NFR5 — b00t interface** — agent-facing ops through `mcp__b00t-mcp__*` / `b00t`
   CLI, not bespoke HTTP. (A `kr0ki` MCP surface, or extend `_b00t_/kroki.mcp.toml`.)
+- [ ] **`ledgrrr` / `holon-viz` client seam + E2E** — extract a small kr0ki HTTP client
+  library and add a `CytoscapeGraph → D2` emitter in `holon-viz`; then prove
+  `holon-viz sample → D2 → local kr0ki → SVG` (including a repeated cache hit). Do not
+  route its existing Mermaid renderer through kr0ki: standalone kr0ki intentionally
+  excludes Mermaid because Kroki needs a companion browser. Keep the existing
+  Cytoscape/HTML and Mermaid outputs as separate consumers until this contract exists.
 
 ## Conformance / QA
 
@@ -154,7 +163,9 @@ tracked as they affect production readiness.
 | 4 | No CI coverage specifically targets the docgen endpoints | Medium | Extend the existing GitHub Actions workflow; validate it locally with `wrkflw` |
 | 5 | b00t MCP bridge down (`bad handshake: expected ident at line 1 column 2`) | External | Use direct HTTP or `b00t-cli` instead; not a kr0ki bug |
 | 6 | D2 template edge labels with `{slug}` syntax break D2 parser | Fixed | Replaced with `slash slug slash` syntax |
-| 7 | `ModelSnapshot.content_hash` not yet wired into cache key | Medium | Plumbing ready in `cache.rs`; see §2 of `HANDOFF.pm` |
+| 7 | ~~`ModelSnapshot.content_hash` not yet wired into cache key~~ | ~~Medium~~ | **Done** — `model_cache_key` + `render_model` in `kr0ki-core`; see Done above |
+| 8 | Container build did not copy playb00k fixtures required by `include_str!` | Medium | **Fixed** — `containers/kr0ki-server/Containerfile` copies `templates/`; caught by `just pod-up` before deployment |
+| 9 | `ledgrrr` has no kr0ki call path despite the intended holon-viz integration | Medium | Track the D2 emitter/client seam above; do not conflate Mermaid with kr0ki's standalone supported formats |
 
 ## Open decisions (not kr0ki's to make)
 
