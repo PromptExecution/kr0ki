@@ -1,0 +1,28 @@
+# Keep Kroki at the verified local image digest, but replace only the PlantUML
+# native executable. The upstream binary requires x86-64-v3 features which
+# sm3lly's k0s node intentionally does not expose. The JVM release has the
+# same PlantUML version and works on x86-64-v2 while retaining Kroki SECURE mode.
+FROM docker.io/library/alpine:3.22 AS plantuml-download
+
+ARG PLANTUML_VERSION=1.2026.6
+ARG PLANTUML_SHA256=89948f14c93756c7a3fb7b69078ff37e8489fd79dd430c582b931e2f65358690
+
+RUN apk add --no-cache curl \
+ && curl --fail --location --silent --show-error \
+      "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml.jar" \
+      --output /opt/plantuml.jar \
+ && echo "${PLANTUML_SHA256}  /opt/plantuml.jar" | sha256sum -c -
+
+FROM docker.io/yuzutech/kroki@sha256:22055fcf1d088349ee18d2643bc18b7704a39d09280fdee5b1cbde7a99bd5528
+
+COPY --from=plantuml-download /opt/plantuml.jar /opt/kr0ki/plantuml.jar
+COPY containers/kroki-compat/plantuml-java /usr/local/bin/plantuml-java
+
+USER root
+RUN chmod 0755 /usr/local/bin/plantuml-java \
+ && printf '@startuml\nAlice -> Bob: compatibility check\n@enduml\n' \
+    | /usr/local/bin/plantuml-java -pipe -tsvg \
+    | grep -q '<svg'
+USER kroki
+
+ENV KROKI_PLANTUML_BIN_PATH=/usr/local/bin/plantuml-java

@@ -2,5 +2,7 @@
 /site
 /.serena
 /package-lock.json
+/playbook/node_modules
+/playbook/dist
 /.kr0ki-cache
 /.sysml-v2-release

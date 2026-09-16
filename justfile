@@ -19,6 +19,10 @@ test-live backend="https://kroki.io":
 test-live-png backend="https://kroki.io":
     KR0KI_TEST_BACKEND={{backend}} cargo test -p kr0ki-core --test live_png -- --ignored --nocapture
 
+# Exercise every test-backed playb00k example through the deployed HTTP service.
+test-playbook kr0ki_url="http://192.168.1.137:8787":
+    KR0KI_PLAYBOOK_URL={{kr0ki_url}} cargo test -p kr0ki-server --test playbook_live -- --ignored --nocapture
+
 # SysML-v2-Release conformance harness (phase 1): fetch the pinned corpus, then
 # gate kr0ki's SysML-v2 handling via the `sysml-v2-parser` crate. See docs/CONFORMANCE.md.
 conformance:
@@ -56,18 +60,12 @@ static-docs output="site":
 playbook-e2e kr0ki_url="http://192.168.1.137:8787":
     bash scripts/playbook-e2e.sh {{kr0ki_url}}
 
-# Bring up a local SECURE-mode Kroki to render against.
-kroki-up:
-    podman run -d --name kr0ki-kroki -p 8000:8000 -e KROKI_SAFE_MODE=secure docker.io/yuzutech/kroki
-
-kroki-down:
-    podman rm -f kr0ki-kroki
-
 # Container-only local lifecycle. Podman builds OCI images; the local k0s cluster
 # imports and runs them, and kubectl is the sole workload lifecycle interface.
 pod-build:
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-server:dev -f containers/kr0ki-server/Containerfile .
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-mcp:dev -f containers/kr0ki-mcp/Containerfile .
+    podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-kroki-compat:dev -f containers/kroki-compat/Containerfile .
 
 k0s-load image:
     podman save {{image}} | sudo k0s ctr images import -
@@ -75,6 +73,7 @@ k0s-load image:
 pod-up: pod-build
     just k0s-load localhost/kr0ki-server:dev
     just k0s-load localhost/kr0ki-mcp:dev
+    just k0s-load localhost/kr0ki-kroki-compat:dev
     kubectl --context Default apply -f deploy/namespace.yaml
     # This is a standalone Pod, not a Deployment: apply alone preserves old
     # containers when the tag is unchanged. Recreate after import for hot reload.

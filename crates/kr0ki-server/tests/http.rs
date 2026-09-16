@@ -24,6 +24,7 @@ fn test_state(tag: &str) -> AppState {
     );
     AppState {
         service: Arc::new(service),
+        playbook_dir: std::env::temp_dir().join("kr0ki-no-playbook-assets"),
     }
 }
 
@@ -66,6 +67,62 @@ async fn formats_lists_supported_slugs_only() {
         !body.contains("mermaid"),
         "companion-only formats must not be advertised"
     );
+}
+
+#[tokio::test]
+async fn examples_catalog_covers_every_advertised_format() {
+    let app = test_app(test_state("examples"));
+    let resp = app
+        .oneshot(Request::get("/api/examples").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    let examples: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
+    assert_eq!(examples.len(), 8);
+    assert!(examples.iter().all(|example| example["source"].is_string()));
+    assert!(examples.iter().any(|example| example["format"] == "d2"));
+}
+
+#[tokio::test]
+async fn playbook_serves_built_vue_assets() {
+    let directory = std::env::temp_dir().join(format!("kr0ki-playbook-{}", std::process::id()));
+    tokio::fs::create_dir_all(directory.join("assets"))
+        .await
+        .unwrap();
+    tokio::fs::write(directory.join("index.html"), "<main>playb00k</main>")
+        .await
+        .unwrap();
+    tokio::fs::write(directory.join("assets/app.js"), "export default 'playb00k'")
+        .await
+        .unwrap();
+
+    let mut state = test_state("playbookassets");
+    state.playbook_dir = directory.clone();
+    let app = test_app(state);
+
+    let response = app
+        .clone()
+        .oneshot(Request::get("/playbook/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("playb00k"));
+
+    let response = app
+        .oneshot(
+            Request::get("/playbook/assets/app.js")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("export default"));
+
+    tokio::fs::remove_dir_all(directory).await.unwrap();
 }
 
 #[tokio::test]

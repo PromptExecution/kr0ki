@@ -10,7 +10,8 @@ spec:
   restartPolicy: Always
   containers:
     - name: kroki
-      image: docker.io/yuzutech/kroki:latest
+      image: localhost/kr0ki-kroki-compat:dev
+      imagePullPolicy: Never
       env:
         - name: KROKI_SAFE_MODE
           value: secure
@@ -42,6 +43,8 @@ spec:
           value: http://127.0.0.1:8000
         - name: KR0KI_CACHE_DIR
           value: /var/lib/kr0ki/cache
+        - name: KR0KI_PLAYBOOK_DIR
+          value: /usr/share/kr0ki-playbook
       ports:
         - containerPort: 8787
           hostPort: 8787

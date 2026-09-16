@@ -20,6 +20,16 @@ rg -q '"status":"ok"' "$WORK_DIR/health.json"
 curl -fsS "$KR0KI_URL/docs" >"$WORK_DIR/docs.html"
 rg -q '/docs/examples/kr0ki-render-flow.svg' "$WORK_DIR/docs.html"
 
+# The Vue/Vite playb00k consumes exactly the same catalog as Rust tests and
+# mdb00k's static export. Check both the live API and the UI-relative alias.
+curl -fsS "$KR0KI_URL/playbook/" >"$WORK_DIR/playbook.html"
+rg -q 'id="app"' "$WORK_DIR/playbook.html"
+curl -fsS "$KR0KI_URL/api/examples" >"$WORK_DIR/examples.json"
+curl -fsS "$KR0KI_URL/playbook/api/examples.json" >"$WORK_DIR/playbook-examples.json"
+cmp "$WORK_DIR/examples.json" "$WORK_DIR/playbook-examples.json"
+rg -q '"format":"d2"' "$WORK_DIR/examples.json"
+rg -q '"format":"graphviz"' "$WORK_DIR/examples.json"
+
 # This endpoint renders the D2 source through RenderService, then serves the
 # cached artifact. It is the live visual contract for the Box-5 Rust flow.
 curl -fsS -D "$WORK_DIR/flow.headers" \

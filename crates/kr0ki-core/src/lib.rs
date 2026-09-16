@@ -10,6 +10,7 @@
 
 pub mod cache;
 pub mod docgen;
+pub mod examples;
 pub mod format;
 pub mod render;
 
