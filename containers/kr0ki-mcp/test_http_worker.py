@@ -4,6 +4,7 @@
 """
 import http.client
 import json
+import subprocess
 import threading
 import unittest
 from unittest.mock import Mock, patch
@@ -83,6 +84,15 @@ class HttpWorkerTest(unittest.TestCase):
         resp = conn.getresponse()
         self.assertEqual(resp.status, 422)
         self.assertIn(b"bad manifest", resp.read())
+
+    @patch("http_worker.subprocess.run")
+    def test_render_timeout_returns_504(self, mock_run):
+        mock_run.side_effect = subprocess.TimeoutExpired("kube-diagrams", 60)
+        conn = self._conn()
+        conn.request("POST", "/render", body=b"apiVersion: v1\nkind: Pod")
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 504)
+        self.assertIn(b"timed out", resp.read())
 
 
 if __name__ == "__main__":

@@ -55,22 +55,25 @@ class Handler(BaseHTTPRequestHandler):
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             artifact = Path(temporary_directory) / f"diagram.{output}"
-            process = subprocess.run(
-                ["kube-diagrams", "-", "-f", output, "-o", str(artifact)],
-                input=manifest,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=60,
-                check=False,
-            )
-            if process.returncode != 0:
-                self._respond(422, process.stderr[:2000], "text/plain")
-                return
-            if not artifact.is_file():
-                self._respond(500, b"kube-diagrams completed without an output artifact", "text/plain")
-                return
-            content_type = "image/svg+xml" if output == "svg" else "application/json"
-            self._respond(200, artifact.read_bytes(), content_type)
+            try:
+                process = subprocess.run(
+                    ["kube-diagrams", "-", "-f", output, "-o", str(artifact)],
+                    input=manifest,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=60,
+                    check=False,
+                )
+                if process.returncode != 0:
+                    self._respond(422, process.stderr[:2000], "text/plain")
+                    return
+                if not artifact.is_file():
+                    self._respond(500, b"kube-diagrams completed without an output artifact", "text/plain")
+                    return
+                content_type = "image/svg+xml" if output == "svg" else "application/json"
+                self._respond(200, artifact.read_bytes(), content_type)
+            except subprocess.TimeoutExpired:
+                self._respond(504, json.dumps({"error": "kube-diagrams timed out"}).encode(), "application/json")
 
     def _respond(self, status, body, content_type):
         self.send_response(status)
