@@ -49,3 +49,6 @@ sysml-v2-parser = "0.55"
 # KubeDiagrams example manifests (multi-doc YAML) to diff kr0ki's Kubernetes
 # recognizer against a real, already-vendored KubeDiagrams `dot_json` oracle.
 serde_yaml = "0.9"
+# kr0ki#18 (src/probe.rs): mock a Kroki backend's /health + /{slug}/svg
+# responses without a live network dependency in the unit tests.
+wiremock = "0.6"

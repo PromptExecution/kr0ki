@@ -87,6 +87,22 @@ dev bind="127.0.0.1:8788" playbook_dir="playbook/dist":
     curl -fsS http://127.0.0.1:{{dev_kroki_port}}/health >/dev/null 2>&1 || just dev-kroki-up
     KR0KI_BIND={{bind}} KR0KI_BACKEND_URL=http://127.0.0.1:{{dev_kroki_port}} KR0KI_PLAYBOOK_DIR={{playbook_dir}} cargo run -p kr0ki-server
 
+# Discover which of a Kroki backend's registered converters are companion-free
+# and not yet in DiagramFormat::ALL (kr0ki#18). Defaults to our own local
+# kroki-compat image (started if not already running) — no k0s round-trip
+# needed for discovery. Probes with the vendored kroki.io example catalogue
+# (kr0ki#19), never a guessed source; hits the backend directly, never through
+# kr0ki-server's own cache.
+probe-formats backend="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    backend="{{backend}}"
+    if [ -z "$backend" ]; then
+      curl -fsS http://127.0.0.1:{{dev_kroki_port}}/health >/dev/null 2>&1 || just dev-kroki-up
+      backend="http://127.0.0.1:{{dev_kroki_port}}"
+    fi
+    cargo run -p kr0ki-core --bin probe_formats -- "$backend"
+
 # Container-only local lifecycle. Podman builds OCI images; the local k0s cluster
 # imports and runs them, and kubectl is the sole workload lifecycle interface.
 pod-build:

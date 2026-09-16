@@ -1000,6 +1000,7 @@ dependencies = [
  "ufo-types",
  "usvg",
  "walkdir",
+ "wiremock",
 ]
 
 [[package]]
