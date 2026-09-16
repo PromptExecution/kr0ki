@@ -85,7 +85,7 @@ pub const ALL: &[PlaybookExample] = &[
         input_kind: "component model",
         description: "A concise component relation view of the render loop.",
         source: "[IAC / code]->[RenderService]\n[RenderService]->[FsCache]\n[RenderService]->[Kroki]\n[Kroki]->[SVG / PNG]\n",
-        outputs: &["svg", "png"],
+        outputs: &["svg"],
     },
     PlaybookExample {
         id: "wavedrom-cache-timing",
