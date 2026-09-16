@@ -72,6 +72,34 @@ async fn formats_lists_supported_slugs_only() {
 }
 
 #[tokio::test]
+async fn mcp_tools_lists_all_three_tools_with_bindings() {
+    let app = test_app(test_state("mcp-tools"));
+    let resp = app
+        .oneshot(Request::get("/mcp/tools").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
+    assert_eq!(tools.len(), 3);
+    let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"render_diagram"));
+    assert!(names.contains(&"list_formats"));
+    assert!(names.contains(&"render_kubernetes_manifest"));
+
+    let render = tools
+        .iter()
+        .find(|t| t["name"] == "render_diagram")
+        .unwrap();
+    assert_eq!(render["httpBinding"]["method"], "POST");
+    assert_eq!(render["httpBinding"]["pathTemplate"], "/render/{format}");
+    assert!(render["inputSchema"]["required"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("format")));
+}
+
+#[tokio::test]
 async fn examples_catalog_covers_every_advertised_format() {
     let app = test_app(test_state("examples"));
     let resp = app

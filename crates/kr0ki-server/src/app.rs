@@ -42,6 +42,7 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
     let r = Router::new()
         .route("/health", get(health))
         .route("/formats", get(formats))
+        .route("/mcp/tools", get(mcp_tools))
         .route("/capabilities", get(capabilities))
         .route("/api/examples", get(examples))
         .route("/playbook/api/examples.json", get(examples))
@@ -99,6 +100,19 @@ async fn health() -> Json<Health> {
 
 async fn formats() -> Json<Vec<&'static str>> {
     Json(DiagramFormat::ALL.iter().map(|f| f.kroki_slug()).collect())
+}
+
+/// `GET /mcp/tools` — the MCP/HTTP capability manifest (mcp-http-parity
+/// design, 2026-09-16). One entry per `McpTool`, each carrying both its MCP
+/// schema and its HTTP binding — `containers/kr0ki-mcp/bridge.py` fetches
+/// this once and dispatches every `tools/call` generically from it.
+async fn mcp_tools() -> Json<Vec<serde_json::Value>> {
+    Json(
+        kr0ki_core::mcp_tool::McpTool::ALL
+            .iter()
+            .map(|t| t.to_manifest_json())
+            .collect(),
+    )
 }
 
 /// `GET /capabilities` — the `kroki` container's own self-reported
