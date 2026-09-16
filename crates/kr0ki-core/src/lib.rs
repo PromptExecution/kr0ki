@@ -23,6 +23,7 @@ pub mod examples;
 pub mod flatten;
 pub mod format;
 pub mod k8s_recognizer;
+pub mod probe;
 pub mod render;
 pub mod ufo_graph;
 
