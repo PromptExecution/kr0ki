@@ -166,6 +166,27 @@ Run `just test-playbook` to submit every documented fixture through the deployed
 HTTP surface twice. It verifies output signatures, deterministic artifact bytes,
 and cache hits for every format/output combination that the UI advertises.
 
+### Fast local dev loop (no k0s)
+
+For format/fixture iteration, skip the podman-build → k0s-import → pod-recreate
+cycle entirely: `just dev` runs our own pinned `kroki-compat` image via plain
+`podman run` (not k0s) on `127.0.0.1:8010`, and `kr0ki-server` via `cargo run`
+against it on `127.0.0.1:8788`. `just dev-kroki-down` stops the container when
+done; `just dev` reuses an already-running one.
+
+```bash
+just dev            # Ctrl-C stops kr0ki-server; kroki-compat keeps running
+just playbook-e2e http://127.0.0.1:8788
+just test-playbook http://127.0.0.1:8788
+```
+
+This is for iteration speed only — it can drift from the real k0s deployment
+(different image, different pod securityContext), so always re-verify with the
+full `just pod-up` cycle below before calling format or fixture work done.
+`podman run` needs explicit `--memory`/`--cpus` (b00t's OCI limits hook rejects a
+run without them); `dev-kroki-up` already sets them to match the pod manifest's
+own 2Gi/1 CPU budget.
+
 ### Local k0s renderer compatibility
 
 The k0s pod uses a pinned Kroki image with the x86-64-v3 PlantUML executable

@@ -182,6 +182,26 @@ _Last updated: 2026-09-15._
 - [x] **TikZ fixture richened** — `tikz-line` replaced with a 4-node, 3-edge
   positioned pipeline (`client -> service -> {cache, backend}`) instead of one line
   segment.
+- [x] **`DiagramFormat`: enum+match → macro-generated data table** — adding one
+  format previously touched 4 places (variant, `kroki_slug()` match arm, `ALL`
+  entry, exhaustiveness-test arm). A `diagram_formats!` macro now generates the
+  named consts and `ALL` from one list — one place to edit, and a format can't be
+  declared and forgotten from `ALL`. The inner `&'static str` stays private —
+  verified with a standalone `rustc` compile-fail check that external code can't
+  construct an arbitrary `DiagramFormat("anything")`, only via a declared const or
+  `FromStr`. That privacy, not the closed-enum shape, is what keeps this a
+  whitelist rather than an open pass-through.
+- [x] **`just dev` — fast local dev loop, no k0s** — `just dev-kroki-up` runs our
+  own pinned `kroki-compat` image via plain `podman run` (not k0s) on
+  `127.0.0.1:8010`; `just dev` runs `kr0ki-server` via `cargo run` against it on
+  `127.0.0.1:8788`. Skips the podman-build → k0s-import → pod-recreate cycle
+  entirely for format/fixture iteration. Needed explicit `--memory=2g
+  --memory-swap=2g --cpus=1` — b00t's OCI limits hook (TODO gap, b00t platform
+  backlog #4) rejects a bare `podman run` with no resource budget; matches the pod
+  manifest's own 2Gi/1 CPU. Live-verified: `playbook-e2e.sh` and `test-playbook`
+  both pass against it exactly as they do against the real k0s pod. Documented as
+  iteration-only in README — can drift from the real deployment, always
+  re-verify with `just pod-up` before calling something done.
 - [ ] **PDF output** — later Kroki capability; not yet available.
 
 ## Cross-cutting
