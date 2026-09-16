@@ -1,0 +1,19 @@
+kr0ki
+Copyright PromptExecution
+
+This product includes rules translated (not copied) from KubeDiagrams
+(https://github.com/philippemerle/KubeDiagrams), Copyright the KubeDiagrams
+authors, licensed under the Apache License, Version 2.0.
+
+Specifically, `crates/kr0ki-core/src/k8s_recognizer.rs` ports the GVK ->
+relationship-extraction *facts* encoded in KubeDiagrams'
+`bin/kube-diagrams.yaml` (vendored at `vendor/kubediagrams`, a git submodule
+pinned to https://github.com/PromptExecution/KubeDiagrams) into kr0ki's own
+static Rust rule table and its own `ufo_types::ontology::UfoRelation`
+classification. No KubeDiagrams source code (Python) is called, embedded, or
+otherwise reproduced — see `docs/EVAL-kubediagrams.md` and
+`docs/PATTERNS-kubernetes.md` for the design rationale, and
+`k8s_recognizer.rs`'s module docs for the per-rule provenance.
+
+A copy of the Apache License, Version 2.0 is available at
+https://www.apache.org/licenses/LICENSE-2.0 and at `vendor/kubediagrams/LICENSE`.

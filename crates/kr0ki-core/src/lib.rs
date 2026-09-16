@@ -1,19 +1,26 @@
-//! kr0ki-core — the P0 render loop.
+//! kr0ki-core — the P0 render loop, plus boxes 2 and 3 of the SysML-model
+//! ingestion pipeline.
 //!
 //! Scope: raw Kroki-family diagram text -> rendered SVG, with a content-addressed
-//! cache. This is PRD-KR0KI-001's decision-*independent* slice (FR2 + FR5). The
-//! SysML-model ingestion path (FR1/FR3/FR4 — `iso_ir`, `systhread-core` isometric,
-//! the typed KerML view model) is **not here**: it's blocked on §5 decisions D1-D6
-//! (sysml-derive posture, holon-viz dependency, the typed model's crate home,
-//! vocabulary collisions). Nothing in this crate depends on `ufo-types`,
-//! `systhread-core`, or `holon-viz`.
+//! cache. This is PRD-KR0KI-001's decision-*independent* slice (FR2 + FR5).
+//! [`ufo_graph`] builds box 2 of PLAN-KR0KI-002's five-box pipeline — the
+//! canonical UFO semantic graph — from a `ModelSnapshot` (the SysML-v2 arm).
+//! [`k8s_recognizer`] does the analogous normalization for the Kubernetes
+//! arm (kr0ki#12; `docs/PATTERNS-kubernetes.md`). FR1/FR4 *rendering*
+//! (`iso_ir` → Mermaid/D2, the typed KerML view model) still needs a further
+//! stage — lifting a UFO graph into `ufo_types::sysml_model::Relation` (box
+//! 4) — not built by either module. Any SysML-v2 text emit stays blocked on
+//! §5 decision D1 (`sysml-derive` posture). `systhread-core`/`holon-viz` are
+//! still not a dependency of this crate.
 
 pub mod cache;
 pub mod docgen;
 pub mod examples;
 pub mod flatten;
 pub mod format;
+pub mod k8s_recognizer;
 pub mod render;
+pub mod ufo_graph;
 
 use cache::{cache_key, model_cache_key, CacheStatus, FsCache, OutputKind};
 use format::DiagramFormat;
@@ -111,6 +118,10 @@ impl<B: RenderBackend> RenderService<B> {
     /// given view, and `content_hash` is the `ModelSnapshot.content_hash` that the
     /// key is derived from (PLAN-KR0KI-002 §3). A new commit changes the hash and
     /// therefore the key, so a stale derived diagram can never be served.
+    /// `rule_set_version` is the recognizer rule-set version that produced `source`
+    /// (e.g. [`crate::k8s_recognizer::KubernetesRecognizer::rule_set_version`]), or
+    /// `""` for a source arm with no recognizer in its path — see
+    /// [`cache::model_cache_key`]. A rule-set change invalidates the key too.
     pub async fn render_model(
         &self,
         view_kind: &str,
@@ -118,8 +129,14 @@ impl<B: RenderBackend> RenderService<B> {
         output: OutputKind,
         source: &str,
         content_hash: &str,
+        rule_set_version: &str,
     ) -> Result<Rendered, ServiceError> {
-        let key = model_cache_key(view_kind, format.kroki_slug(), content_hash);
+        let key = model_cache_key(
+            view_kind,
+            format.kroki_slug(),
+            content_hash,
+            rule_set_version,
+        );
 
         if let Some(bytes) = self.cache.get(&key, output).await? {
             return Ok(Rendered {
@@ -227,6 +244,7 @@ mod tests {
                 OutputKind::Svg,
                 "a -> b",
                 "hash-a",
+                "",
             )
             .await
             .unwrap();
@@ -239,6 +257,7 @@ mod tests {
                 OutputKind::Svg,
                 "a -> b",
                 "hash-a",
+                "",
             )
             .await
             .unwrap();
@@ -253,6 +272,7 @@ mod tests {
                 OutputKind::Svg,
                 "a -> b",
                 "hash-b",
+                "",
             )
             .await
             .unwrap();
@@ -264,6 +284,46 @@ mod tests {
             2,
             "backend hit once per distinct key"
         );
+
+        let _ = tokio::fs::remove_dir_all(cache.root()).await;
+    }
+
+    #[tokio::test]
+    async fn model_render_misses_again_when_recognizer_rule_set_version_changes() {
+        let backend = CountingBackend {
+            calls: Arc::new(AtomicUsize::new(0)),
+            body: b"<svg>model</svg>".to_vec(),
+        };
+        let cache = tmp_cache("model-ruleset");
+        let svc = RenderService::new(backend, cache.clone());
+
+        let r1 = svc
+            .render_model(
+                "overview",
+                DiagramFormat::D2,
+                OutputKind::Svg,
+                "a -> b",
+                "hash-a",
+                "rules-v1",
+            )
+            .await
+            .unwrap();
+
+        // Same view/format/content hash, but the recognizer's rule set changed:
+        // must be a fresh key, not a hit against v1's cached artifact.
+        let r2 = svc
+            .render_model(
+                "overview",
+                DiagramFormat::D2,
+                OutputKind::Svg,
+                "a -> b",
+                "hash-a",
+                "rules-v2",
+            )
+            .await
+            .unwrap();
+        assert_ne!(r2.key, r1.key);
+        assert_eq!(r2.status, CacheStatus::Miss);
 
         let _ = tokio::fs::remove_dir_all(cache.root()).await;
     }

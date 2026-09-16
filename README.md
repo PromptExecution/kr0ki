@@ -28,7 +28,7 @@ and adds the one thing neither has: a caching, cross-referencing service surface
 | Thing | Where | Why it matters here |
 |---|---|---|
 | b00t SysML v2 spine epic (closed) | [`elasticdotventures/_b00t_#1177`](https://github.com/elasticdotventures/_b00t_/issues/1177) | The upstream model/validation layer kr0ki renders *from*. P0–P3 shipped. |
-| `ufo-types` v0.11.0 | [`PromptExecution/ufo-types`](https://github.com/PromptExecution/ufo-types) | `iso_ir::{Node,Edge}`, `stereotype::UfoStereotype`, `sysml::validate_sysml_v2`, `mbse`. kr0ki's input vocabulary. |
+| `ufo-types` v0.14.0 | [`PromptExecution/ufo-types`](https://github.com/PromptExecution/ufo-types) | `ontology::{UfoRelation,OntologicalEdge}` (box 2, consumed by `kr0ki-core::ufo_graph`), `sysml_model::{ElementKind,Relation,ElementId}` (box 4), `view::SysmlViewKind`. kr0ki's input vocabulary. |
 | Live P1 prototype | `elasticdotventures/_b00t_` → `b00t-cli/src/dispatch_sysml.rs` | Working `Rust type → iso_ir → SysML v2 / Mermaid / Rhai`. The pattern kr0ki's adapter follows. |
 | `systhread-core` | `fungible-farm/nem-poweragent-lab` → `rust/systhread-core` | Owns `iso_ir`/`layout`/`render`/`sysml_gen`. Its isometric `render.rs` becomes a kr0ki input format. |
 | systhread v2 SysML/KerML viz scope | [`nem-poweragent-lab#53`](https://github.com/fungible-farm/nem-poweragent-lab/pull/53) (merged) | Defines the typed-model → views contract kr0ki renders. Names **cim-gridy** as first consumer. |
@@ -88,16 +88,25 @@ blocked on D1/D6. See [`docs/PLAN-KR0KI-002.md`](docs/PLAN-KR0KI-002.md) and
 ## P0 — the render loop (built 2026-09-05)
 
 The decision-independent slice of PRD-KR0KI-001 (FR2 + FR5) is implemented and tested:
-raw Kroki-family diagram text → rendered SVG, with a content-addressed cache. Nothing
-here depends on `ufo-types` / `systhread-core` / `holon-viz` — the SysML-model
-ingestion path (FR1/FR3/FR4) stays blocked on §5 decisions D1–D6.
+raw Kroki-family diagram text → rendered SVG, with a content-addressed cache. This
+render loop itself has no `ufo-types` / `systhread-core` / `holon-viz` dependency;
+`kr0ki-core` additionally hosts box 2 of the ingestion pipeline (`ufo_graph`, pinned to
+`ufo-types` v0.14.0) for the SysML-v2 arm, and the Kubernetes recognizer
+(`k8s_recognizer`, kr0ki#12 — raw k8s manifests → `UfoRelation`-typed edges, ported
+from `vendor/kubediagrams` and oracle-tested against its real `dot_json` output) for
+the Kubernetes arm — see below. `systhread-core` / `holon-viz` are still untouched.
+FR1/FR3/FR4 *rendering* stays blocked on lifting a UFO graph into
+`ufo_types::sysml_model::Relation` (`docs/PATTERNS-kubernetes.md` §4, still
+design-only) and, for any SysML-v2 text emit, on §5 decision D1.
 
 ```
 crates/
 ├── kr0ki-core/    RenderService = cache in front of a RenderBackend
-│   ├── format.rs  DiagramFormat — the 26 companion-free Kroki formats only (NFR3)
-│   ├── cache.rs   cache_key() = SHA256(domain ‖ 0x1f-delimited fields) ; FsCache (atomic writes)
-│   └── render.rs  HttpKrokiBackend — POST {base}/{slug}/{output}
+│   ├── format.rs         DiagramFormat — the 26 companion-free Kroki formats only (NFR3)
+│   ├── cache.rs          cache_key() = SHA256(domain ‖ 0x1f-delimited fields) ; FsCache (atomic writes)
+│   ├── render.rs         HttpKrokiBackend — POST {base}/{slug}/{output}
+│   ├── ufo_graph.rs      box 2 (SysML-v2 arm): ModelSnapshot -> Vec<ufo_types::ontology::OntologicalEdge>
+│   └── k8s_recognizer.rs box 2 (Kubernetes arm): k8s manifests -> Vec<ufo_types::ontology::OntologicalEdge>
 └── kr0ki-server/  axum service
     GET  /health                              {"status":"ok",...}
     GET  /formats                             supported slugs

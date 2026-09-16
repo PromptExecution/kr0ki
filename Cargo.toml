@@ -1,11 +1,15 @@
 # kr0ki workspace.
 # P0: the decision-independent render loop — Kroki-family text -> SVG, with
 # content-addressed caching (kr0ki-core / kr0ki-server).
-# First SysML-model-ingestion increment: kr0ki-sysmlv2-client — a generic OMG "Systems
-# Modeling API and Services" REST client (D3 resolved 2026-09-05: kr0ki *consumes* an
-# upstream OMG-API model server, it does not host the model). The typed adapter above
-# ModelSnapshot, and anything touching ufo-types / systhread-core / holon-viz, stays
-# blocked on PRD-KR0KI-001 §5 decisions D1/D6 — see docs/PLAN-KR0KI-002.md.
+# SysML-model-ingestion path: kr0ki-sysmlv2-client — a generic OMG "Systems Modeling
+# API and Services" REST client (D3 resolved 2026-09-05: kr0ki *consumes* an upstream
+# OMG-API model server, it does not host the model). kr0ki-core additionally builds box
+# 2 of the five-box pipeline (the canonical UFO semantic graph, ufo-types v0.14.0
+# pinned) from a ModelSnapshot (SysML-v2 arm) or from raw Kubernetes manifests via the
+# kr0ki#12 recognizer (k8s_recognizer.rs, ported from vendor/kubediagrams). FR1/FR4
+# rendering stays blocked on lifting that UFO graph into ufo_types::sysml_model::
+# Relation (PATTERNS-kubernetes.md §4, still design-only); any SysML-v2 text emit
+# stays blocked on §5 decision D1 — see docs/PLAN-KR0KI-002.md.
 
 [workspace]
 resolver = "2"

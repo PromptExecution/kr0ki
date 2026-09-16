@@ -1,7 +1,16 @@
 # PATTERNS — Kubernetes recognizer
 
 **Status:** design input (external ontology consultant, operator-relayed 2026-09-05).
-Not yet implemented. Follow-up to [`PLAN-KR0KI-002.md`](PLAN-KR0KI-002.md) §2.1.
+Follow-up to [`PLAN-KR0KI-002.md`](PLAN-KR0KI-002.md) §2.1. **§1/§2 (the UFO-category
+bridge + the 25-relation vocabulary, raw k8s -> `UfoRelation`) are implemented** in
+`crates/kr0ki-core/src/k8s_recognizer.rs` (kr0ki#12) — ported from
+`vendor/kubediagrams/bin/kube-diagrams.yaml`, differentially validated against a real
+KubeDiagrams `dot_json` oracle (`crates/kr0ki-core/tests/kubediagrams_oracle.rs`).
+Coverage is an intentional subset of KubeDiagrams' ~51-kind catalogue — see that
+module's doc comment for what's ported vs. deferred. **§4 (`UfoRelation` ->
+`ufo_types::sysml_model::Relation`, the box-3→box-4 lift the renderer adapters
+actually consume) is still design-only, no code** — this is what still blocks FR1/FR4
+rendering.
 
 The first **pattern recognizer** — box 3 of the five-box ingestion pipeline: the rule
 set that lifts a canonical UFO-typed semantic graph (derived from Kubernetes cluster
