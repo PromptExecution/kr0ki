@@ -17,3 +17,20 @@ otherwise reproduced — see `docs/EVAL-kubediagrams.md` and
 
 A copy of the Apache License, Version 2.0 is available at
 https://www.apache.org/licenses/LICENSE-2.0 and at `vendor/kubediagrams/LICENSE`.
+
+This product includes example diagram sources vendored (unmodified except for
+HTML-entity decoding) from yuzutech/kroki.io
+(https://github.com/yuzutech/kroki.io), Copyright the Kroki authors, licensed
+under the Mozilla Public License 2.0.
+
+Specifically, `crates/kr0ki-core/fixtures/kroki-examples.json` is a pinned
+copy of that repository's `assets/examples/data.json`
+(`scripts/sync-kroki-examples.sh`, kr0ki#19) — kroki.io's own real,
+working example source per diagram type (the source `yuzutech/kroki`, the
+server repo, was checked and does not have a clean, individually
+extractable per-format fixture set to vendor instead). Not currently
+consumed by kr0ki's own render pipeline or playbook — vendored for future
+use (kr0ki#18/#19).
+
+A copy of the Mozilla Public License 2.0 is available at
+https://www.mozilla.org/en-US/MPL/2.0/.
