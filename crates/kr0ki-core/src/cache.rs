@@ -74,15 +74,26 @@ pub fn cache_key(format: DiagramFormat, output: OutputKind, source: &str) -> Str
 
 /// The cache key for one SysML-model render (PLAN-KR0KI-002 §3).
 ///
-/// `key = SHA256("kr0ki/v1" ‖ 0x1f ‖ view_kind ‖ 0x1f ‖ notation ‖ 0x1f ‖ content_hash)`,
-/// lowercase hex. The `content_hash` is the `ModelSnapshot.content_hash` from
-/// `kr0ki-sysmlv2-client` — deterministic and order-independent, so a new commit
-/// yields a new key and invalidates derived diagrams. `view_kind` is the string form
-/// of the view's `ufo_types::SysmlViewKind` (accepted as `&str` here so this crate
-/// stays free of a `ufo-types` dependency). `notation` is the diagram notation slug
-/// (`mermaid`, `d2`, …). When the box-3 recognizer lands, its rule-set version hash
-/// folds in here too.
-pub fn model_cache_key(view_kind: &str, notation: &str, content_hash: &str) -> String {
+/// `key = SHA256("kr0ki/v1" ‖ 0x1f ‖ view_kind ‖ 0x1f ‖ notation ‖ 0x1f ‖ content_hash
+///              ‖ 0x1f ‖ rule_set_version)`, lowercase hex. The `content_hash` is the
+/// `ModelSnapshot.content_hash` from `kr0ki-sysmlv2-client` — deterministic and
+/// order-independent, so a new commit yields a new key and invalidates derived
+/// diagrams. `view_kind` is the string form of the view's `ufo_types::SysmlViewKind`
+/// (accepted as `&str` here so this crate's cache module stays free of a `ufo-types`
+/// dependency). `notation` is the diagram notation slug (`mermaid`, `d2`, …).
+///
+/// `rule_set_version` is a pattern recognizer's rule-set version hash (e.g.
+/// [`crate::k8s_recognizer::KubernetesRecognizer::rule_set_version`]) — a rule-set
+/// change (built-in or CRD extension) must invalidate every diagram derived through
+/// it. Pass `""` for a source arm with no recognizer in its path yet (the SysML-v2
+/// arm: box 2's `ModelSnapshot` already speaks near-box-4 vocabulary, per
+/// PLAN-KR0KI-002 §2.2 — no recognizer needed).
+pub fn model_cache_key(
+    view_kind: &str,
+    notation: &str,
+    content_hash: &str,
+    rule_set_version: &str,
+) -> String {
     let mut h = Sha256::new();
     h.update(b"kr0ki/v1");
     h.update([0x1f]);
@@ -91,6 +102,8 @@ pub fn model_cache_key(view_kind: &str, notation: &str, content_hash: &str) -> S
     h.update(notation.as_bytes());
     h.update([0x1f]);
     h.update(content_hash.as_bytes());
+    h.update([0x1f]);
+    h.update(rule_set_version.as_bytes());
     let digest = h.finalize();
     let mut s = String::with_capacity(64);
     for b in digest {
@@ -227,8 +240,8 @@ mod tests {
 
     #[test]
     fn model_key_is_deterministic_and_hex() {
-        let a = model_cache_key("overview", "d2", "ab12");
-        let b = model_cache_key("overview", "d2", "ab12");
+        let a = model_cache_key("overview", "d2", "ab12", "");
+        let b = model_cache_key("overview", "d2", "ab12", "");
         assert_eq!(a, b);
         assert_eq!(a.len(), 64);
         assert!(a.bytes().all(|c| c.is_ascii_hexdigit()));
@@ -236,11 +249,23 @@ mod tests {
 
     #[test]
     fn model_key_varies_on_every_field() {
-        let base = model_cache_key("overview", "d2", "ab12");
-        assert_ne!(base, model_cache_key("sequence", "d2", "ab12"));
-        assert_ne!(base, model_cache_key("overview", "mermaid", "ab12"));
+        let base = model_cache_key("overview", "d2", "ab12", "");
+        assert_ne!(base, model_cache_key("sequence", "d2", "ab12", ""));
+        assert_ne!(base, model_cache_key("overview", "mermaid", "ab12", ""));
         // Same view + notation, different commit content hash -> different key.
-        assert_ne!(base, model_cache_key("overview", "d2", "cd34"));
+        assert_ne!(base, model_cache_key("overview", "d2", "cd34", ""));
+    }
+
+    #[test]
+    fn model_key_changes_when_recognizer_rule_set_version_changes() {
+        // A rule-set change (built-in or CRD extension) must invalidate every
+        // diagram derived through the recognizer, even with an identical
+        // content hash.
+        let base = model_cache_key("overview", "d2", "ab12", "");
+        let v1 = model_cache_key("overview", "d2", "ab12", "rules-v1");
+        let v2 = model_cache_key("overview", "d2", "ab12", "rules-v2");
+        assert_ne!(base, v1);
+        assert_ne!(v1, v2);
     }
 
     #[test]
@@ -249,7 +274,7 @@ mod tests {
         // snapshots with different content but identical lowered text must not
         // collide.
         let text = cache_key(DiagramFormat::D2, OutputKind::Svg, "a -> b");
-        let model = model_cache_key("overview", "d2", "ab12");
+        let model = model_cache_key("overview", "d2", "ab12", "");
         assert_ne!(text, model);
     }
 
