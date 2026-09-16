@@ -4,5 +4,6 @@
 /package-lock.json
 /playbook/node_modules
 /playbook/dist
+/playbook/.vite
 /.kr0ki-cache
 /.sysml-v2-release
