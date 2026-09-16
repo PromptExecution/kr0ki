@@ -113,6 +113,11 @@ async fn docs_rust_flow_svg(State(state): State<AppState>) -> Response {
         Err(ServiceError::Render(RenderError::Unavailable(message))) => {
             error_json(StatusCode::BAD_GATEWAY, "backend_unavailable", &message)
         }
+        Err(ServiceError::Render(RenderError::Flatten(message))) => error_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "flatten_failed",
+            &message,
+        ),
         Err(ServiceError::CacheIo(error)) => error_json(
             StatusCode::INTERNAL_SERVER_ERROR,
             "cache_io",

@@ -58,7 +58,7 @@ pub const ALL: &[PlaybookExample] = &[
         input_kind: "Rust code flow",
         description: "The Box-5 route, cache, backend, and artifact flow used by /docs.",
         source: "# kr0ki Box-5 Rust code-flow — executable playb00k view source.\ndirection: right\nclient: HTTP caller { shape: person }\nrouter: Axum router { shape: hexagon }\nservice: RenderService { shape: rectangle; style.fill: \"#d8eaff\" }\ncache: FsCache { shape: cylinder; style.fill: \"#e9f7df\" }\nbackend: HttpKrokiBackend { shape: rectangle; style.fill: \"#fff0cc\" }\nkroki: Kroki renderer { shape: cloud }\nartifact: SVG or PNG { shape: document; style.fill: \"#f7e6ff\" }\nclient -> router: POST /render/:format\nrouter -> service: route + auth\nservice -> cache: lookup\ncache -> service: hit or miss\nservice -> backend: miss only\nbackend -> kroki: render\nkroki -> backend: bytes\nbackend -> service: artifact\nservice -> cache: atomic write\nservice -> client: headers + bytes\nclient -> artifact: receives\n",
-        outputs: &["svg"],
+        outputs: &["svg", "png"],
     },
     PlaybookExample {
         id: "vegalite-cache-outcomes",
@@ -85,7 +85,7 @@ pub const ALL: &[PlaybookExample] = &[
         input_kind: "component model",
         description: "A concise component relation view of the render loop.",
         source: "[IAC / code]->[RenderService]\n[RenderService]->[FsCache]\n[RenderService]->[Kroki]\n[Kroki]->[SVG / PNG]\n",
-        outputs: &["svg"],
+        outputs: &["svg", "png"],
     },
     PlaybookExample {
         id: "wavedrom-cache-timing",
@@ -94,7 +94,7 @@ pub const ALL: &[PlaybookExample] = &[
         input_kind: "procedural timing model",
         description: "The request, cache, and backend sequence as a timing diagram.",
         source: "{ \"signal\": [\n  { \"name\": \"render request\", \"wave\": \"01..\" },\n  { \"name\": \"cache\", \"wave\": \"x3.4\", \"data\": [\"lookup\", \"hit\", \"artifact\"] },\n  { \"name\": \"backend\", \"wave\": \"0.1.\" }\n]}\n",
-        outputs: &["svg"],
+        outputs: &["svg", "png"],
     },
 ];
 

@@ -222,6 +222,9 @@ async fn render(
         Err(ServiceError::Render(RenderError::Unavailable(msg))) => {
             error_json(StatusCode::BAD_GATEWAY, "backend_unavailable", &msg)
         }
+        Err(ServiceError::Render(RenderError::Flatten(msg))) => {
+            error_json(StatusCode::INTERNAL_SERVER_ERROR, "flatten_failed", &msg)
+        }
         Err(ServiceError::CacheIo(e)) => error_json(
             StatusCode::INTERNAL_SERVER_ERROR,
             "cache_io",

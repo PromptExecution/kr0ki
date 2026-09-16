@@ -34,6 +34,11 @@ pub enum RenderError {
     /// The backend was unreachable or returned 5xx / an unexpected status.
     #[error("backend unavailable: {0}")]
     Unavailable(String),
+    /// The backend's own SVG couldn't be rasterized to PNG locally
+    /// (`RenderService`'s SVG-to-PNG fallback, `crate::flatten`). The diagram source
+    /// itself was fine — this is our downstream processing of a trusted SVG failing.
+    #[error("SVG-to-PNG flatten failed: {0}")]
+    Flatten(String),
 }
 
 /// Direct-HTTP Kroki client.
