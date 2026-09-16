@@ -16,7 +16,7 @@ use kr0ki_core::{
     cache::{CacheStatus, OutputKind},
     format::DiagramFormat,
     render::{HttpKrokiBackend, RenderError},
-    RenderService, ServiceError,
+    RenderService, Rendered, ServiceError,
 };
 use serde::Serialize;
 
@@ -27,6 +27,9 @@ pub struct AppState {
     pub service: Arc<Service>,
     /// Built Vue/Vite assets. Empty in in-process tests unless a test supplies one.
     pub playbook_dir: PathBuf,
+    /// CSI-mounted base directory holding `tags/<tag>/kerml-view.ttl` b00t-graph
+    /// artifacts (kr0ki#13). `None` disables `/b00t-graph/:tag` (503, not a panic).
+    pub b00t_graph_artifacts_path: Option<PathBuf>,
 }
 
 /// If `auth_token` is Some, inject a `RequireAuth` layer that rejects requests
@@ -41,6 +44,7 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
         .route("/playbook/", get(playbook_index))
         .route("/playbook/*path", get(playbook_asset))
         .route("/render/:format", post(render))
+        .route("/b00t-graph/:tag", get(b00t_graph))
         .route("/cache/:key", get(cache_get))
         .merge(crate::docs::routes())
         .with_state(state);
@@ -197,35 +201,118 @@ async fn render(
         .unwrap_or(OutputKind::Svg);
 
     match state.service.render(format, output, source).await {
-        Ok(r) => {
-            let cache_hdr = match r.status {
-                CacheStatus::Hit => "hit",
-                CacheStatus::Miss => "miss",
-            };
-            (
-                StatusCode::OK,
-                [
-                    (header::CONTENT_TYPE, output.content_type().to_string()),
-                    (
-                        header::HeaderName::from_static("x-kr0ki-cache"),
-                        cache_hdr.to_string(),
-                    ),
-                    (header::HeaderName::from_static("x-kr0ki-key"), r.key),
-                ],
-                r.bytes,
+        Ok(r) => rendered_response(output, r),
+        Err(e) => service_error_response(e),
+    }
+}
+
+/// `GET /b00t-graph/{tag}?output=svg|png` — kr0ki#13. Reads a b00t-graph
+/// artifact's Turtle dump (`{base}/tags/{tag}/kerml-view.ttl`) from a
+/// CSI-mounted local path — no S3 SDK / HTTP fetch, and no signature
+/// verification (the mount is the trust boundary for v1; both are this
+/// issue's own decided scope, not oversights). Converts it through
+/// `holon_viz::type_graph::TypeRelationshipGraph` to D2 text and renders it
+/// via the same cache-in-front-of-a-backend path as `/render/{format}`, so
+/// the response shape (headers, cache semantics) matches that route exactly.
+async fn b00t_graph(
+    State(state): State<AppState>,
+    Path(tag): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let Some(base) = state.b00t_graph_artifacts_path.as_ref() else {
+        return error_json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "b00t_graph_not_configured",
+            "B00T_GRAPH_ARTIFACTS_PATH is not set on this server",
+        );
+    };
+
+    let tag_path = std::path::Path::new(&tag);
+    if tag.is_empty()
+        || tag_path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
             )
-                .into_response()
+        })
+    {
+        return error_json(StatusCode::BAD_REQUEST, "invalid_tag", "invalid tag");
+    }
+
+    let ttl_path = base.join("tags").join(&tag).join("kerml-view.ttl");
+    let ttl = match tokio::fs::read(&ttl_path).await {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return error_json(
+                StatusCode::NOT_FOUND,
+                "b00t_graph_not_found",
+                &format!("no b00t-graph artifact for tag {tag:?}"),
+            )
         }
-        Err(ServiceError::Render(RenderError::BadSource { body, .. })) => {
+        Err(e) => {
+            return error_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "b00t_graph_read_failed",
+                &e.to_string(),
+            )
+        }
+    };
+
+    let type_graph = match kr0ki_core::b00t_graph::parse_turtle_to_type_graph(&ttl) {
+        Ok(g) => g,
+        Err(e) => {
+            return error_json(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "b00t_graph_bad_turtle",
+                &e.to_string(),
+            )
+        }
+    };
+    let d2 = kr0ki_core::b00t_graph::D2Emitter::emit(&type_graph.to_cytoscape());
+
+    let output = params
+        .get("output")
+        .and_then(|v| OutputKind::from_param(v))
+        .unwrap_or(OutputKind::Svg);
+
+    match state.service.render(DiagramFormat::D2, output, &d2).await {
+        Ok(r) => rendered_response(output, r),
+        Err(e) => service_error_response(e),
+    }
+}
+
+fn rendered_response(output: OutputKind, r: Rendered) -> Response {
+    let cache_hdr = match r.status {
+        CacheStatus::Hit => "hit",
+        CacheStatus::Miss => "miss",
+    };
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, output.content_type().to_string()),
+            (
+                header::HeaderName::from_static("x-kr0ki-cache"),
+                cache_hdr.to_string(),
+            ),
+            (header::HeaderName::from_static("x-kr0ki-key"), r.key),
+        ],
+        r.bytes,
+    )
+        .into_response()
+}
+
+fn service_error_response(e: ServiceError) -> Response {
+    match e {
+        ServiceError::Render(RenderError::BadSource { body, .. }) => {
             error_json(StatusCode::UNPROCESSABLE_ENTITY, "bad_source", &body)
         }
-        Err(ServiceError::Render(RenderError::Unavailable(msg))) => {
+        ServiceError::Render(RenderError::Unavailable(msg)) => {
             error_json(StatusCode::BAD_GATEWAY, "backend_unavailable", &msg)
         }
-        Err(ServiceError::Render(RenderError::Flatten(msg))) => {
+        ServiceError::Render(RenderError::Flatten(msg)) => {
             error_json(StatusCode::INTERNAL_SERVER_ERROR, "flatten_failed", &msg)
         }
-        Err(ServiceError::CacheIo(e)) => error_json(
+        ServiceError::CacheIo(e) => error_json(
             StatusCode::INTERNAL_SERVER_ERROR,
             "cache_io",
             &e.to_string(),

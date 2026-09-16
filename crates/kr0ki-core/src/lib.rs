@@ -1,18 +1,22 @@
-//! kr0ki-core — the P0 render loop, plus boxes 2 and 3 of the SysML-model
-//! ingestion pipeline.
+//! kr0ki-core — the P0 render loop, plus most of the SysML-model ingestion
+//! pipeline (PLAN-KR0KI-002).
 //!
 //! Scope: raw Kroki-family diagram text -> rendered SVG, with a content-addressed
 //! cache. This is PRD-KR0KI-001's decision-*independent* slice (FR2 + FR5).
-//! [`ufo_graph`] builds box 2 of PLAN-KR0KI-002's five-box pipeline — the
-//! canonical UFO semantic graph — from a `ModelSnapshot` (the SysML-v2 arm).
-//! [`k8s_recognizer`] does the analogous normalization for the Kubernetes
-//! arm (kr0ki#12; `docs/PATTERNS-kubernetes.md`). FR1/FR4 *rendering*
-//! (`iso_ir` → Mermaid/D2, the typed KerML view model) still needs a further
-//! stage — lifting a UFO graph into `ufo_types::sysml_model::Relation` (box
-//! 4) — not built by either module. Any SysML-v2 text emit stays blocked on
-//! §5 decision D1 (`sysml-derive` posture). `systhread-core`/`holon-viz` are
-//! still not a dependency of this crate.
+//! [`ufo_graph`] builds box 2 of the five-box pipeline — the canonical UFO
+//! semantic graph — from a `ModelSnapshot` (the SysML-v2 arm). [`k8s_recognizer`]
+//! does the analogous normalization for the Kubernetes arm (kr0ki#12;
+//! `docs/PATTERNS-kubernetes.md`). [`b00t_graph`] is a *separate* box-5 arm
+//! (kr0ki#13): it reads an already-built `elasticdotventures/_b00t_` Turtle
+//! graph and lowers it straight to D2 via `holon-viz`'s
+//! `TypeRelationshipGraph`/`CytoscapeGraph` (D1/D2/D3/D6 all resolved
+//! 2026-09-05..2026-09-10 — see `docs/PRD-KR0KI-001-foundational.md` §5) —
+//! it does not go through `ufo_graph`/`k8s_recognizer`'s `OntologicalEdge`
+//! pivot. FR1/FR4 rendering for the SysML-v2/Kubernetes arms still needs a
+//! further stage — lifting a UFO graph into `ufo_types::sysml_model::Relation`
+//! (box 4) — not built by either of those two modules.
 
+pub mod b00t_graph;
 pub mod cache;
 pub mod docgen;
 pub mod examples;

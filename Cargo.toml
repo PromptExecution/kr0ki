@@ -7,9 +7,12 @@
 # 2 of the five-box pipeline (the canonical UFO semantic graph, ufo-types v0.14.0
 # pinned) from a ModelSnapshot (SysML-v2 arm) or from raw Kubernetes manifests via the
 # kr0ki#12 recognizer (k8s_recognizer.rs, ported from vendor/kubediagrams). FR1/FR4
-# rendering stays blocked on lifting that UFO graph into ufo_types::sysml_model::
-# Relation (PATTERNS-kubernetes.md §4, still design-only); any SysML-v2 text emit
-# stays blocked on §5 decision D1 — see docs/PLAN-KR0KI-002.md.
+# rendering for those two arms stays blocked on lifting that UFO graph into
+# ufo_types::sysml_model::Relation (PATTERNS-kubernetes.md §4, still design-only) —
+# see docs/PLAN-KR0KI-002.md. A separate box-5 arm, kr0ki#13's b00t-graph route
+# (b00t_graph.rs), reads an already-built elasticdotventures/_b00t_ Turtle graph and
+# renders it straight to D2 via holon-viz (git-rev-pinned; D1/D2/D3/D6 all resolved —
+# docs/PRD-KR0KI-001-foundational.md §5).
 
 [workspace]
 resolver = "2"

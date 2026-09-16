@@ -94,10 +94,14 @@ render loop itself has no `ufo-types` / `systhread-core` / `holon-viz` dependenc
 `ufo-types` v0.14.0) for the SysML-v2 arm, and the Kubernetes recognizer
 (`k8s_recognizer`, kr0ki#12 — raw k8s manifests → `UfoRelation`-typed edges, ported
 from `vendor/kubediagrams` and oracle-tested against its real `dot_json` output) for
-the Kubernetes arm — see below. `systhread-core` / `holon-viz` are still untouched.
-FR1/FR3/FR4 *rendering* stays blocked on lifting a UFO graph into
-`ufo_types::sysml_model::Relation` (`docs/PATTERNS-kubernetes.md` §4, still
-design-only) and, for any SysML-v2 text emit, on §5 decision D1.
+the Kubernetes arm — see below. FR1/FR3/FR4 *rendering* for those two arms stays
+blocked on lifting a UFO graph into `ufo_types::sysml_model::Relation`
+(`docs/PATTERNS-kubernetes.md` §4, still design-only). A **separate** box-5 arm,
+`b00t_graph` (kr0ki#13), reads an already-built `elasticdotventures/_b00t_` Turtle
+graph and renders it straight to D2 via `holon-viz`'s `TypeRelationshipGraph` /
+`CytoscapeGraph` (git-rev-pinned real dependency — D1/D2/D3/D6 all resolved, see
+`docs/PRD-KR0KI-001-foundational.md` §5); it does not go through the
+`OntologicalEdge` pivot the other two arms do.
 
 ```
 crates/
@@ -106,12 +110,14 @@ crates/
 │   ├── cache.rs          cache_key() = SHA256(domain ‖ 0x1f-delimited fields) ; FsCache (atomic writes)
 │   ├── render.rs         HttpKrokiBackend — POST {base}/{slug}/{output}
 │   ├── ufo_graph.rs      box 2 (SysML-v2 arm): ModelSnapshot -> Vec<ufo_types::ontology::OntologicalEdge>
-│   └── k8s_recognizer.rs box 2 (Kubernetes arm): k8s manifests -> Vec<ufo_types::ontology::OntologicalEdge>
+│   ├── k8s_recognizer.rs box 2 (Kubernetes arm): k8s manifests -> Vec<ufo_types::ontology::OntologicalEdge>
+│   └── b00t_graph.rs     box 5 (b00t-graph arm): Turtle -> holon_viz::TypeRelationshipGraph -> D2Emitter
 └── kr0ki-server/  axum service
     GET  /health                              {"status":"ok",...}
     GET  /formats                             supported slugs
     POST /render/{format}?output=svg|png      body = diagram source → SVG or PNG
                                               (X-Kr0ki-Cache: hit|miss, X-Kr0ki-Key)
+    GET  /b00t-graph/{tag}?output=svg|png     b00t-graph Turtle artifact -> D2 -> SVG/PNG (kr0ki#13)
     GET  /cache/{key}?output=svg|png          previously rendered artifact by content hash
 ```
 
