@@ -2,6 +2,7 @@
 
 use std::str::FromStr;
 use std::sync::Arc;
+use std::{path::Component, path::PathBuf};
 
 use axum::{
     body::Bytes,
@@ -24,6 +25,8 @@ pub type Service = RenderService<HttpKrokiBackend>;
 #[derive(Clone)]
 pub struct AppState {
     pub service: Arc<Service>,
+    /// Built Vue/Vite assets. Empty in in-process tests unless a test supplies one.
+    pub playbook_dir: PathBuf,
 }
 
 /// If `auth_token` is Some, inject a `RequireAuth` layer that rejects requests
@@ -32,6 +35,11 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
     let r = Router::new()
         .route("/health", get(health))
         .route("/formats", get(formats))
+        .route("/api/examples", get(examples))
+        .route("/playbook/api/examples.json", get(examples))
+        .route("/playbook", get(playbook_index))
+        .route("/playbook/", get(playbook_index))
+        .route("/playbook/*path", get(playbook_asset))
         .route("/render/:format", post(render))
         .route("/cache/:key", get(cache_get))
         .merge(crate::docs::routes())
@@ -82,6 +90,68 @@ async fn health() -> Json<Health> {
 
 async fn formats() -> Json<Vec<&'static str>> {
     Json(DiagramFormat::ALL.iter().map(|f| f.kroki_slug()).collect())
+}
+
+/// `GET /api/examples` — the single example catalog shared by Rust tests,
+/// mdb00k static export, and the Vue/Vite playb00k.
+async fn examples() -> Json<&'static [kr0ki_core::examples::PlaybookExample]> {
+    Json(kr0ki_core::examples::ALL)
+}
+
+async fn playbook_index(State(state): State<AppState>) -> Response {
+    playbook_file(&state.playbook_dir, "index.html").await
+}
+
+async fn playbook_asset(State(state): State<AppState>, Path(path): Path<String>) -> Response {
+    playbook_file(&state.playbook_dir, &path).await
+}
+
+async fn playbook_file(root: &std::path::Path, requested: &str) -> Response {
+    let relative = std::path::Path::new(requested);
+    if relative.components().any(|component| {
+        matches!(
+            component,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_)
+        )
+    }) {
+        return error_json(
+            StatusCode::BAD_REQUEST,
+            "invalid_asset_path",
+            "invalid playb00k asset",
+        );
+    }
+
+    let path = root.join(relative);
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, playbook_content_type(&path))],
+            bytes,
+        )
+            .into_response(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => error_json(
+            StatusCode::NOT_FOUND,
+            "playbook_asset_not_found",
+            "playb00k assets are not installed in this server image",
+        ),
+        Err(error) => error_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "playbook_asset_read_failed",
+            &error.to_string(),
+        ),
+    }
+}
+
+fn playbook_content_type(path: &std::path::Path) -> &'static str {
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("json") => "application/json",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        _ => "application/octet-stream",
+    }
 }
 
 /// `POST /render/{format}?output=svg|png` — body is the raw diagram source.
@@ -151,6 +221,9 @@ async fn render(
         }
         Err(ServiceError::Render(RenderError::Unavailable(msg))) => {
             error_json(StatusCode::BAD_GATEWAY, "backend_unavailable", &msg)
+        }
+        Err(ServiceError::Render(RenderError::Flatten(msg))) => {
+            error_json(StatusCode::INTERNAL_SERVER_ERROR, "flatten_failed", &msg)
         }
         Err(ServiceError::CacheIo(e)) => error_json(
             StatusCode::INTERNAL_SERVER_ERROR,

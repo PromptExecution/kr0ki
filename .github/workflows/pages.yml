@@ -7,6 +7,7 @@ on:
       - "crates/**"
       - "templates/**"
       - "docs/**"
+      - "playbook/**"
       - "README.md"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
@@ -29,7 +30,13 @@ jobs:
           submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm --prefix playbook ci --ignore-scripts
+      - run: npm --prefix playbook run build
       - run: cargo run -p kr0ki-core --bin mdb00k -- site
+      - run: cp -R playbook/dist/. site/playbook/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

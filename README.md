@@ -95,7 +95,7 @@ ingestion path (FR1/FR3/FR4) stays blocked on §5 decisions D1–D6.
 ```
 crates/
 ├── kr0ki-core/    RenderService = cache in front of a RenderBackend
-│   ├── format.rs  DiagramFormat — the 8 companion-free Kroki formats only (NFR3)
+│   ├── format.rs  DiagramFormat — the 26 companion-free Kroki formats only (NFR3)
 │   ├── cache.rs   cache_key() = SHA256(domain ‖ 0x1f-delimited fields) ; FsCache (atomic writes)
 │   └── render.rs  HttpKrokiBackend — POST {base}/{slug}/{output}
 └── kr0ki-server/  axum service
@@ -128,6 +128,8 @@ entire SysML-model path.
 | `/docs/api.json` | GET | — | — | JSON symbol export |
 | `/docs/api.tomllm` | GET | — | — | b00t-format .tomllm export |
 | `/docs/api.rustdoc` | GET | — | — | rustdoc-style export |
+| `/playbook/` | GET | — | — | Vue/Vite interactive example harness |
+| `/api/examples` | GET | — | — | live test-backed example catalog |
 
 Auth: set `KR0KI_AUTH_TOKEN` env var to require `Authorization: Bearer <token>` on all
 routes except `/health`.
@@ -146,6 +148,63 @@ deferred upstream `ModelSnapshot → UFO → recognizer → ViewDefinition` path
 Run `just playbook-e2e` after `just pod-up` to validate the deployed page itself:
 health, the genuine D2-backed Rust-flow SVG, repeated render bytes/cache key, and a
 second-request cache hit.
+
+## Vue/Vite playb00k
+
+[`/playbook/`](http://192.168.1.137:8787/playbook/) is the interactive evaluation
+surface. Its left sidebar lists every standalone kr0ki input format; each format has
+a dropdown of test-backed examples, editable source, SVG/PNG selector where supported,
+and rendered-artifact preview. The source catalog is `kr0ki_core::examples::ALL`, so
+Rust coverage, the live API (`/api/examples`), and mdb00k's static
+`playbook/api/examples.json` remain one contract.
+
+`playbook/` is a Vue 3/Vite app. `RendererPanel.story.vue` is its Histoire story for
+isolated visual review and regression capture; it is a developer harness, not a
+runtime dependency of the Rust service.
+
+Run `just test-playbook` to submit every documented fixture through the deployed
+HTTP surface twice. It verifies output signatures, deterministic artifact bytes,
+and cache hits for every format/output combination that the UI advertises.
+
+### Fast local dev loop (no k0s)
+
+For format/fixture iteration, skip the podman-build → k0s-import → pod-recreate
+cycle entirely: `just dev` runs our own pinned `kroki-compat` image via plain
+`podman run` (not k0s) on `127.0.0.1:8010`, and `kr0ki-server` via `cargo run`
+against it on `127.0.0.1:8788`. `just dev-kroki-down` stops the container when
+done; `just dev` reuses an already-running one.
+
+```bash
+just dev            # Ctrl-C stops kr0ki-server; kroki-compat keeps running
+just playbook-e2e http://127.0.0.1:8788
+just test-playbook http://127.0.0.1:8788
+```
+
+This is for iteration speed only — it can drift from the real k0s deployment
+(different image, different pod securityContext), so always re-verify with the
+full `just pod-up` cycle below before calling format or fixture work done.
+`podman run` needs explicit `--memory`/`--cpus` (b00t's OCI limits hook rejects a
+run without them); `dev-kroki-up` already sets them to match the pod manifest's
+own 2Gi/1 CPU budget.
+
+### Local k0s renderer compatibility
+
+The k0s pod uses a pinned Kroki image with the x86-64-v3 PlantUML executable
+replaced by the same-version, checksum-verified JVM JAR. This overlay is required
+on sm3lly, whose k0s node exposes x86-64-v2. It does not loosen Kroki's `secure`
+safe mode.
+
+```bash
+just pod-build
+just k0s-load localhost/kr0ki-server:dev
+just k0s-load localhost/kr0ki-mcp:dev
+just k0s-load localhost/kr0ki-kroki-compat:dev
+kubectl --context Default -n kr0ki delete pod kr0ki-local
+kubectl --context Default apply -f deploy/kr0ki-local.pod.yaml
+kubectl --context Default -n kr0ki wait --for=condition=Ready pod/kr0ki-local --timeout=180s
+just playbook-e2e
+just test-playbook
+```
 
 ## Templates — b00t stack orchestration pattern
 
@@ -167,7 +226,6 @@ The template is exercised in CI by `crates/kr0ki-core/tests/template_render.rs` 
 
 ```bash
 just test          # unit + in-process HTTP
-just kroki-up      # local SECURE-mode Kroki on :8000
 just run           # default: bind 0.0.0.0:8787, backend https://kroki.io
-just run 127.0.0.1:8787 http://localhost:8000
+just run 127.0.0.1:8787 https://kroki.io
 ```

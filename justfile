@@ -19,6 +19,10 @@ test-live backend="https://kroki.io":
 test-live-png backend="https://kroki.io":
     KR0KI_TEST_BACKEND={{backend}} cargo test -p kr0ki-core --test live_png -- --ignored --nocapture
 
+# Exercise every test-backed playb00k example through the deployed HTTP service.
+test-playbook kr0ki_url="http://192.168.1.137:8787":
+    KR0KI_PLAYBOOK_URL={{kr0ki_url}} cargo test -p kr0ki-server --test playbook_live -- --ignored --nocapture
+
 # SysML-v2-Release conformance harness (phase 1): fetch the pinned corpus, then
 # gate kr0ki's SysML-v2 handling via the `sysml-v2-parser` crate. See docs/CONFORMANCE.md.
 conformance:
@@ -56,18 +60,39 @@ static-docs output="site":
 playbook-e2e kr0ki_url="http://192.168.1.137:8787":
     bash scripts/playbook-e2e.sh {{kr0ki_url}}
 
-# Bring up a local SECURE-mode Kroki to render against.
-kroki-up:
-    podman run -d --name kr0ki-kroki -p 8000:8000 -e KROKI_SAFE_MODE=secure docker.io/yuzutech/kroki
+# Fast local dev loop (no k0s): our own pinned kroki-compat image via plain podman,
+# kr0ki-server via cargo run against it. For iteration only — version/config can
+# drift from the real k0s deployment, so always re-verify with `just pod-up` +
+# `just playbook-e2e`/`just test-playbook` before calling format or fixture work done.
+dev_kroki_port := "8010"
 
-kroki-down:
-    podman rm -f kr0ki-kroki
+# Build (if needed) and (re)start the local kroki-compat container in the background.
+# --memory/--cpus are required: b00t's OCI limits hook rejects any `podman run`
+# without an explicit resource budget (matches the pod manifest's own 2Gi/1 CPU).
+dev-kroki-up:
+    podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-kroki-compat:dev -f containers/kroki-compat/Containerfile .
+    podman rm -f kr0ki-dev-kroki >/dev/null 2>&1 || true
+    podman run -d --name kr0ki-dev-kroki --memory=2g --memory-swap=2g --cpus=1 -p {{dev_kroki_port}}:8000 -e KROKI_SAFE_MODE=secure localhost/kr0ki-kroki-compat:dev
+    @for i in $(seq 1 30); do curl -fsS http://127.0.0.1:{{dev_kroki_port}}/health >/dev/null 2>&1 && exit 0; sleep 1; done; echo "kroki-compat did not become ready" >&2; exit 1
+
+dev-kroki-down:
+    podman rm -f kr0ki-dev-kroki >/dev/null 2>&1 || true
+
+# Run kr0ki-server locally against our own kroki-compat image (started if not
+# already running) — no k0s, no image import, no pod recreate. Ctrl-C stops the
+# server; kroki-compat keeps running for the next `just dev` (stop it with
+# `just dev-kroki-down`). Defaults to a fresh `playbook/dist`; pass `npm run build`
+# output elsewhere if needed.
+dev bind="127.0.0.1:8788" playbook_dir="playbook/dist":
+    curl -fsS http://127.0.0.1:{{dev_kroki_port}}/health >/dev/null 2>&1 || just dev-kroki-up
+    KR0KI_BIND={{bind}} KR0KI_BACKEND_URL=http://127.0.0.1:{{dev_kroki_port}} KR0KI_PLAYBOOK_DIR={{playbook_dir}} cargo run -p kr0ki-server
 
 # Container-only local lifecycle. Podman builds OCI images; the local k0s cluster
 # imports and runs them, and kubectl is the sole workload lifecycle interface.
 pod-build:
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-server:dev -f containers/kr0ki-server/Containerfile .
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-mcp:dev -f containers/kr0ki-mcp/Containerfile .
+    podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-kroki-compat:dev -f containers/kroki-compat/Containerfile .
 
 k0s-load image:
     podman save {{image}} | sudo k0s ctr images import -
@@ -75,6 +100,7 @@ k0s-load image:
 pod-up: pod-build
     just k0s-load localhost/kr0ki-server:dev
     just k0s-load localhost/kr0ki-mcp:dev
+    just k0s-load localhost/kr0ki-kroki-compat:dev
     kubectl --context Default apply -f deploy/namespace.yaml
     # This is a standalone Pod, not a Deployment: apply alone preserves old
     # containers when the tag is unchanged. Recreate after import for hot reload.

@@ -162,6 +162,17 @@ render options), not from a mutable "latest" pointer. Consequences:
   deferred (adds nothing for raw text). `SECURE` mode is the backend Kroki's config,
   not kr0ki's — input is LLM-authored, `!include`/`!includeurl` is an SSRF vector
   (`infrastructure#217`).
+  - **Raw/hand-authored diagram testing is a permanent, first-class capability, not a
+    stopgap superseded by `PLAN-KR0KI-003`'s generated pipeline.** The two coexist: an
+    agent or a person can always paste or upload a hand-written diagram in any
+    supported format and render it, independent of whether it was AST/IaC-derived.
+    API + MCP already satisfy this (`GET /formats`, `POST /render/:format` take any
+    source; `mcp__kr0ki-mcp__render_diagram` + `list_formats` wrap the same). ◑ **Gap:
+    the `playbook/` web-ux does not** — `RendererPanel.vue` only edits/renders the
+    pre-baked example catalog (`kr0ki_core::examples::ALL`), and its sidebar only lists
+    formats that already have a fixture. It needs a general "custom diagram" mode:
+    pick any of `DiagramFormat::ALL`'s 26 slugs, start blank (or upload a file), render.
+    See `docs/TODO.md` box 5.
 - **FR3** — Accept `systhread-core` isometric layout JSON and render via its `render.rs`.
 - **FR4** — Accept the typed SysML-v2/KerML view model (`nem-poweragent-lab#53`) and
   lower it to the appropriate `ViewDefinition` before rendering.
@@ -187,9 +198,16 @@ render options), not from a mutable "latest" pointer. Consequences:
 - **NFR2 — Vendored, pinned renderer.** `kroki-mcp` is a git submodule pinned to an
   exact SHA (`08765f64` today), built from source. Never `latest`, never an unpinned
   `git clone --branch`.
-- **NFR3 — Core Kroki only.** No Mermaid/BlockDiag/Excalidraw companion containers
-  (headless-Chromium memory cost — learned in `infrastructure#217`). JVM-bundled formats
-  (PlantUML/GraphViz/Vega-Lite/C4/Ditaa) need no companion.
+- **NFR3 — Core Kroki only.** No headless-Chromium companion containers
+  (memory cost — learned in `infrastructure#217`). Live-verified 2026-09-16 against a
+  companion-free Kroki container: `mermaid`, `bpmn`, `excalidraw`, `diagramsnet` return
+  `503 Service Unavailable` (genuinely need a companion) — **`blockdiag` and its family
+  (`actdiag`/`seqdiag`/`nwdiag`/`packetdiag`/`rackdiag`) do not**, contrary to this
+  NFR's original assumption; they, `vega`, `erd`, `umlet`, `pikchr`, `goat`,
+  `bytefield`, `dbml`, and `tikz` all render with zero extra infra and are part of the
+  supported set (`DiagramFormat::ALL`, 26 formats). Re-verify live before adding any
+  further Kroki format here — `503` is the authoritative signal, not the format's name
+  or reputation.
 - **NFR4 — CDN-first.** Idle cost ≈ zero; a cache hit never starts a renderer.
 - **NFR5 — b00t interface.** Agent-facing operations go through `mcp__b00t-mcp__*` /
   `b00t` CLI, not bespoke HTTP — kr0ki is a b00t datum surface, not a side channel.

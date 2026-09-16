@@ -1,6 +1,6 @@
 //! Wiremock-backed tests for `SysmlV2Client`. No real network.
 
-use kr0ki_sysmlv2_client::{Direction, SysmlV2Client};
+use kr0ki_sysmlv2_client::{Direction, Page, PageParamStyle, SysmlV2Client};
 use serde_json::json;
 use wiremock::matchers::{header, method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -119,6 +119,50 @@ async fn roots_tolerates_object_form() {
 
     let client = SysmlV2Client::new(server.uri());
     assert_eq!(client.roots("p1", "c1").await.unwrap(), ["r1", "r2"]);
+}
+
+#[tokio::test]
+async fn json_api_bracket_style_sends_bracket_form_params_and_follows_link() {
+    let server = MockServer::start().await;
+    let base = server.uri();
+
+    // Configured for bracket-form params: the request itself must carry
+    // `page[size]`, not `page-size`, and the Link header's `page[after]` cursor
+    // must be the one that gets picked up.
+    Mock::given(method("GET"))
+        .and(path("/projects/p1/commits/c1/elements"))
+        .and(query_param("page[size]", "2"))
+        .and(query_param_is_missing("page-size"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header(
+                    "link",
+                    format!(
+                        "<{base}/projects/p1/commits/c1/elements?page[after]=cursorA&page[size]=2>; rel=\"next\""
+                    )
+                    .as_str(),
+                )
+                .set_body_json(json!([{ "@id": "e1", "@type": "PartUsage" }])),
+        )
+        .mount(&server)
+        .await;
+
+    let client = SysmlV2Client::new(&base).with_page_param_style(PageParamStyle::JsonApiBracket);
+    let page = client
+        .elements(
+            "p1",
+            "c1",
+            Page {
+                after: None,
+                before: None,
+                size: Some(2),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.next_after.as_deref(), Some("cursorA"));
 }
 
 #[tokio::test]

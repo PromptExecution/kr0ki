@@ -1,0 +1,3 @@
+#!/bin/sh
+# Kroki supplies security profile, format, timeout, and pipe flags unchanged.
+exec /opt/java/openjdk/bin/java -jar /opt/kr0ki/plantuml.jar "$@"

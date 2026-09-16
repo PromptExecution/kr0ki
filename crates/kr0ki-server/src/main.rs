@@ -31,6 +31,9 @@ async fn main() -> anyhow::Result<()> {
     let backend_url =
         std::env::var("KR0KI_BACKEND_URL").unwrap_or_else(|_| "https://kroki.io".into());
     let auth_token = std::env::var("KR0KI_AUTH_TOKEN").ok();
+    let playbook_dir = std::env::var("KR0KI_PLAYBOOK_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("./playbook/dist"));
 
     let hostname = std::process::Command::new("hostname")
         .output()
@@ -47,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
     } else {
         tracing::info!("caller auth enabled (FR7 minimal)");
     }
-    tracing::info!(%bind, %cache_dir, %backend_url, %hostname, "starting kr0ki");
+    tracing::info!(%bind, %cache_dir, %backend_url, %hostname, playbook_dir = %playbook_dir.display(), "starting kr0ki");
 
     let service = RenderService::new(
         HttpKrokiBackend::new(&backend_url),
@@ -55,6 +58,7 @@ async fn main() -> anyhow::Result<()> {
     );
     let state = AppState {
         service: Arc::new(service),
+        playbook_dir,
     };
 
     let listener = tokio::net::TcpListener::bind(&bind)

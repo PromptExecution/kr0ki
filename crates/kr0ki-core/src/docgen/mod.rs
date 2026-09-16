@@ -164,6 +164,13 @@ fn write_static_mdb00k(
         format::format_rustdoc(symbols),
     )
     .context("write static rustdoc export")?;
+    let playbook_api_dir = output_dir.join("playbook/api");
+    std::fs::create_dir_all(&playbook_api_dir).context("create static playb00k API directory")?;
+    std::fs::write(
+        playbook_api_dir.join("examples.json"),
+        serde_json::to_string_pretty(crate::examples::ALL)?,
+    )
+    .context("write static playb00k example catalog")?;
     Ok(())
 }
 
@@ -214,6 +221,9 @@ mod tests {
         assert!(html.contains("KerML representation"));
         assert!(html.contains("SysML v2 representation"));
         assert!(html.contains("http://192.168.1.137:8787/docs"));
+        let examples =
+            std::fs::read_to_string(directory.join("playbook/api/examples.json")).unwrap();
+        assert!(examples.contains("d2-rust-flow"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 }

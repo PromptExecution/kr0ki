@@ -53,8 +53,9 @@ re-inferred.
 └────────────┬────────────────────┘
              │   (this PR feeds the SysML-v2 arm: ModelSnapshot, a validated model
              │    pulled from an OMG-API server. Rust-source and Kubernetes-source
-             │    are sibling front-ends into the same graph — named here, out of
-             │    scope for this PR.)
+             │    are sibling front-ends into the same graph — out of scope for this
+             │    PR. Rust-source arm scoped in
+             │    [`PLAN-KR0KI-003.md`](PLAN-KR0KI-003-rust-source-frontend.md).)
              ▼
 ┌─ 2 ─────────────────────────────┐
 │  canonical UFO-typed semantic   │   ufo_types:

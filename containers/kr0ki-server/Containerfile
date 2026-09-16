@@ -1,3 +1,11 @@
+FROM docker.io/library/node:20-alpine AS playbook
+
+WORKDIR /playbook
+COPY playbook/package.json playbook/package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY playbook ./
+RUN npm run build
+
 FROM docker.io/library/rust:1.98-alpine AS build
 
 RUN apk add --no-cache musl-dev
@@ -11,7 +19,9 @@ FROM docker.io/library/alpine:3.22
 
 RUN addgroup -S kr0ki && adduser -S -G kr0ki kr0ki
 COPY --from=build /src/target/release/kr0ki /usr/local/bin/kr0ki
+COPY --from=playbook /playbook/dist /usr/share/kr0ki-playbook
 
 USER kr0ki
 EXPOSE 8787
+ENV KR0KI_PLAYBOOK_DIR=/usr/share/kr0ki-playbook
 ENTRYPOINT ["kr0ki"]
