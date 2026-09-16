@@ -164,9 +164,24 @@ _Last updated: 2026-09-15._
   `rackdiag`, `erd`, `umlet`, `pikchr`, `goat`, `bytefield`, `dbml`, `tikz`,
   `svgbob` — added all 15, one fixture each, `outputs: ["svg","png"]` uniformly
   (the flatten fallback covers whichever don't have native Kroki PNG). PRD-KR0KI-001
-  NFR3 corrected to match. `wireviz`/`structurizr`/`symbolator` returned 400/500
-  against quick smoke-test sources (not `503`) — likely also companion-free, just
-  needs a real fixture to confirm; not yet added.
+  NFR3 corrected to match.
+- [x] **`wireviz`/`structurizr`/`symbolator` — confirmed companion-free with real
+  fixtures** — the earlier 400/500 was bad smoke-test syntax, not a companion
+  requirement. `wireviz` (a two-connector YAML wiring harness) and `structurizr` (a
+  system-context + container C4 workspace) worked on the first real fixture.
+  `symbolator` needed two rounds: `std_logic_vector(N downto 0)` bus ports and a
+  `format`-named signal produced a silent `200` with a **0-byte body** — no error,
+  just nothing — until swapped for a canonical single-bit-`STD_LOGIC`-port `Port
+  (...)` block (Symbolator's own upstream example shape), which rendered a real SVG.
+  `DiagramFormat::ALL` now 26. Also caught a false negative while testing: BusyBox
+  `wget --post-file=/dev/stdin` on a piped, non-seekable stdin doesn't send
+  `Content-Length` and got a `500` from `symbolator` that a proper client (Python
+  `urllib`, which buffers first) didn't — a reminder that a single failing client
+  isn't proof a format needs a companion; re-test with a client that sends a normal
+  request before concluding `503`-equivalent.
+- [x] **TikZ fixture richened** — `tikz-line` replaced with a 4-node, 3-edge
+  positioned pipeline (`client -> service -> {cache, backend}`) instead of one line
+  segment.
 - [ ] **PDF output** — later Kroki capability; not yet available.
 
 ## Cross-cutting

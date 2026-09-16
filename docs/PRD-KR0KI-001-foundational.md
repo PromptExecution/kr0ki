@@ -171,7 +171,7 @@ render options), not from a mutable "latest" pointer. Consequences:
     the `playbook/` web-ux does not** — `RendererPanel.vue` only edits/renders the
     pre-baked example catalog (`kr0ki_core::examples::ALL`), and its sidebar only lists
     formats that already have a fixture. It needs a general "custom diagram" mode:
-    pick any of `DiagramFormat::ALL`'s 23 slugs, start blank (or upload a file), render.
+    pick any of `DiagramFormat::ALL`'s 26 slugs, start blank (or upload a file), render.
     See `docs/TODO.md` box 5.
 - **FR3** — Accept `systhread-core` isometric layout JSON and render via its `render.rs`.
 - **FR4** — Accept the typed SysML-v2/KerML view model (`nem-poweragent-lab#53`) and
@@ -205,7 +205,7 @@ render options), not from a mutable "latest" pointer. Consequences:
   (`actdiag`/`seqdiag`/`nwdiag`/`packetdiag`/`rackdiag`) do not**, contrary to this
   NFR's original assumption; they, `vega`, `erd`, `umlet`, `pikchr`, `goat`,
   `bytefield`, `dbml`, and `tikz` all render with zero extra infra and are part of the
-  supported set (`DiagramFormat::ALL`, 23 formats). Re-verify live before adding any
+  supported set (`DiagramFormat::ALL`, 26 formats). Re-verify live before adding any
   further Kroki format here — `503` is the authoritative signal, not the format's name
   or reputation.
 - **NFR4 — CDN-first.** Idle cost ≈ zero; a cache hit never starts a renderer.

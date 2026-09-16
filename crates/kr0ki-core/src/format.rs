@@ -36,6 +36,9 @@ pub enum DiagramFormat {
     Dbml,
     TikZ,
     SvgBob,
+    WireViz,
+    Structurizr,
+    Symbolator,
 }
 
 impl DiagramFormat {
@@ -65,6 +68,9 @@ impl DiagramFormat {
             Self::Dbml => "dbml",
             Self::TikZ => "tikz",
             Self::SvgBob => "svgbob",
+            Self::WireViz => "wireviz",
+            Self::Structurizr => "structurizr",
+            Self::Symbolator => "symbolator",
         }
     }
 
@@ -94,6 +100,9 @@ impl DiagramFormat {
         Self::Dbml,
         Self::TikZ,
         Self::SvgBob,
+        Self::WireViz,
+        Self::Structurizr,
+        Self::Symbolator,
     ];
 }
 
@@ -191,9 +200,12 @@ mod tests {
                 | DiagramFormat::ByteField
                 | DiagramFormat::Dbml
                 | DiagramFormat::TikZ
-                | DiagramFormat::SvgBob => {}
+                | DiagramFormat::SvgBob
+                | DiagramFormat::WireViz
+                | DiagramFormat::Structurizr
+                | DiagramFormat::Symbolator => {}
             }
         }
-        assert_eq!(DiagramFormat::ALL.len(), 23);
+        assert_eq!(DiagramFormat::ALL.len(), 26);
     }
 }
