@@ -162,6 +162,17 @@ render options), not from a mutable "latest" pointer. Consequences:
   deferred (adds nothing for raw text). `SECURE` mode is the backend Kroki's config,
   not kr0ki's — input is LLM-authored, `!include`/`!includeurl` is an SSRF vector
   (`infrastructure#217`).
+  - **Raw/hand-authored diagram testing is a permanent, first-class capability, not a
+    stopgap superseded by `PLAN-KR0KI-003`'s generated pipeline.** The two coexist: an
+    agent or a person can always paste or upload a hand-written diagram in any
+    supported format and render it, independent of whether it was AST/IaC-derived.
+    API + MCP already satisfy this (`GET /formats`, `POST /render/:format` take any
+    source; `mcp__kr0ki-mcp__render_diagram` + `list_formats` wrap the same). ◑ **Gap:
+    the `playbook/` web-ux does not** — `RendererPanel.vue` only edits/renders the
+    pre-baked example catalog (`kr0ki_core::examples::ALL`), and its sidebar only lists
+    formats that already have a fixture. It needs a general "custom diagram" mode:
+    pick any of `DiagramFormat::ALL`'s 8 slugs, start blank (or upload a file), render.
+    See `docs/TODO.md` box 5.
 - **FR3** — Accept `systhread-core` isometric layout JSON and render via its `render.rs`.
 - **FR4** — Accept the typed SysML-v2/KerML view model (`nem-poweragent-lab#53`) and
   lower it to the appropriate `ViewDefinition` before rendering.

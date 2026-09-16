@@ -36,7 +36,8 @@ _Last updated: 2026-09-15._
 - [x] **Docgen / mdb00k** — `kr0ki-core/src/docgen/` harvests own Rust source via `syn`, serves `/docs` (HTML), `/docs/api.json`, `/docs/api.tomllm` (b00t format), `/docs/api.rustdoc`. Pattern derived from `b00t-cli/src/commands/docgen.rs` — clean-room Rust implementation matching b00t output conventions. 50 symbols harvested from workspace. Server binds `0.0.0.0:8787` by default; logs hostname + docs URL on startup.
 - [x] **AGENTS.md + HANDOFF.pm** — ecosystem orientation and comprehensive handoff written.
 - [x] **`ModelSnapshot.content_hash` in the render cache key** — `model_cache_key(view_kind, notation, content_hash) = SHA256("kr0ki/v1" ‖ 0x1f ‖ view_kind ‖ 0x1f ‖ notation ‖ 0x1f ‖ content_hash)` (PLAN §3) in `kr0ki-core::cache`; `RenderService::render_model()` uses it, so the SysML path participates in cache identity. 4 tests (determinism, per-field variance, differs from text key, caches on hash).
-- [x] **Live playb00k render harness** — `/docs/examples/kr0ki-render-flow.svg` renders the executable D2 Rust-flow fixture through the same `RenderService` as callers; `/docs` includes it with KerML/SysML v2 source fixtures. `just playbook-e2e` verifies the deployed page, SVG, artifact identity, and cache hit. `pod-up` recreates its standalone Pod after image import so this is hot-reloadable; both Kroki and kr0ki have `/health` readiness probes, so the wait gates on a usable renderer rather than merely started processes.
+- [x] **Live playb00k render harness** — `/docs/examples/kr0ki-render-flow.svg` renders a hand-authored D2 fixture describing the Rust flow (not derived from the Rust AST — see `PLAN-KR0KI-003.md` §1) through the same `RenderService` as callers; `/docs` includes it with KerML/SysML v2 source fixtures. `just playbook-e2e` verifies the deployed page, SVG, artifact identity, and cache hit. `pod-up` recreates its standalone Pod after image import so this is hot-reloadable; both Kroki and kr0ki have `/health` readiness probes, so the wait gates on a usable renderer rather than merely started processes.
+- [x] **Vue/Vite playb00k harness** — `/playbook/` serves a sidebar-driven Vue UI with one executable fixture per supported format; `kr0ki-core::examples::ALL` is the catalog consumed by Rust tests, live `/api/examples`, and static mdb00k `playbook/api/examples.json`. `playbook/src/components/RendererPanel.story.vue` is the Histoire visual-regression story.
 
 ---
 
@@ -53,7 +54,12 @@ _Last updated: 2026-09-15._
 - [ ] **`page-after` bracket-form fallback** — client uses hyphenated `page-after` /
   `page-size`; some OMG-pilot servers use JSON:API `page[after]`. Make `Page`
   construction configurable per target. (client crate docs flag the swap point.)
-- [ ] _(later, named not scoped)_ **Rust-source front-end** — Rust AST → UFO graph.
+- [ ] **Rust-source front-end** — Rust AST → UFO graph → recognizer → SysML constructs
+  → diagram-as-code notation → render. Scoped in
+  [`PLAN-KR0KI-003.md`](PLAN-KR0KI-003-rust-source-frontend.md). **Not** the docgen
+  doc-symbol harvest and **not** the Histoire/Vue playbook (both stay documentation/
+  testing tools, out of this pipeline — PLAN-003 §1 corrects a prior conflation of the
+  two with this item).
 - [ ] _(later)_ **k8s-source front-end** — manifests / kustomize / Helm → UFO graph via
   the Kubernetes recognizer (box 3).
 
@@ -111,6 +117,16 @@ _Last updated: 2026-09-15._
   container / sidecar, not in the Rust image. (`EVAL-kubediagrams.md` §2a/§4)
 - [ ] **Wire `vendor/kroki-mcp`** — P0 talks direct HTTP; the MCP hop matters for SVG
   normalisation / inline-embedding (`render.rs` module doc).
+- [ ] **Playbook: general-purpose custom-diagram mode (FR2 web-ux gap)** — `playbook/`
+  currently only browses/edits the fixture catalog (`kr0ki_core::examples::ALL`) via
+  `RendererPanel.vue`; its format sidebar (`App.vue`) only lists formats that already
+  have an example. Add a "custom diagram" mode: enumerate all formats from `GET
+  /formats` (not just ones with a fixture), start from a blank/minimal source per
+  format (or a file-upload input), and render through the same endpoint. This is a
+  pure web-ux gap — the API (`/formats`, `/render/:format`) and the MCP
+  (`mcp__kr0ki-mcp__render_diagram` / `list_formats`) already support arbitrary
+  hand-authored source in any format. See `PLAN-KR0KI-003.md` §6: raw diagram testing
+  is permanent and coexists with, not superseded by, the AST/IaC-generated pipeline.
 - [x] **PNG output** — `OutputKind::Png` implemented and live-tested. See Done.
 - [ ] **PDF output** — later Kroki capability; not yet available.
 
@@ -166,6 +182,7 @@ tracked as they affect production readiness.
 | 7 | ~~`ModelSnapshot.content_hash` not yet wired into cache key~~ | ~~Medium~~ | **Done** — `model_cache_key` + `render_model` in `kr0ki-core`; see Done above |
 | 8 | Container build did not copy playb00k fixtures required by `include_str!` | Medium | **Fixed** — `containers/kr0ki-server/Containerfile` copies `templates/`; caught by `just pod-up` before deployment |
 | 9 | `ledgrrr` has no kr0ki call path despite the intended holon-viz integration | Medium | Track the D2 emitter/client seam above; do not conflate Mermaid with kr0ki's standalone supported formats |
+| 10 | Kroki's upstream PlantUML native executable requires x86-64-v3, while sm3lly k0s exposes x86-64-v2 | High | Use the pinned, checksum-verified JVM PlantUML overlay in `containers/kroki-compat/`; prove every catalog fixture against local k0s before promotion |
 
 ## Open decisions (not kr0ki's to make)
 
