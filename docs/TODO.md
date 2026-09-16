@@ -114,11 +114,24 @@ _Last updated: 2026-09-15._
   notation. Blocked on boxes 2+3.
 - [ ] **`systhread-core` isometric backend (FR3)** — call its `render.rs`; do not port
   or re-solve the Cassowary/kasuari layout.
-- [ ] **`KubeDiagramsBackend` — leaf feature, NOT the pipeline** — sandboxed subprocess
-  (rootless, no network, ro FS), k8s YAML bundle → SVG, distinct route
-  (`POST /render/k8s`). **Never expose `-c`** (arbitrary Python via `exec()`). Hash the
-  normalised `dot_json`, not the PNG. Pin Graphviz. Ship KubeDiagrams as its own
-  container / sidecar, not in the Rust image. (`EVAL-kubediagrams.md` §2a/§4)
+- [ ] ◑ **`KubeDiagramsBackend` — leaf feature, NOT the pipeline** — substantially
+  shipped, but as an MCP tool rather than the originally-envisioned native HTTP
+  route (an intentional, better-aligned divergence — see NFR5 below). What's already
+  there: `containers/kubediagram-mcp/bridge.py` spawns `kube-diagrams` as a subprocess
+  with **no `-c`** ever passed (arbitrary-Python `exec()` avoided by construction, not
+  by filtering), a 1 MiB manifest cap, and a 60s timeout; `containers/kr0ki-mcp`
+  bundles it and proxies to it (`call_kubediagram_worker`), runs as `USER 65532:65532`
+  (rootless), and `deploy/kr0ki-local.pod.yaml`'s `kr0ki-mcp` container sets
+  `allowPrivilegeEscalation: false`, drops all capabilities, and
+  `readOnlyRootFilesystem: true`. Pinned via the container's own `pip install` version
+  pins, not a floating `latest`. **Still open:** (1) no content-addressed caching —
+  every call re-runs `kube-diagrams` from scratch instead of hashing the normalised
+  `dot_json` and reusing `FsCache` the way every other format does; (2) no explicit
+  "no network" isolation declared (no `NetworkPolicy` in `deploy/`); (3) `-o` writes
+  to a `tempfile.TemporaryDirectory()`, which is a fresh, not-attacker-writable path
+  each call, but is not itself sandboxed against the rest of the container's `ro` FS
+  beyond what `readOnlyRootFilesystem` + the `emptyDir` `/tmp` mount already provide.
+  (`EVAL-kubediagrams.md` §2a/§4)
 - [ ] **Wire `vendor/kroki-mcp`** — P0 talks direct HTTP; the MCP hop matters for SVG
   normalisation / inline-embedding (`render.rs` module doc).
 - [x] **Playbook: general-purpose custom-diagram mode (FR2 web-ux gap)** —
@@ -144,8 +157,12 @@ _Last updated: 2026-09-15._
   Full OAuth/JWT rate-limited auth deferred until D4/D5 land.
 - [ ] **CDN tier (FR5 / D5)** — Cloudflare R2 + Workers in front of `FsCache`; a cache
   hit must never start a renderer (NFR4).
-- [ ] **NFR5 — b00t interface** — agent-facing ops through `mcp__b00t-mcp__*` / `b00t`
-  CLI, not bespoke HTTP. (A `kr0ki` MCP surface, or extend `_b00t_/kroki.mcp.toml`.)
+- [x] **NFR5 — b00t interface** — `containers/kr0ki-mcp/bridge.py` is exactly the
+  named option: a `kr0ki` MCP surface (`render_diagram`, `list_formats`,
+  `render_kubernetes_manifest`), stdio JSON-RPC, no bespoke HTTP exposed to the
+  agent. Runs rootless (`USER 65532:65532`). Live in this session as
+  `mcp__kr0ki-mcp__*`. `_b00t_/kroki.mcp.toml` extension not needed given this
+  already exists.
 - [ ] **`ledgrrr` / `holon-viz` client seam + E2E** — extract a small kr0ki HTTP client
   library and add a `CytoscapeGraph → D2` emitter in `holon-viz`; then prove
   `holon-viz sample → D2 → local kr0ki → SVG` (including a repeated cache hit). Do not
