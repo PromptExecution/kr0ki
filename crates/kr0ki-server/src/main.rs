@@ -15,6 +15,11 @@
 //!                              companion-required status, on a shared pod
 //!                              volume it wrote at its own startup. Unset
 //!                              disables the route with a 503, not a panic.
+//!   KR0KI_KUBEDIAGRAM_WORKER_URL if set, enables POST /render/kubediagram —
+//!                              the kr0ki-mcp sidecar's internal
+//!                              http_worker.py listener, e.g.
+//!                              http://127.0.0.1:8788. Unset disables the
+//!                              route with a 503, not a panic.
 
 mod app;
 mod docs;
@@ -49,6 +54,7 @@ async fn main() -> anyhow::Result<()> {
     let capabilities_path = std::env::var("KR0KI_CAPABILITIES_PATH")
         .ok()
         .map(std::path::PathBuf::from);
+    let kubediagram_worker_url = std::env::var("KR0KI_KUBEDIAGRAM_WORKER_URL").ok();
 
     let hostname = std::process::Command::new("hostname")
         .output()
@@ -70,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
         playbook_dir = %playbook_dir.display(),
         b00t_graph_artifacts_path = ?b00t_graph_artifacts_path.as_ref().map(|p| p.display().to_string()),
         capabilities_path = ?capabilities_path.as_ref().map(|p| p.display().to_string()),
+        kubediagram_worker_url = ?kubediagram_worker_url,
         "starting kr0ki"
     );
 
@@ -82,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
         playbook_dir,
         b00t_graph_artifacts_path,
         capabilities_path,
+        kubediagram_worker_url,
     };
 
     let listener = tokio::net::TcpListener::bind(&bind)
