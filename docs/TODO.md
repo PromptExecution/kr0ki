@@ -176,8 +176,8 @@ tracked as they affect production readiness.
 |---|---|---|---|
 | 1 | Docgen workspace root detection uses string-search `[workspace]` in `Cargo.toml` — brittle if vendored | Low | Switch to `cargo metadata --format-version=1` if robustness needed |
 | 2 | Docgen does not harvest `impl` blocks, associated items, or private items | Low | Extend `syn::visit` if needed; currently public API only |
-| 3 | `/docs` HTML references `templates/b00t-stack-orchestration.d2` by relative filesystem path — breaks if CWD ≠ repo root | Low | Use `include_str!` or resolve relative to executable path |
-| 4 | No CI coverage specifically targets the docgen endpoints | Medium | Extend the existing GitHub Actions workflow; validate it locally with `wrkflw` |
+| 3 | ~~`/docs` HTML references `templates/b00t-stack-orchestration.d2` by relative filesystem path — breaks if CWD ≠ repo root~~ | ~~Low~~ | **Fixed** — `docs.rs` now embeds it via `include_str!`, same pattern as the adjacent `RUST_FLOW_D2` const; no runtime file read left on this path |
+| 4 | ~~No CI coverage specifically targets the docgen endpoints~~ | ~~Medium~~ | **Already covered** — `crates/kr0ki-server/tests/http.rs` has `docs_json_returns_symbol_array`, `docs_rustdoc_has_source_marker`, `docs_html_returns_valid_page`, `docs_tomllm_has_boilerplate`, `docs_rust_flow_uses_the_render_service_cache`; `.github/workflows/ci.yml`'s `check` job runs `cargo test --workspace` on every push/PR |
 | 5 | b00t MCP bridge down (`bad handshake: expected ident at line 1 column 2`) | External | Use direct HTTP or `b00t-cli` instead; not a kr0ki bug |
 | 6 | D2 template edge labels with `{slug}` syntax break D2 parser | Fixed | Replaced with `slash slug slash` syntax |
 | 7 | ~~`ModelSnapshot.content_hash` not yet wired into cache key~~ | ~~Medium~~ | **Done** — `model_cache_key` + `render_model` in `kr0ki-core`; see Done above |

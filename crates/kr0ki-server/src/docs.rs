@@ -43,6 +43,11 @@ pub fn routes() -> Router<AppState> {
 }
 
 const RUST_FLOW_D2: &str = include_str!("../../../templates/kr0ki-render-flow.d2");
+/// Embedded at compile time, not read at runtime: a relative `fs::read_to_string`
+/// here broke whenever the process's CWD wasn't the repo root (container images,
+/// `cargo run` from a different directory, …).
+const B00T_STACK_ORCHESTRATION_D2: &str =
+    include_str!("../../../templates/b00t-stack-orchestration.d2");
 
 async fn docs_html() -> Response {
     let symbols = match harvest_or_cache().await {
@@ -56,13 +61,10 @@ async fn docs_html() -> Response {
         }
     };
 
-    let d2_source = std::fs::read_to_string("templates/b00t-stack-orchestration.d2")
-        .unwrap_or_else(|_| "# D2 template not found\na -> b".into());
-
     let html = format::format_html_with_live_flow(
         &symbols,
         "kr0ki documentation",
-        &d2_source,
+        B00T_STACK_ORCHESTRATION_D2,
         Some("/docs/examples/kr0ki-render-flow.svg"),
     );
 
