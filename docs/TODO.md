@@ -32,7 +32,8 @@ _Last updated: 2026-09-15._
 - [x] **D6** resolved — [`VOCABULARY.md`](VOCABULARY.md): OMG spec terms verbatim,
   "projection" banned, "digital thread" always qualified.
 - [x] **FR7 minimal — caller auth** — `KR0KI_AUTH_TOKEN` env var gates all routes except `/health` with `Authorization: Bearer <token>`. axum middleware in `kr0ki-server/src/app.rs`. HTTP tests verify 401/200. Suitable for localhost/trusted-proxy only until D4/D5 land.
-- [x] **PNG output** — `OutputKind::Png` added; `?output=png` query param on `/render/{format}` and `/cache/{key}`. Live-verified against kroki.io for GraphViz (D2 returns 400 from Kroki — upstream limitation). Byte-identical cache hit verified in `tests/live_png.rs`.
+- [x] **PNG output** — `OutputKind::Png` added; `?output=png` query param on `/render/{format}` and `/cache/{key}`. Live-verified against kroki.io for GraphViz. `d2`/`nomnoml`/`wavedrom`'s Kroki-side 400 ("Unsupported output format") is now covered by the `kr0ki-core::flatten` SVG-to-PNG fallback below — PNG is universal across all 8 formats. Byte-identical cache hit verified in `tests/live_png.rs`.
+- [x] **SVG-to-PNG flatten fallback** — some formats Kroki only draws as SVG (`nomnoml`, `d2`, `wavedrom`, confirmed live). `RenderService` now tries native PNG first and only on rejection renders SVG and rasterizes it locally (`kr0ki-core::flatten`, `resvg`/`usvg`/`tiny-skia` — pure Rust, no headless-Chromium companion, NFR3-compliant). A genuinely bad source still fails identically on the SVG attempt, so this can't mask a real syntax error. Flattened output is cached under the normal PNG key. 5 unit tests plus live-verified end-to-end against both the redeployed k0s pod and `kroki.io` directly.
 - [x] **Docgen / mdb00k** — `kr0ki-core/src/docgen/` harvests own Rust source via `syn`, serves `/docs` (HTML), `/docs/api.json`, `/docs/api.tomllm` (b00t format), `/docs/api.rustdoc`. Pattern derived from `b00t-cli/src/commands/docgen.rs` — clean-room Rust implementation matching b00t output conventions. 50 symbols harvested from workspace. Server binds `0.0.0.0:8787` by default; logs hostname + docs URL on startup.
 - [x] **AGENTS.md + HANDOFF.pm** — ecosystem orientation and comprehensive handoff written.
 - [x] **`ModelSnapshot.content_hash` in the render cache key** — `model_cache_key(view_kind, notation, content_hash) = SHA256("kr0ki/v1" ‖ 0x1f ‖ view_kind ‖ 0x1f ‖ notation ‖ 0x1f ‖ content_hash)` (PLAN §3) in `kr0ki-core::cache`; `RenderService::render_model()` uses it, so the SysML path participates in cache identity. 4 tests (determinism, per-field variance, differs from text key, caches on hash).
@@ -145,6 +146,15 @@ _Last updated: 2026-09-15._
   `scripts/playbook-e2e.sh` now asserts the built bundle ships the new controls,
   run live against a local `kr0ki-server` serving the built `playbook/dist`. See
   `PLAN-KR0KI-003.md` §6.
+- [x] **Playbook: gallery view with a post/test mechanism** — new `Gallery.vue`
+  (default landing view, toggled against the existing per-format editor via a
+  `Gallery`/`Editor` tab in `App.vue`) shows every catalog example as a card and
+  lets a caller "Test" one or "Test all" — POSTing every declared output for every
+  example against a configurable renderer URL, the same contract
+  `every_playbook_fixture_renders_and_caches` checks, now runnable from a browser
+  with per-card pass/fail status and artifact thumbnails. "Edit" on a card jumps to
+  the existing detail editor for that example. `Gallery.story.vue` added for
+  Histoire visual regression, matching `RendererPanel.story.vue`'s pattern.
 - [x] **PNG output** — `OutputKind::Png` implemented and live-tested. See Done.
 - [ ] **PDF output** — later Kroki capability; not yet available.
 

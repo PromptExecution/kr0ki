@@ -1,11 +1,13 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import RendererPanel from './components/RendererPanel.vue'
+import Gallery from './components/Gallery.vue'
 
 const examples = ref([])
 const selectedFormat = ref('d2')
 const selectedId = ref('')
 const loadError = ref('')
+const viewMode = ref('gallery')
 
 // `api/examples.json` is deliberately relative: it resolves beneath
 // /playbook/ in the live service and beneath /kr0ki/playbook/ on Pages.
@@ -22,6 +24,12 @@ const formats = computed(() => [...new Set(examples.value.map((example) => examp
 function selectFormat(format) {
   selectedFormat.value = format
   selectedId.value = examples.value.find((example) => example.format === format)?.id || ''
+}
+
+function openInEditor(example) {
+  viewMode.value = 'editor'
+  selectedFormat.value = example.format
+  selectedId.value = example.id
 }
 
 watch(selectedFormat, () => {
@@ -47,7 +55,15 @@ onMounted(async () => {
     <aside class="sidebar">
       <a class="brand" href="../">kr0ki <span>playb00k</span></a>
       <p class="sidebar-copy">Test-backed examples from the same catalog used by Rust tests and mdb00k — or clear the source and render your own diagram in any format below.</p>
-      <nav aria-label="Supported diagram formats">
+      <nav class="view-tabs" aria-label="Playbook view">
+        <button class="view-tab" :class="{ active: viewMode === 'gallery' }" @click="viewMode = 'gallery'">
+          Gallery
+        </button>
+        <button class="view-tab" :class="{ active: viewMode === 'editor' }" @click="viewMode = 'editor'">
+          Editor
+        </button>
+      </nav>
+      <nav v-if="viewMode === 'editor'" aria-label="Supported diagram formats">
         <button
           v-for="format in formats"
           :key="format"
@@ -65,10 +81,18 @@ onMounted(async () => {
       <header class="hero">
         <p class="eyebrow">IAC / CODE → PROCEDURAL DIAGRAM → KROKI → SVG / PNG</p>
         <h1>Evaluate kr0ki with executable examples — or your own diagrams.</h1>
-        <p>Choose a supported input format, inspect its fixture, render it through kr0ki, and review cache-backed output. Every fixture's source is editable in place: paste or upload your own hand-authored diagram-as-code and render it the same way, independent of whether it came from a generator. D2 code flows are executable today; the typed SysML v2 path remains upstream of this renderer.</p>
+        <p v-if="viewMode === 'gallery'">
+          Every format's fixture in one grid. Point it at a running kr0ki service and hit
+          "Test all" to render and cache-verify the full catalog — the same contract
+          <code>just test-playbook</code> checks, from the browser.
+        </p>
+        <p v-else>
+          Choose a supported input format, inspect its fixture, render it through kr0ki, and review cache-backed output. Every fixture's source is editable in place: paste or upload your own hand-authored diagram-as-code and render it the same way, independent of whether it came from a generator. D2 code flows are executable today; the typed SysML v2 path remains upstream of this renderer.
+        </p>
       </header>
 
       <p v-if="loadError" class="error">{{ loadError }}</p>
+      <Gallery v-else-if="viewMode === 'gallery'" :examples="examples" @open-in-editor="openInEditor" />
       <RendererPanel
         v-else-if="selectedExample"
         :example="selectedExample"
