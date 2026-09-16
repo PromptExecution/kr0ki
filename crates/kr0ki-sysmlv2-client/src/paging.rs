@@ -8,6 +8,43 @@
 
 use crate::model::Element;
 
+/// Which query-parameter convention a target server uses for element paging.
+///
+/// Flexo and the OMG Java pilot use hyphenated params (`page-after=`); some
+/// JSON:API-flavoured OMG-pilot deployments use bracket form (`page[after]=`)
+/// instead. Configured once per [`crate::SysmlV2Client`] via
+/// [`crate::SysmlV2Client::with_page_param_style`] — pick the one the target server's
+/// own docs/`EVAL-*.md` say it expects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PageParamStyle {
+    #[default]
+    Hyphenated,
+    JsonApiBracket,
+}
+
+impl PageParamStyle {
+    pub const fn after_key(self) -> &'static str {
+        match self {
+            Self::Hyphenated => "page-after",
+            Self::JsonApiBracket => "page[after]",
+        }
+    }
+
+    pub const fn before_key(self) -> &'static str {
+        match self {
+            Self::Hyphenated => "page-before",
+            Self::JsonApiBracket => "page[before]",
+        }
+    }
+
+    pub const fn size_key(self) -> &'static str {
+        match self {
+            Self::Hyphenated => "page-size",
+            Self::JsonApiBracket => "page[size]",
+        }
+    }
+}
+
 /// Derive the cursor for the next page of elements.
 ///
 /// Priority:
@@ -30,10 +67,11 @@ pub fn derive_next_after(
     link_header: Option<&str>,
     items: &[Element],
     requested_size: Option<u32>,
+    style: PageParamStyle,
 ) -> Option<String> {
     if let Some(header) = link_header {
         if let Some(next_url) = parse_link_next(header) {
-            if let Some(cursor) = extract_query_param(&next_url, "page-after") {
+            if let Some(cursor) = extract_query_param(&next_url, style.after_key()) {
                 if !cursor.is_empty() {
                     return Some(cursor);
                 }
@@ -140,8 +178,43 @@ mod tests {
     #[test]
     fn link_header_next_wins() {
         let h = r#"<https://s/x?page-after=abc123&page-size=50>; rel="next", <https://s/x?page-before=z>; rel="prev""#;
-        let next = derive_next_after(Some(h), &els(&["e1", "e2"]), None);
+        let next = derive_next_after(
+            Some(h),
+            &els(&["e1", "e2"]),
+            None,
+            PageParamStyle::Hyphenated,
+        );
         assert_eq!(next.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn json_api_bracket_style_reads_bracket_form_cursor() {
+        let h = r#"<https://s/x?page[after]=abc123&page[size]=50>; rel="next""#;
+        let next = derive_next_after(
+            Some(h),
+            &els(&["e1", "e2"]),
+            None,
+            PageParamStyle::JsonApiBracket,
+        );
+        assert_eq!(next.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn hyphenated_style_does_not_match_a_bracket_form_link() {
+        // A style mismatch must not silently pick up the wrong key's value.
+        let h = r#"<https://s/x?page[after]=abc123>; rel="next""#;
+        let next = derive_next_after(Some(h), &els(&["e1"]), None, PageParamStyle::Hyphenated);
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn param_style_keys() {
+        assert_eq!(PageParamStyle::Hyphenated.after_key(), "page-after");
+        assert_eq!(PageParamStyle::Hyphenated.before_key(), "page-before");
+        assert_eq!(PageParamStyle::Hyphenated.size_key(), "page-size");
+        assert_eq!(PageParamStyle::JsonApiBracket.after_key(), "page[after]");
+        assert_eq!(PageParamStyle::JsonApiBracket.before_key(), "page[before]");
+        assert_eq!(PageParamStyle::JsonApiBracket.size_key(), "page[size]");
     }
 
     #[test]
@@ -159,23 +232,42 @@ mod tests {
 
     #[test]
     fn no_link_full_page_with_size_uses_last_id() {
-        let next = derive_next_after(None, &els(&["e1", "e2", "e3"]), Some(3));
+        let next = derive_next_after(
+            None,
+            &els(&["e1", "e2", "e3"]),
+            Some(3),
+            PageParamStyle::Hyphenated,
+        );
         assert_eq!(next.as_deref(), Some("e3"));
     }
 
     #[test]
     fn no_link_short_page_is_exhausted() {
-        assert_eq!(derive_next_after(None, &els(&["e1", "e2"]), Some(3)), None);
+        assert_eq!(
+            derive_next_after(
+                None,
+                &els(&["e1", "e2"]),
+                Some(3),
+                PageParamStyle::Hyphenated
+            ),
+            None
+        );
     }
 
     #[test]
     fn no_link_no_size_is_exhausted() {
-        assert_eq!(derive_next_after(None, &els(&["e1", "e2"]), None), None);
+        assert_eq!(
+            derive_next_after(None, &els(&["e1", "e2"]), None, PageParamStyle::Hyphenated),
+            None
+        );
     }
 
     #[test]
     fn link_header_without_next_falls_through() {
         let h = r#"<https://s/x?page-before=z>; rel="prev""#;
-        assert_eq!(derive_next_after(Some(h), &els(&["e1"]), None), None);
+        assert_eq!(
+            derive_next_after(Some(h), &els(&["e1"]), None, PageParamStyle::Hyphenated),
+            None
+        );
     }
 }

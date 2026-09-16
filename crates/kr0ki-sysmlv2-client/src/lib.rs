@@ -34,6 +34,12 @@
 //! [`all_elements`](SysmlV2Client::all_elements) loops this until `next_after` is
 //! `None`. See `paging::derive_next_after` for the full rationale.
 //!
+//! The `page-after` / `page-before` / `page-size` query-param spelling above is the
+//! default [`PageParamStyle::Hyphenated`]; some JSON:API-flavoured OMG-pilot
+//! deployments use bracket form (`page[after]=`) instead — set
+//! [`SysmlV2Client::with_page_param_style`] to [`PageParamStyle::JsonApiBracket`] for
+//! those.
+//!
 //! ## Content hashing
 //!
 //! No target server exposes a per-commit content hash / ETag, so
@@ -55,6 +61,7 @@ pub use hash::{canonical_json, compute_content_hash};
 pub use model::{
     Branch, Commit, Direction, Element, ElementPage, ModelSnapshot, Page, Project, Ref, Tag,
 };
+pub use paging::PageParamStyle;
 
 /// `User-Agent` sent on every request.
 pub const USER_AGENT: &str = concat!("kr0ki-sysmlv2-client/", env!("CARGO_PKG_VERSION"));
@@ -65,6 +72,7 @@ pub struct SysmlV2Client {
     base_url: String,
     http: reqwest::Client,
     token: Option<String>,
+    page_param_style: PageParamStyle,
 }
 
 impl SysmlV2Client {
@@ -81,6 +89,7 @@ impl SysmlV2Client {
             base_url,
             http,
             token: None,
+            page_param_style: PageParamStyle::default(),
         }
     }
 
@@ -88,6 +97,16 @@ impl SysmlV2Client {
     #[must_use]
     pub fn with_token(mut self, token: impl Into<String>) -> Self {
         self.token = Some(token.into());
+        self
+    }
+
+    /// Set which paging query-parameter convention this target server expects
+    /// (default [`PageParamStyle::Hyphenated`] — Flexo and the OMG Java pilot). Some
+    /// JSON:API-flavoured OMG-pilot deployments need [`PageParamStyle::JsonApiBracket`]
+    /// instead; check the target server's own docs / `EVAL-*.md` before switching.
+    #[must_use]
+    pub fn with_page_param_style(mut self, style: PageParamStyle) -> Self {
+        self.page_param_style = style;
         self
     }
 
@@ -203,13 +222,13 @@ impl SysmlV2Client {
         );
         let mut query: Vec<(&str, String)> = Vec::new();
         if let Some(after) = &page.after {
-            query.push(("page-after", after.clone()));
+            query.push((self.page_param_style.after_key(), after.clone()));
         }
         if let Some(before) = &page.before {
-            query.push(("page-before", before.clone()));
+            query.push((self.page_param_style.before_key(), before.clone()));
         }
         if let Some(size) = page.size {
-            query.push(("page-size", size.to_string()));
+            query.push((self.page_param_style.size_key(), size.to_string()));
         }
 
         let resp = self.send_get(&url, &query).await?;
@@ -227,7 +246,8 @@ impl SysmlV2Client {
             });
         }
         let items: Vec<Element> = serde_json::from_slice(&bytes)?;
-        let next_after = paging::derive_next_after(link.as_deref(), &items, page.size);
+        let next_after =
+            paging::derive_next_after(link.as_deref(), &items, page.size, self.page_param_style);
         Ok(ElementPage { items, next_after })
     }
 

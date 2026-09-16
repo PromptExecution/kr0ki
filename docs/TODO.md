@@ -51,9 +51,13 @@ _Last updated: 2026-09-15._
   = SHA256("kr0ki/v1" ‖ view_kind ‖ notation ‖ ModelSnapshot.content_hash)`
   (PLAN §3). Implemented as `kr0ki-core::cache::model_cache_key` +
   `RenderService::render_model`; 4 tests. See Done below.
-- [ ] **`page-after` bracket-form fallback** — client uses hyphenated `page-after` /
-  `page-size`; some OMG-pilot servers use JSON:API `page[after]`. Make `Page`
-  construction configurable per target. (client crate docs flag the swap point.)
+- [x] **`page-after` bracket-form fallback** — added `PageParamStyle` (`Hyphenated`
+  default / `JsonApiBracket`) to `kr0ki-sysmlv2-client`; set per-client via
+  `SysmlV2Client::with_page_param_style`. Covers both the request-side query keys
+  (`elements()`) and the response-side `Link`-header cursor extraction
+  (`paging::derive_next_after`). Unit tests in `paging.rs` plus a wiremock
+  integration test (`json_api_bracket_style_sends_bracket_form_params_and_follows_link`)
+  verifying the bracket form round-trips through `reqwest`.
 - [ ] **Rust-source front-end** — Rust AST → UFO graph → recognizer → SysML constructs
   → diagram-as-code notation → render. Scoped in
   [`PLAN-KR0KI-003.md`](PLAN-KR0KI-003-rust-source-frontend.md). **Not** the docgen
