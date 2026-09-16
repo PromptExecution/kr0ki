@@ -95,7 +95,7 @@ ingestion path (FR1/FR3/FR4) stays blocked on §5 decisions D1–D6.
 ```
 crates/
 ├── kr0ki-core/    RenderService = cache in front of a RenderBackend
-│   ├── format.rs  DiagramFormat — the 8 companion-free Kroki formats only (NFR3)
+│   ├── format.rs  DiagramFormat — the 23 companion-free Kroki formats only (NFR3)
 │   ├── cache.rs   cache_key() = SHA256(domain ‖ 0x1f-delimited fields) ; FsCache (atomic writes)
 │   └── render.rs  HttpKrokiBackend — POST {base}/{slug}/{output}
 └── kr0ki-server/  axum service

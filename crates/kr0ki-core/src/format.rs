@@ -1,8 +1,12 @@
 //! The Kroki-family diagram formats kr0ki's P0 loop accepts.
 //!
 //! Deliberately *only* the formats a stock Kroki container renders with no headless-
-//! Chromium companion (PRD-KR0KI-001 NFR3). `mermaid`, `bpmn`, `excalidraw` are left
-//! out on purpose — they need the companion services this P0 does not run.
+//! Chromium companion (PRD-KR0KI-001 NFR3). `mermaid`, `bpmn`, `excalidraw`, and
+//! `diagramsnet` are left out on purpose — live-verified (2026-09-16) that a
+//! companion-free Kroki container answers all four with `503 Service Unavailable`,
+//! while every format below returns a real render. If Kroki adds a new companion-
+//! dependent format in future, re-verify it live before adding here rather than
+//! assuming from its docs — `503` is the authoritative signal, not the format name.
 
 use std::str::FromStr;
 
@@ -17,6 +21,21 @@ pub enum DiagramFormat {
     Ditaa,
     Nomnoml,
     WaveDrom,
+    Vega,
+    BlockDiag,
+    ActDiag,
+    SeqDiag,
+    NwDiag,
+    PacketDiag,
+    RackDiag,
+    Erd,
+    Umlet,
+    Pikchr,
+    Goat,
+    ByteField,
+    Dbml,
+    TikZ,
+    SvgBob,
 }
 
 impl DiagramFormat {
@@ -31,6 +50,21 @@ impl DiagramFormat {
             Self::Ditaa => "ditaa",
             Self::Nomnoml => "nomnoml",
             Self::WaveDrom => "wavedrom",
+            Self::Vega => "vega",
+            Self::BlockDiag => "blockdiag",
+            Self::ActDiag => "actdiag",
+            Self::SeqDiag => "seqdiag",
+            Self::NwDiag => "nwdiag",
+            Self::PacketDiag => "packetdiag",
+            Self::RackDiag => "rackdiag",
+            Self::Erd => "erd",
+            Self::Umlet => "umlet",
+            Self::Pikchr => "pikchr",
+            Self::Goat => "goat",
+            Self::ByteField => "bytefield",
+            Self::Dbml => "dbml",
+            Self::TikZ => "tikz",
+            Self::SvgBob => "svgbob",
         }
     }
 
@@ -45,6 +79,21 @@ impl DiagramFormat {
         Self::Ditaa,
         Self::Nomnoml,
         Self::WaveDrom,
+        Self::Vega,
+        Self::BlockDiag,
+        Self::ActDiag,
+        Self::SeqDiag,
+        Self::NwDiag,
+        Self::PacketDiag,
+        Self::RackDiag,
+        Self::Erd,
+        Self::Umlet,
+        Self::Pikchr,
+        Self::Goat,
+        Self::ByteField,
+        Self::Dbml,
+        Self::TikZ,
+        Self::SvgBob,
     ];
 }
 
@@ -103,7 +152,13 @@ mod tests {
 
     #[test]
     fn companion_only_and_unknown_formats_are_rejected() {
-        for bad in ["mermaid", "excalidraw", "bpmn", "totally-made-up"] {
+        for bad in [
+            "mermaid",
+            "excalidraw",
+            "bpmn",
+            "diagramsnet",
+            "totally-made-up",
+        ] {
             let err = bad.parse::<DiagramFormat>().unwrap_err();
             assert!(err.to_string().contains(bad));
         }
@@ -121,9 +176,24 @@ mod tests {
                 | DiagramFormat::VegaLite
                 | DiagramFormat::Ditaa
                 | DiagramFormat::Nomnoml
-                | DiagramFormat::WaveDrom => {}
+                | DiagramFormat::WaveDrom
+                | DiagramFormat::Vega
+                | DiagramFormat::BlockDiag
+                | DiagramFormat::ActDiag
+                | DiagramFormat::SeqDiag
+                | DiagramFormat::NwDiag
+                | DiagramFormat::PacketDiag
+                | DiagramFormat::RackDiag
+                | DiagramFormat::Erd
+                | DiagramFormat::Umlet
+                | DiagramFormat::Pikchr
+                | DiagramFormat::Goat
+                | DiagramFormat::ByteField
+                | DiagramFormat::Dbml
+                | DiagramFormat::TikZ
+                | DiagramFormat::SvgBob => {}
             }
         }
-        assert_eq!(DiagramFormat::ALL.len(), 8);
+        assert_eq!(DiagramFormat::ALL.len(), 23);
     }
 }

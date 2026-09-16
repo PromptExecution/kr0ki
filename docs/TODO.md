@@ -155,7 +155,18 @@ _Last updated: 2026-09-15._
   with per-card pass/fail status and artifact thumbnails. "Edit" on a card jumps to
   the existing detail editor for that example. `Gallery.story.vue` added for
   Histoire visual regression, matching `RendererPanel.story.vue`'s pattern.
-- [x] **PNG output** — `OutputKind::Png` implemented and live-tested. See Done.
+- [x] **Expand `DiagramFormat` from 8 to 23 — NFR3's companion assumption was wrong
+  for the `blockdiag` family** — live-tested every other Kroki-advertised format
+  (`GET /health` on the running Kroki lists 30) against the deployed, companion-free
+  container. Confirmed genuinely needs a companion (`503`): `mermaid`, `bpmn`,
+  `excalidraw`, `diagramsnet`. Confirmed works with zero extra infra (`200`, real
+  SVG): `vega`, `blockdiag`, `actdiag`, `seqdiag`, `nwdiag`, `packetdiag`,
+  `rackdiag`, `erd`, `umlet`, `pikchr`, `goat`, `bytefield`, `dbml`, `tikz`,
+  `svgbob` — added all 15, one fixture each, `outputs: ["svg","png"]` uniformly
+  (the flatten fallback covers whichever don't have native Kroki PNG). PRD-KR0KI-001
+  NFR3 corrected to match. `wireviz`/`structurizr`/`symbolator` returned 400/500
+  against quick smoke-test sources (not `503`) — likely also companion-free, just
+  needs a real fixture to confirm; not yet added.
 - [ ] **PDF output** — later Kroki capability; not yet available.
 
 ## Cross-cutting

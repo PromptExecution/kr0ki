@@ -79,7 +79,7 @@ async fn examples_catalog_covers_every_advertised_format() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let examples: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(examples.len(), 8);
+    assert_eq!(examples.len(), kr0ki_core::format::DiagramFormat::ALL.len());
     assert!(examples.iter().all(|example| example["source"].is_string()));
     assert!(examples.iter().any(|example| example["format"] == "d2"));
 }
