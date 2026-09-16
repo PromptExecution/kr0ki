@@ -57,6 +57,11 @@ spec:
         # written to this same shared volume at its startup.
         - name: KR0KI_CAPABILITIES_PATH
           value: /var/lib/kr0ki/capabilities/capabilities.json
+        # mcp-http-parity design, 2026-09-16 — the kr0ki-mcp sidecar's
+        # internal KubeDiagrams-rendering listener, reachable over the pod's
+        # shared network namespace exactly like KR0KI_BACKEND_URL is.
+        - name: KR0KI_KUBEDIAGRAM_WORKER_URL
+          value: http://127.0.0.1:8788
       ports:
         - containerPort: 8787
           hostPort: 8787
@@ -86,10 +91,19 @@ spec:
     - name: kr0ki-mcp
       image: localhost/kr0ki-mcp:dev
       imagePullPolicy: Never
-      command: ["sleep", "infinity"]
       env:
         - name: KR0KI_URL
           value: http://127.0.0.1:8787
+      ports:
+        - containerPort: 8788
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 8788
+        initialDelaySeconds: 1
+        periodSeconds: 2
+        timeoutSeconds: 2
+        failureThreshold: 15
       resources:
         limits:
           cpu: "250m"
