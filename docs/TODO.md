@@ -117,16 +117,17 @@ _Last updated: 2026-09-15._
   container / sidecar, not in the Rust image. (`EVAL-kubediagrams.md` §2a/§4)
 - [ ] **Wire `vendor/kroki-mcp`** — P0 talks direct HTTP; the MCP hop matters for SVG
   normalisation / inline-embedding (`render.rs` module doc).
-- [ ] **Playbook: general-purpose custom-diagram mode (FR2 web-ux gap)** — `playbook/`
-  currently only browses/edits the fixture catalog (`kr0ki_core::examples::ALL`) via
-  `RendererPanel.vue`; its format sidebar (`App.vue`) only lists formats that already
-  have an example. Add a "custom diagram" mode: enumerate all formats from `GET
-  /formats` (not just ones with a fixture), start from a blank/minimal source per
-  format (or a file-upload input), and render through the same endpoint. This is a
-  pure web-ux gap — the API (`/formats`, `/render/:format`) and the MCP
-  (`mcp__kr0ki-mcp__render_diagram` / `list_formats`) already support arbitrary
-  hand-authored source in any format. See `PLAN-KR0KI-003.md` §6: raw diagram testing
-  is permanent and coexists with, not superseded by, the AST/IaC-generated pipeline.
+- [x] **Playbook: general-purpose custom-diagram mode (FR2 web-ux gap)** —
+  `RendererPanel.vue`'s fixture catalog already covers all 8 `DiagramFormat` slugs
+  1:1 (no missing-format gap), but its source panel only implicitly allowed editing
+  over a fixture. Added explicit "Reset to example" / "Start blank" buttons and a
+  file-upload input (`FileReader` → textarea) plus copy changes in `App.vue` making
+  clear the panel renders any hand-authored source, not just the catalog. No API/MCP
+  change needed (`/formats`, `/render/:format`, `mcp__kr0ki-mcp__render_diagram` /
+  `list_formats` already accept arbitrary source). Verified: `vite build`, and
+  `scripts/playbook-e2e.sh` now asserts the built bundle ships the new controls,
+  run live against a local `kr0ki-server` serving the built `playbook/dist`. See
+  `PLAN-KR0KI-003.md` §6.
 - [x] **PNG output** — `OutputKind::Png` implemented and live-tested. See Done.
 - [ ] **PDF output** — later Kroki capability; not yet available.
 

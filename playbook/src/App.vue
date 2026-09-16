@@ -46,7 +46,7 @@ onMounted(async () => {
   <main class="shell">
     <aside class="sidebar">
       <a class="brand" href="../">kr0ki <span>playb00k</span></a>
-      <p class="sidebar-copy">Executable examples from the same catalog used by Rust tests and mdb00k.</p>
+      <p class="sidebar-copy">Test-backed examples from the same catalog used by Rust tests and mdb00k — or clear the source and render your own diagram in any format below.</p>
       <nav aria-label="Supported diagram formats">
         <button
           v-for="format in formats"
@@ -64,8 +64,8 @@ onMounted(async () => {
     <section class="content">
       <header class="hero">
         <p class="eyebrow">IAC / CODE → PROCEDURAL DIAGRAM → KROKI → SVG / PNG</p>
-        <h1>Evaluate kr0ki with executable examples.</h1>
-        <p>Choose a supported input format, inspect its fixture, render it through kr0ki, and review cache-backed output. D2 code flows are executable today; the typed SysML v2 path remains upstream of this renderer.</p>
+        <h1>Evaluate kr0ki with executable examples — or your own diagrams.</h1>
+        <p>Choose a supported input format, inspect its fixture, render it through kr0ki, and review cache-backed output. Every fixture's source is editable in place: paste or upload your own hand-authored diagram-as-code and render it the same way, independent of whether it came from a generator. D2 code flows are executable today; the typed SysML v2 path remains upstream of this renderer.</p>
       </header>
 
       <p v-if="loadError" class="error">{{ loadError }}</p>

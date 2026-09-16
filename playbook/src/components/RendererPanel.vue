@@ -18,6 +18,8 @@ const artifactUrl = ref('')
 const result = ref('Ready')
 const busy = ref(false)
 
+const outputChoices = computed(() => props.example.outputs)
+
 watch(
   () => props.example,
   (example) => {
@@ -27,6 +29,34 @@ watch(
     result.value = 'Ready'
   },
 )
+
+function resetToExample() {
+  source.value = props.example.source
+  artifactUrl.value = ''
+  result.value = 'Ready'
+}
+
+function clearSource() {
+  source.value = ''
+  artifactUrl.value = ''
+  result.value = 'Ready'
+}
+
+function onFileSelected(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  const reader = new FileReader()
+  reader.onload = () => {
+    source.value = String(reader.result ?? '')
+    artifactUrl.value = ''
+    result.value = `Loaded ${file.name}`
+  }
+  reader.onerror = () => {
+    result.value = `Could not read ${file.name}: ${reader.error?.message ?? 'unknown error'}`
+  }
+  reader.readAsText(file)
+  event.target.value = ''
+}
 
 const renderEndpoint = computed(() =>
   rendererUrl.value.trim()
@@ -85,15 +115,22 @@ async function render() {
       <label>
         Output
         <select v-model="output">
-          <option v-for="kind in example.outputs" :key="kind" :value="kind">{{ kind.toUpperCase() }}</option>
+          <option v-for="kind in outputChoices" :key="kind" :value="kind">{{ kind.toUpperCase() }}</option>
         </select>
       </label>
-      <button :disabled="busy" @click="render">{{ busy ? 'Rendering…' : 'Render example' }}</button>
+      <button :disabled="busy" @click="render">{{ busy ? 'Rendering…' : 'Render' }}</button>
+      <button type="button" class="secondary" @click="resetToExample">Reset to example</button>
+      <button type="button" class="secondary" @click="clearSource">Start blank</button>
+      <label class="upload">
+        Upload file
+        <input type="file" aria-label="Upload a diagram source file" @change="onFileSelected" />
+      </label>
     </div>
 
     <div class="workspace">
       <label class="source-label">
-        Test-backed source
+        Diagram source — edit, paste, or upload your own {{ example.format }} source; not
+        limited to the example shown
         <textarea v-model="source" spellcheck="false" />
       </label>
       <section class="preview" aria-live="polite">
