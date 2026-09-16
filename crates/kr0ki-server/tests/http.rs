@@ -26,6 +26,7 @@ fn test_state(tag: &str) -> AppState {
         service: Arc::new(service),
         playbook_dir: std::env::temp_dir().join("kr0ki-no-playbook-assets"),
         b00t_graph_artifacts_path: None,
+        capabilities_path: None,
     }
 }
 
@@ -226,6 +227,61 @@ async fn b00t_graph_is_422_for_malformed_turtle_before_any_backend_call() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(body.contains("b00t_graph_bad_turtle"));
+
+    let _ = tokio::fs::remove_dir_all(&dir).await;
+}
+
+#[tokio::test]
+async fn capabilities_is_503_when_not_configured() {
+    // test_state() leaves capabilities_path: None.
+    let app = test_app(test_state("capabilities-unconfigured"));
+    let resp = app
+        .oneshot(Request::get("/capabilities").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(body.contains("capabilities_not_configured"));
+}
+
+#[tokio::test]
+async fn capabilities_is_503_when_configured_but_file_not_yet_written() {
+    let dir =
+        std::env::temp_dir().join(format!("kr0ki-capabilities-missing-{}", std::process::id()));
+    let mut state = test_state("capabilities-missing");
+    state.capabilities_path = Some(dir.join("capabilities.json"));
+    let app = test_app(state);
+    let resp = app
+        .oneshot(Request::get("/capabilities").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(body.contains("capabilities_not_ready"));
+}
+
+#[tokio::test]
+async fn capabilities_returns_the_file_contents_as_json() {
+    let dir = std::env::temp_dir().join(format!("kr0ki-capabilities-ok-{}", std::process::id()));
+    tokio::fs::create_dir_all(&dir).await.unwrap();
+    let path = dir.join("capabilities.json");
+    tokio::fs::write(
+        &path,
+        br#"{"mermaid":{"version":"11.16.0","companion_required":true,"companion_available":false}}"#,
+    )
+    .await
+    .unwrap();
+
+    let mut state = test_state("capabilities-ok");
+    state.capabilities_path = Some(path);
+    let app = test_app(state);
+    let resp = app
+        .oneshot(Request::get("/capabilities").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("\"companion_required\":true"));
 
     let _ = tokio::fs::remove_dir_all(&dir).await;
 }
