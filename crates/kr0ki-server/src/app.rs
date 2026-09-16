@@ -30,6 +30,10 @@ pub struct AppState {
     /// CSI-mounted base directory holding `tags/<tag>/kerml-view.ttl` b00t-graph
     /// artifacts (kr0ki#13). `None` disables `/b00t-graph/:tag` (503, not a panic).
     pub b00t_graph_artifacts_path: Option<PathBuf>,
+    /// Path to the `kroki` container's self-reported `capabilities.json`
+    /// (kr0ki#20), written to a shared pod volume at its startup — see
+    /// `deploy/kr0ki-local.pod.yaml`. `None` disables `/capabilities` (503).
+    pub capabilities_path: Option<PathBuf>,
 }
 
 /// If `auth_token` is Some, inject a `RequireAuth` layer that rejects requests
@@ -38,6 +42,7 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
     let r = Router::new()
         .route("/health", get(health))
         .route("/formats", get(formats))
+        .route("/capabilities", get(capabilities))
         .route("/api/examples", get(examples))
         .route("/playbook/api/examples.json", get(examples))
         .route("/playbook", get(playbook_index))
@@ -94,6 +99,44 @@ async fn health() -> Json<Health> {
 
 async fn formats() -> Json<Vec<&'static str>> {
     Json(DiagramFormat::ALL.iter().map(|f| f.kroki_slug()).collect())
+}
+
+/// `GET /capabilities` — the `kroki` container's own self-reported
+/// companion-required status per converter (kr0ki#20), read from a shared
+/// pod volume the `kroki` container wrote at its startup. 503 when
+/// `KR0KI_CAPABILITIES_PATH` isn't configured; 503 (not 404) when it's
+/// configured but the file isn't there yet — a benign, retryable pod-startup
+/// race (the two containers in `deploy/kr0ki-local.pod.yaml` aren't
+/// ordered), not a hard error.
+async fn capabilities(State(state): State<AppState>) -> Response {
+    let Some(path) = state.capabilities_path.as_ref() else {
+        return error_json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "capabilities_not_configured",
+            "KR0KI_CAPABILITIES_PATH is not set on this server",
+        );
+    };
+
+    match tokio::fs::read(path).await {
+        Ok(bytes) => match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+            Err(e) => error_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "capabilities_invalid_json",
+                &e.to_string(),
+            ),
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => error_json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "capabilities_not_ready",
+            "capabilities.json not written yet — the kroki container may still be starting",
+        ),
+        Err(e) => error_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "capabilities_read_failed",
+            &e.to_string(),
+        ),
+    }
 }
 
 /// `GET /api/examples` — the single example catalog shared by Rust tests,

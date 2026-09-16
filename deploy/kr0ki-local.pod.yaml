@@ -15,6 +15,11 @@ spec:
       env:
         - name: KROKI_SAFE_MODE
           value: secure
+        # kr0ki#20 — copy the build-time-computed capabilities.json (baked
+        # into the image) to this shared volume at container start, so
+        # kr0ki-server (a separate container/filesystem) can read it.
+        - name: KR0KI_CAPABILITIES_PATH
+          value: /var/lib/kr0ki/capabilities/capabilities.json
       ports:
         - containerPort: 8000
       readinessProbe:
@@ -29,6 +34,9 @@ spec:
         limits:
           cpu: "1"
           memory: 2Gi
+      volumeMounts:
+        - name: kr0ki-capabilities
+          mountPath: /var/lib/kr0ki/capabilities
       securityContext:
         allowPrivilegeEscalation: false
         capabilities:
@@ -45,6 +53,10 @@ spec:
           value: /var/lib/kr0ki/cache
         - name: KR0KI_PLAYBOOK_DIR
           value: /usr/share/kr0ki-playbook
+        # kr0ki#20 — the kroki container's own self-reported companion status,
+        # written to this same shared volume at its startup.
+        - name: KR0KI_CAPABILITIES_PATH
+          value: /var/lib/kr0ki/capabilities/capabilities.json
       ports:
         - containerPort: 8787
           hostPort: 8787
@@ -63,6 +75,9 @@ spec:
       volumeMounts:
         - name: kr0ki-cache
           mountPath: /var/lib/kr0ki/cache
+        - name: kr0ki-capabilities
+          mountPath: /var/lib/kr0ki/capabilities
+          readOnly: true
       securityContext:
         allowPrivilegeEscalation: false
         capabilities:
@@ -91,4 +106,6 @@ spec:
     - name: kr0ki-cache
       emptyDir: {}
     - name: kubediagram-tmp
+      emptyDir: {}
+    - name: kr0ki-capabilities
       emptyDir: {}

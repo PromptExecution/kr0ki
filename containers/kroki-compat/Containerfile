@@ -13,7 +13,7 @@ RUN apk add --no-cache curl \
       --output /opt/plantuml.jar \
  && echo "${PLANTUML_SHA256}  /opt/plantuml.jar" | sha256sum -c -
 
-FROM docker.io/yuzutech/kroki@sha256:22055fcf1d088349ee18d2643bc18b7704a39d09280fdee5b1cbde7a99bd5528
+FROM docker.io/yuzutech/kroki@sha256:22055fcf1d088349ee18d2643bc18b7704a39d09280fdee5b1cbde7a99bd5528 AS kroki-configured
 
 COPY --from=plantuml-download /opt/plantuml.jar /opt/kr0ki/plantuml.jar
 COPY containers/kroki-compat/plantuml-java /usr/local/bin/plantuml-java
@@ -26,3 +26,36 @@ RUN chmod 0755 /usr/local/bin/plantuml-java \
 USER kroki
 
 ENV KROKI_PLANTUML_BIN_PATH=/usr/local/bin/plantuml-java
+
+# kr0ki#20 — self-reported companion-required status, computed once at build
+# time against this exact, fully-configured image (same PlantUML swap as
+# above) rather than probed empirically at runtime. Boots the real Kroki
+# process, probes every registered converter with the vendored kroki.io
+# example catalogue (kr0ki#19; COPYed in from the build context — the whole
+# repo root, so a path back into crates/kr0ki-core works), and writes
+# capabilities.json. This stage's own tools (python3, the probe script) never
+# reach the final image — only its JSON output does.
+FROM kroki-configured AS capabilities-probe
+
+USER root
+COPY crates/kr0ki-core/fixtures/kroki-examples.json /opt/kr0ki/kroki-examples.json
+COPY containers/kroki-compat/probe-capabilities.py /opt/kr0ki/probe-capabilities.py
+
+RUN java ${JAVA_OPTS} -jar /usr/local/kroki/kroki-server.jar & \
+    kroki_pid=$! ; \
+    python3 /opt/kr0ki/probe-capabilities.py ; \
+    status=$? ; \
+    kill "$kroki_pid" 2>/dev/null || true ; \
+    wait "$kroki_pid" 2>/dev/null || true ; \
+    exit $status
+
+FROM kroki-configured
+
+COPY --from=capabilities-probe /opt/kr0ki/capabilities.json /opt/kr0ki/capabilities.json
+COPY containers/kroki-compat/entrypoint.sh /usr/local/bin/kroki-compat-entrypoint.sh
+
+USER root
+RUN chmod 0755 /usr/local/bin/kroki-compat-entrypoint.sh
+USER kroki
+
+ENTRYPOINT ["/usr/local/bin/kroki-compat-entrypoint.sh"]

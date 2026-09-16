@@ -10,6 +10,11 @@
 //!                              a CSI-mounted base dir holding
 //!                              tags/<tag>/kerml-view.ttl b00t-graph artifacts.
 //!                              Unset disables the route with a 503, not a panic.
+//!   KR0KI_CAPABILITIES_PATH    if set, enables GET /capabilities (kr0ki#20) —
+//!                              the kroki container's self-reported
+//!                              companion-required status, on a shared pod
+//!                              volume it wrote at its own startup. Unset
+//!                              disables the route with a 503, not a panic.
 
 mod app;
 mod docs;
@@ -41,6 +46,9 @@ async fn main() -> anyhow::Result<()> {
     let b00t_graph_artifacts_path = std::env::var("B00T_GRAPH_ARTIFACTS_PATH")
         .ok()
         .map(std::path::PathBuf::from);
+    let capabilities_path = std::env::var("KR0KI_CAPABILITIES_PATH")
+        .ok()
+        .map(std::path::PathBuf::from);
 
     let hostname = std::process::Command::new("hostname")
         .output()
@@ -61,6 +69,7 @@ async fn main() -> anyhow::Result<()> {
         %bind, %cache_dir, %backend_url, %hostname,
         playbook_dir = %playbook_dir.display(),
         b00t_graph_artifacts_path = ?b00t_graph_artifacts_path.as_ref().map(|p| p.display().to_string()),
+        capabilities_path = ?capabilities_path.as_ref().map(|p| p.display().to_string()),
         "starting kr0ki"
     );
 
@@ -72,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
         service: Arc::new(service),
         playbook_dir,
         b00t_graph_artifacts_path,
+        capabilities_path,
     };
 
     let listener = tokio::net::TcpListener::bind(&bind)

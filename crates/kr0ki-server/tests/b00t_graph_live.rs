@@ -50,6 +50,7 @@ async fn b00t_graph_renders_a_real_turtle_fixture_to_svg() {
         service: Arc::new(service),
         playbook_dir: std::env::temp_dir().join("kr0ki-no-playbook-assets"),
         b00t_graph_artifacts_path: Some(base.clone()),
+        capabilities_path: None,
     };
     let app = router(state, None);
 
