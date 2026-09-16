@@ -1,11 +1,15 @@
 //! kr0ki server entrypoint.
 //!
 //! Config (env):
-//!   KR0KI_BIND         default 0.0.0.0:8787
-//!   KR0KI_CACHE_DIR    default ./.kr0ki-cache
-//!   KR0KI_BACKEND_URL  default https://kroki.io   (point at a SECURE-mode Kroki)
-//!   KR0KI_AUTH_TOKEN   if set, require `Authorization: Bearer <token>` on every
-//!                      request except /health (FR7 minimal implementation).
+//!   KR0KI_BIND                 default 0.0.0.0:8787
+//!   KR0KI_CACHE_DIR            default ./.kr0ki-cache
+//!   KR0KI_BACKEND_URL          default https://kroki.io   (point at a SECURE-mode Kroki)
+//!   KR0KI_AUTH_TOKEN           if set, require `Authorization: Bearer <token>` on every
+//!                              request except /health (FR7 minimal implementation).
+//!   B00T_GRAPH_ARTIFACTS_PATH  if set, enables GET /b00t-graph/:tag (kr0ki#13) —
+//!                              a CSI-mounted base dir holding
+//!                              tags/<tag>/kerml-view.ttl b00t-graph artifacts.
+//!                              Unset disables the route with a 503, not a panic.
 
 mod app;
 mod docs;
@@ -34,6 +38,9 @@ async fn main() -> anyhow::Result<()> {
     let playbook_dir = std::env::var("KR0KI_PLAYBOOK_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::PathBuf::from("./playbook/dist"));
+    let b00t_graph_artifacts_path = std::env::var("B00T_GRAPH_ARTIFACTS_PATH")
+        .ok()
+        .map(std::path::PathBuf::from);
 
     let hostname = std::process::Command::new("hostname")
         .output()
@@ -50,7 +57,12 @@ async fn main() -> anyhow::Result<()> {
     } else {
         tracing::info!("caller auth enabled (FR7 minimal)");
     }
-    tracing::info!(%bind, %cache_dir, %backend_url, %hostname, playbook_dir = %playbook_dir.display(), "starting kr0ki");
+    tracing::info!(
+        %bind, %cache_dir, %backend_url, %hostname,
+        playbook_dir = %playbook_dir.display(),
+        b00t_graph_artifacts_path = ?b00t_graph_artifacts_path.as_ref().map(|p| p.display().to_string()),
+        "starting kr0ki"
+    );
 
     let service = RenderService::new(
         HttpKrokiBackend::new(&backend_url),
@@ -59,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState {
         service: Arc::new(service),
         playbook_dir,
+        b00t_graph_artifacts_path,
     };
 
     let listener = tokio::net::TcpListener::bind(&bind)

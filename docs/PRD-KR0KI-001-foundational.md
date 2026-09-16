@@ -221,9 +221,9 @@ kr0ki sits downstream of three unresolved upstream questions. This PRD explicitl
 
 | # | Question | Where it's owned | kr0ki's stake |
 |---|---|---|---|
-| D1 | extend-vs-wrap-vs-re-export `sysml-derive` for `UfoStereotype`-tagged types | [`ledgrrr#202`](https://github.com/PromptExecution/ledgrrr/issues/202) | Determines how kr0ki's FR1/FR4 adapters get their SysML text. |
-| D2 | Is a real (non-dev) dependency on `holon-viz` acceptable? | [`ledgrrr#203`](https://github.com/PromptExecution/ledgrrr/issues/203) | Determines whether kr0ki wraps `CytoscapeGraph` by value or copies the shape. |
-| D3 | Does the typed SysML-v2/KerML view model live in `ufo-types`, `systhread-core`, or its own crate? | `nem-poweragent-lab#53` follow-up | Determines kr0ki's FR4 input type's home. |
+| ~~D1~~ | ~~extend-vs-wrap-vs-re-export `sysml-derive` for `UfoStereotype`-tagged types~~ | [`ledgrrr#202`](https://github.com/PromptExecution/ledgrrr/issues/202) | **RESOLVED 2026-09-10 — option 3 (wrap/re-export).** `sysml-derive` stays Part/containment-agnostic; `UfoStereotype` → SysML v2 metadata is emitted by `ufo-types` itself (extending `sysml_model`/`mbse::MbseExport`), not the macro. kr0ki's FR1/FR4 authoring adapters compose the two once built; the read/ingest path this repo has built so far (kr0ki#11/#12/#13) doesn't emit SysML v2 text and was never blocked by this. |
+| ~~D2~~ | ~~Is a real (non-dev) dependency on `holon-viz` acceptable?~~ | [`ledgrrr#203`](https://github.com/PromptExecution/ledgrrr/issues/203) | **RESOLVED 2026-09-10 — accepted, with a precondition.** "kr0ki's functional KerML-query-view rendering will use `holon-viz` internally" (operator scoping decision) — a real dependency, not a copied-shape fallback (forbidden — §2.2 "type-entanglement, not duplication"). Precondition: `holon-viz`'s `cytoscape.rs` public types get semver discipline once it cuts a tagged `0.x`; until then, pin by git `rev` (kr0ki-core's `Cargo.toml` does this now, kr0ki#13). |
+| ~~D3~~ | ~~Does the typed SysML-v2/KerML view model live in `ufo-types`, `systhread-core`, or its own crate?~~ | `nem-poweragent-lab#53` follow-up | **RESOLVED 2026-09-05 — `ufo-types`.** `sysml_model::{ElementKind, Relation}` (v0.12.0+), `ontology::{UfoRelation, OntologicalEdge}`, `view::SysmlViewKind` — all merged and now pinned at v0.14.0 (kr0ki#11). |
 | D4 | DNS/subdomain: who provisions `kr0ki.b00t.promptexecution.com` and where (pingap config in `b00t-node.yaml.tpl`)? | `PromptExecution/infrastructure` | Blocks FR7. |
 | D5 | CDN: Cloudflare R2 + Workers, matching `_b00t_#1069`'s edge pattern? | `PromptExecution/infrastructure` | Blocks FR5's cache tier. |
 | ~~D6~~ | ~~Vocabulary collisions: systhread "thread" vs KerML feature-chain, "viewpoint" overload, "projection" vs SysML view/viewpoint~~ | kr0ki | **RESOLVED 2026-09-05** — [`VOCABULARY.md`](VOCABULARY.md): adopt OMG SysML v2 / KerML spec terms verbatim, no informal synonyms, "digital thread" always qualified, "projection" banned. Un-entangled from D1 (spec names are stable — no b00t-invented name for D1 to invalidate). |
@@ -241,7 +241,7 @@ landing anything here.**
 1. ~~Land the b00t registration datum (FR8)~~ — **done** (`_b00t_#1272`, `kr0ki.repo.toml`).
 2. ~~Build the decision-independent render loop (FR2 + partial FR5)~~ — **done**, PR #1
    (`kr0ki-core` + `kr0ki-server`, 17 tests, live-verified against `kroki.io`).
-3. Get the remaining D-answers (or explicit "proceed with X" from the owners). **Resolved so far:** D3 (typed layer lives in `ufo-types`), D6 (vocabulary — [`VOCABULARY.md`](VOCABULARY.md)). **Still open:** D1 (`sysml-derive`), D2 (`holon-viz` dep), D4 (DNS), D5 (CDN).
+3. Get the remaining D-answers (or explicit "proceed with X" from the owners). **Resolved:** D1 (`sysml-derive` — wrap/re-export, 2026-09-10), D2 (`holon-viz` dep — accepted with a semver precondition, 2026-09-10), D3 (typed layer lives in `ufo-types`, 2026-09-05), D6 (vocabulary — [`VOCABULARY.md`](VOCABULARY.md), 2026-09-05). **Still open:** D4 (DNS), D5 (CDN).
 4. Add caller auth (FR7) so the P0 service can leave localhost.
 5. Wire the CDN tier (D5) in front of `FsCache` — completes FR5.
 6. Write `PLAN-KR0KI-002` (the SysML-model side, FR1/FR3/FR4). **`PLAN-KR0KI-002` now

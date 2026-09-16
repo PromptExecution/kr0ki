@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "kr0ki P0 render loop — Kroki-family text to SVG, content-addressed cache — plus the SysML-model box-2 UFO semantic-graph builder (PLAN-KR0KI-002 §2.2). FR1/FR4 rendering stays blocked on a pattern recognizer (box 3)."
+description = "kr0ki P0 render loop — Kroki-family text to SVG, content-addressed cache — plus box-2 UFO-graph builders for the SysML-v2 and Kubernetes arms (PLAN-KR0KI-002), and the b00t-graph Turtle -> holon-viz -> D2 route (kr0ki#13)."
 
 [dependencies]
 anyhow.workspace = true
@@ -28,6 +28,16 @@ kr0ki-sysmlv2-client = { path = "../kr0ki-sysmlv2-client" }
 # `sysml_model` / `view` are default (not feature-gated) — no extra features
 # needed here.
 ufo-types = { git = "https://github.com/PromptExecution/ufo-types", tag = "v0.14.0" }
+# kr0ki#13 — box 5 (b00t-graph Turtle -> D2 route): the typed TypeRelationshipGraph /
+# CytoscapeGraph the D2 emitter targets. No tagged release exists yet (checked
+# 2026-09-16); pinned by git rev per this issue's own operator decision, to be
+# swapped for a version req once holon-viz cuts a 0.x tag.
+holon-viz = { git = "https://github.com/PromptExecution/ledgrrr", rev = "3e9e3f415177e17b8e83eb1edae9d17d14a0a8e9" }
+# Turtle RDF parsing for the b00t-graph artifact (kr0ki#13) — the standalone
+# oxigraph-project parser, not the full Oxigraph store (no query engine needed
+# here, just SPO triples).
+oxttl = "0.2"
+oxrdf = "0.3"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "fs", "net", "rt-multi-thread"] }

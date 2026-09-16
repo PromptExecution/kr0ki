@@ -25,6 +25,7 @@ fn test_state(tag: &str) -> AppState {
     AppState {
         service: Arc::new(service),
         playbook_dir: std::env::temp_dir().join("kr0ki-no-playbook-assets"),
+        b00t_graph_artifacts_path: None,
     }
 }
 
@@ -151,6 +152,82 @@ async fn render_empty_body_is_400() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(body.contains("empty_source"));
+}
+
+#[tokio::test]
+async fn b00t_graph_is_503_when_not_configured() {
+    // test_state() leaves b00t_graph_artifacts_path: None.
+    let app = test_app(test_state("b00tgraph-unconfigured"));
+    let resp = app
+        .oneshot(Request::get("/b00t-graph/v1").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(body.contains("b00t_graph_not_configured"));
+}
+
+fn test_state_with_b00t_graph_dir(tag: &str, dir: std::path::PathBuf) -> AppState {
+    let mut state = test_state(tag);
+    state.b00t_graph_artifacts_path = Some(dir);
+    state
+}
+
+#[tokio::test]
+async fn b00t_graph_rejects_path_traversal_in_tag() {
+    let dir =
+        std::env::temp_dir().join(format!("kr0ki-b00tgraph-traversal-{}", std::process::id()));
+    let app = test_app(test_state_with_b00t_graph_dir("traversal", dir));
+    let resp = app
+        .oneshot(
+            Request::get("/b00t-graph/..%2f..%2fetc%2fpasswd")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("invalid_tag"));
+}
+
+#[tokio::test]
+async fn b00t_graph_is_404_for_a_missing_tag() {
+    let dir = std::env::temp_dir().join(format!("kr0ki-b00tgraph-missing-{}", std::process::id()));
+    let app = test_app(test_state_with_b00t_graph_dir("missing", dir));
+    let resp = app
+        .oneshot(
+            Request::get("/b00t-graph/does-not-exist")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(body.contains("b00t_graph_not_found"));
+}
+
+#[tokio::test]
+async fn b00t_graph_is_422_for_malformed_turtle_before_any_backend_call() {
+    let dir =
+        std::env::temp_dir().join(format!("kr0ki-b00tgraph-malformed-{}", std::process::id()));
+    let tag_dir = dir.join("tags").join("v1");
+    tokio::fs::create_dir_all(&tag_dir).await.unwrap();
+    tokio::fs::write(tag_dir.join("kerml-view.ttl"), b"not turtle {{{")
+        .await
+        .unwrap();
+
+    let app = test_app(test_state_with_b00t_graph_dir("malformed", dir.clone()));
+    let resp = app
+        .oneshot(Request::get("/b00t-graph/v1").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(body.contains("b00t_graph_bad_turtle"));
+
+    let _ = tokio::fs::remove_dir_all(&dir).await;
 }
 
 #[tokio::test]
