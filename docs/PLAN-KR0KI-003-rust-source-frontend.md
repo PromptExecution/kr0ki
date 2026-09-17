@@ -125,13 +125,36 @@ step is needed or should be built.
 
 ## 4. Open decisions
 
-- **D7** — does the Rust-code recognizer (box 3) live in kr0ki or upstream in
-  `ufo-types` / a new crate? Mirrors `PLAN-KR0KI-002`'s D3 pattern (kr0ki consumes
-  typed-graph builders, does not host them) — likely resolves the same way, but is
-  unresolved until someone drafts `PATTERNS-rust-source.md` and the operator rules on
-  it, same process D6/PATTERNS-kubernetes.md went through.
-- **Reuse vs. clean-room for box 1** (Table §3, row 2) — needs a short spike reading
-  `dispatch_sysml.rs` before committing to a second `syn` walker.
+- **D7 — RESOLVED 2026-09-17.** The Rust-code recognizer (box 3) lives in **kr0ki**
+  (`crates/kr0ki-core`), not `ufo-types`. Not by re-deriving the D3 reasoning from
+  scratch — by observing what actually shipped once box 3 existed for a *second* arm:
+  the Kubernetes recognizer (`k8s_recognizer.rs`) and even the SysML-v2 arm's box-2
+  builder (`ufo_graph.rs`, despite this plan's own §3 table originally guessing it'd
+  be "`ufo-types`' responsibility") both live in kr0ki-core. `ufo-types` hosts the
+  *vocabulary* (`UfoStereotype`, `UfoRelation`, `OntologicalEdge`, `Relation`,
+  `SysGraph`); kr0ki hosts every *producer* that walks a concrete source and emits
+  that vocabulary. The Rust recognizer is a producer, so it follows the same
+  precedent: a new `crates/kr0ki-core/src/rust_recognizer.rs`, sibling to
+  `k8s_recognizer.rs`. `docs/PATTERNS-rust-source.md` (new) records the mapping table
+  this decision depended on having somewhere to live.
+- **Reuse vs. clean-room for box 1 — RESOLVED 2026-09-17, clean-room (generalize
+  `harvest.rs`, don't adopt `dispatch_sysml.rs`).** Spike: read
+  `b00t-cli/src/dispatch_sysml.rs` in full. Its `dispatch_chain_iso_ir()` does **not**
+  do AST analysis at all — it builds `iso_ir::{Node, Edge}` from
+  `crate::dispatch::default_dispatch_chain()`, an already-materialized `Vec<dyn
+  DispatchMode>` of hand-registered trait objects, using each mode's `.name()`. It is
+  a bespoke exporter of one specific runtime value collection that b00t-cli's own
+  `dispatch` module maintains by hand — not a generic "parse arbitrary Rust source"
+  walker, and it has no way to become one (there is no AST in this path to
+  generalize). The PRD's "`Rust types → iso_ir` prototype already named" framing
+  overstated how reusable this is: it's prior art for *shape* (`iso_ir::{Node, Edge}`
+  is the right target type, confirmed) and for the sibling-export pattern (one
+  `_to_mermaid()`/`_to_sysml_v2()`/`_to_rhai()` per source), not for *how to get
+  there* from raw source text. The thing that actually is a `syn`-based AST walker
+  over arbitrary source — `docgen/harvest.rs`'s `SymbolVisitor` — is kr0ki's own code
+  and needs exactly the generalization §3's table already anticipated (a sibling
+  relationship-collecting visitor, not a `Symbol`-collecting one), not a second
+  walker written from scratch.
 
 ## 5. Non-goals
 
