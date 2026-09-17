@@ -72,6 +72,7 @@ dev_kroki_port := "8010"
 # without an explicit resource budget (matches the pod manifest's own 2Gi/1 CPU).
 dev-kroki-up:
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-kroki-compat:dev -f containers/kroki-compat/Containerfile .
+    podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-storyb00k-agent:dev -f containers/kr0ki-storyb00k-agent/Containerfile .
     podman rm -f kr0ki-dev-kroki >/dev/null 2>&1 || true
     podman run -d --name kr0ki-dev-kroki --memory=2g --memory-swap=2g --cpus=1 -p {{dev_kroki_port}}:8000 -e KROKI_SAFE_MODE=secure localhost/kr0ki-kroki-compat:dev
     @for i in $(seq 1 30); do curl -fsS http://127.0.0.1:{{dev_kroki_port}}/health >/dev/null 2>&1 && exit 0; sleep 1; done; echo "kroki-compat did not become ready" >&2; exit 1
@@ -110,15 +111,25 @@ pod-build:
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-server:dev -f containers/kr0ki-server/Containerfile .
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-mcp:dev -f containers/kr0ki-mcp/Containerfile .
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-kroki-compat:dev -f containers/kroki-compat/Containerfile .
+    podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-storyb00k-agent:dev -f containers/kr0ki-storyb00k-agent/Containerfile .
 
 k0s-load image:
     podman save {{image}} | sudo k0s ctr images import -
+
+# Load deployment-only settings (LLM credentials, LAN origins, optional SysML
+# endpoint) from the local, gitignored .env into the local k0s Secret. Values
+# are passed directly to kubectl and are never printed by this recipe.
+pod-env:
+    test -f .env || { echo "missing .env; copy .env.example and fill in local settings" >&2; exit 1; }
+    kubectl --context Default -n kr0ki create secret generic kr0ki-local-env --from-env-file=.env --dry-run=client -o yaml | kubectl --context Default -n kr0ki apply -f -
 
 pod-up: pod-build
     just k0s-load localhost/kr0ki-server:dev
     just k0s-load localhost/kr0ki-mcp:dev
     just k0s-load localhost/kr0ki-kroki-compat:dev
+    just k0s-load localhost/kr0ki-storyb00k-agent:dev
     kubectl --context Default apply -f deploy/namespace.yaml
+    just pod-env
     # This is a standalone Pod, not a Deployment: apply alone preserves old
     # containers when the tag is unchanged. Recreate after import for hot reload.
     kubectl --context Default -n kr0ki delete pod --ignore-not-found kr0ki-local

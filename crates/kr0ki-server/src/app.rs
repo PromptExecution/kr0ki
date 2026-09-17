@@ -39,6 +39,12 @@ pub struct AppState {
     /// parity design, 2026-09-16. `None` disables `/render/kubediagram`
     /// (503, not a panic).
     pub kubediagram_worker_url: Option<String>,
+    /// Read-only client for the configured OMG Systems Modeling API server. `None`
+    /// deliberately makes every `/model/*` route return a retryable 503.
+    pub sysmlv2_client: Option<Arc<kr0ki_sysmlv2_client::SysmlV2Client>>,
+    /// Disposable RDF triples materialized from model-query results. This is a
+    /// derived cache, never an authoritative model store.
+    pub model_graph: Arc<kr0ki_core::graph_store::GraphStore>,
 }
 
 /// If `auth_token` is Some, inject a `RequireAuth` layer that rejects requests
@@ -56,6 +62,28 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
         .route("/playbook/*path", get(playbook_asset))
         .route("/render/:format", post(render))
         .route("/render/kubediagram", post(render_kubediagram))
+        .route("/model/projects", get(list_model_projects))
+        .route(
+            "/model/projects/:project_id/commits",
+            get(list_model_commits),
+        )
+        .route(
+            "/model/projects/:project_id/commits/:commit_id/snapshot",
+            get(get_model_snapshot),
+        )
+        .route(
+            "/model/projects/:project_id/commits/:commit_id/elements",
+            get(query_model_elements),
+        )
+        .route(
+            "/model/projects/:project_id/commits/:commit_id/roots",
+            get(get_model_roots),
+        )
+        .route(
+            "/model/projects/:project_id/commits/:commit_id/elements/:element_id/relationships",
+            get(query_model_relationships),
+        )
+        .route("/model/graph/query", get(query_model_graph))
         .route("/b00t-graph/:tag", get(b00t_graph))
         .route("/cache/:key", get(cache_get))
         .merge(crate::docs::routes())
@@ -119,6 +147,172 @@ async fn mcp_tools() -> Json<Vec<serde_json::Value>> {
             .map(|t| t.to_manifest_json())
             .collect(),
     )
+}
+
+fn require_sysmlv2_client(
+    state: &AppState,
+) -> Result<Arc<kr0ki_sysmlv2_client::SysmlV2Client>, Box<Response>> {
+    state.sysmlv2_client.clone().ok_or_else(|| {
+        Box::new(error_json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "sysmlv2_client_not_configured",
+            "KR0KI_SYSMLV2_BASE_URL is not set on this server",
+        ))
+    })
+}
+
+fn client_error_response(error: kr0ki_sysmlv2_client::ClientError) -> Response {
+    error_json(
+        StatusCode::BAD_GATEWAY,
+        "sysmlv2_upstream_error",
+        &error.to_string(),
+    )
+}
+
+async fn list_model_projects(State(state): State<AppState>) -> Response {
+    let client = match require_sysmlv2_client(&state) {
+        Ok(client) => client,
+        Err(response) => return *response,
+    };
+    match client.projects().await {
+        Ok(projects) => Json(projects).into_response(),
+        Err(error) => client_error_response(error),
+    }
+}
+
+async fn list_model_commits(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+) -> Response {
+    let client = match require_sysmlv2_client(&state) {
+        Ok(client) => client,
+        Err(response) => return *response,
+    };
+    match client.commits(&project_id).await {
+        Ok(commits) => Json(commits).into_response(),
+        Err(error) => client_error_response(error),
+    }
+}
+
+async fn get_model_snapshot(
+    State(state): State<AppState>,
+    Path((project_id, commit_id)): Path<(String, String)>,
+) -> Response {
+    let client = match require_sysmlv2_client(&state) {
+        Ok(client) => client,
+        Err(response) => return *response,
+    };
+    match client.snapshot(&project_id, &commit_id).await {
+        Ok(snapshot) => {
+            for element in &snapshot.elements {
+                state
+                    .model_graph
+                    .insert_element_triples(&project_id, &commit_id, element);
+            }
+            Json(snapshot).into_response()
+        }
+        Err(error) => client_error_response(error),
+    }
+}
+
+async fn query_model_elements(
+    State(state): State<AppState>,
+    Path((project_id, commit_id)): Path<(String, String)>,
+) -> Response {
+    let client = match require_sysmlv2_client(&state) {
+        Ok(client) => client,
+        Err(response) => return *response,
+    };
+    match client.all_elements(&project_id, &commit_id).await {
+        Ok(elements) => {
+            for element in &elements {
+                state
+                    .model_graph
+                    .insert_element_triples(&project_id, &commit_id, element);
+            }
+            Json(elements).into_response()
+        }
+        Err(error) => client_error_response(error),
+    }
+}
+
+async fn get_model_roots(
+    State(state): State<AppState>,
+    Path((project_id, commit_id)): Path<(String, String)>,
+) -> Response {
+    let client = match require_sysmlv2_client(&state) {
+        Ok(client) => client,
+        Err(response) => return *response,
+    };
+    match client.roots(&project_id, &commit_id).await {
+        Ok(roots) => Json(roots).into_response(),
+        Err(error) => client_error_response(error),
+    }
+}
+
+async fn query_model_relationships(
+    State(state): State<AppState>,
+    Path((project_id, commit_id, element_id)): Path<(String, String, String)>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let client = match require_sysmlv2_client(&state) {
+        Ok(client) => client,
+        Err(response) => return *response,
+    };
+    let direction = match params.get("direction").map(String::as_str) {
+        Some("in") => kr0ki_sysmlv2_client::Direction::In,
+        Some("out") => kr0ki_sysmlv2_client::Direction::Out,
+        _ => kr0ki_sysmlv2_client::Direction::Both,
+    };
+    match client
+        .relationships(&project_id, &commit_id, &element_id, direction)
+        .await
+    {
+        Ok(elements) => {
+            for element in &elements {
+                state.model_graph.insert_relationship_triple(
+                    &element_id,
+                    element.ty(),
+                    element.id(),
+                );
+            }
+            Json(elements).into_response()
+        }
+        Err(error) => client_error_response(error),
+    }
+}
+
+/// `GET /model/graph/query?shape=triples_about|related_via&subject=<id>`.
+/// This is purposefully a closed query surface, never a general SPARQL endpoint.
+async fn query_model_graph(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let shape = match params.get("shape").map(String::as_str) {
+        Some("triples_about") => kr0ki_core::graph_store::QueryShape::TriplesAbout,
+        Some("related_via") => kr0ki_core::graph_store::QueryShape::RelatedVia,
+        _ => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_shape",
+                "shape must be triples_about or related_via",
+            )
+        }
+    };
+    let triples = state
+        .model_graph
+        .query(shape, params.get("subject").map(String::as_str));
+    Json(
+        triples
+            .into_iter()
+            .map(|(subject, predicate, object)| {
+                serde_json::json!({
+                    "subject": subject, "predicate": predicate, "object": object
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
+    .into_response()
 }
 
 /// `GET /capabilities` — the `kroki` container's own self-reported

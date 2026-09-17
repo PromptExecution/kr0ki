@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import RendererPanel from './components/RendererPanel.vue'
 import Gallery from './components/Gallery.vue'
+import StoryB00k from './components/StoryB00k.vue'
 
 const examples = ref([])
 const selectedFormat = ref('d2')
@@ -62,6 +63,9 @@ onMounted(async () => {
         <button class="view-tab" :class="{ active: viewMode === 'editor' }" @click="viewMode = 'editor'">
           Editor
         </button>
+        <button class="view-tab" :class="{ active: viewMode === 'storyb00k' }" @click="viewMode = 'storyb00k'">
+          storyb00k
+        </button>
       </nav>
       <nav v-if="viewMode === 'editor'" aria-label="Supported diagram formats">
         <button
@@ -86,13 +90,14 @@ onMounted(async () => {
           "Test all" to render and cache-verify the full catalog — the same contract
           <code>just test-playbook</code> checks, from the browser.
         </p>
-        <p v-else>
+        <p v-else-if="viewMode === 'editor'">
           Choose a supported input format, inspect its fixture, render it through kr0ki, and review cache-backed output. Every fixture's source is editable in place: paste or upload your own hand-authored diagram-as-code and render it the same way, independent of whether it came from a generator. D2 code flows are executable today; the typed SysML v2 path remains upstream of this renderer.
         </p>
       </header>
 
       <p v-if="loadError" class="error">{{ loadError }}</p>
       <Gallery v-else-if="viewMode === 'gallery'" :examples="examples" @open-in-editor="openInEditor" />
+      <StoryB00k v-else-if="viewMode === 'storyb00k'" />
       <RendererPanel
         v-else-if="selectedExample"
         :example="selectedExample"

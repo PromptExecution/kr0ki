@@ -15,6 +15,13 @@ pub enum McpTool {
     RenderDiagram,
     ListFormats,
     RenderKubeDiagram,
+    ListModelProjects,
+    ListModelCommits,
+    GetModelSnapshot,
+    QueryModelElements,
+    GetModelRoots,
+    QueryModelRelationships,
+    QueryModelGraph,
 }
 
 impl McpTool {
@@ -22,6 +29,13 @@ impl McpTool {
         Self::RenderDiagram,
         Self::ListFormats,
         Self::RenderKubeDiagram,
+        Self::ListModelProjects,
+        Self::ListModelCommits,
+        Self::GetModelSnapshot,
+        Self::QueryModelElements,
+        Self::GetModelRoots,
+        Self::QueryModelRelationships,
+        Self::QueryModelGraph,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -29,6 +43,13 @@ impl McpTool {
             Self::RenderDiagram => "render_diagram",
             Self::ListFormats => "list_formats",
             Self::RenderKubeDiagram => "render_kubernetes_manifest",
+            Self::ListModelProjects => "list_model_projects",
+            Self::ListModelCommits => "list_model_commits",
+            Self::GetModelSnapshot => "get_model_snapshot",
+            Self::QueryModelElements => "query_model_elements",
+            Self::GetModelRoots => "get_model_roots",
+            Self::QueryModelRelationships => "query_model_relationships",
+            Self::QueryModelGraph => "query_model_graph",
         }
     }
 
@@ -40,6 +61,19 @@ impl McpTool {
             Self::ListFormats => "List formats currently supported by the local kr0ki service.",
             Self::RenderKubeDiagram => {
                 "Render Kubernetes manifest YAML through the internal KubeDiagrams worker."
+            }
+            Self::ListModelProjects => "List SysML v2 projects on the configured model server.",
+            Self::ListModelCommits => "List commits (immutable model snapshots) for a project.",
+            Self::GetModelSnapshot => {
+                "Fetch the full content-hashed element and root set for a project/commit."
+            }
+            Self::QueryModelElements => "List every element in a project/commit.",
+            Self::GetModelRoots => "List the root element ids of a project/commit.",
+            Self::QueryModelRelationships => {
+                "List a model element's relationships (in/out/both direction)."
+            }
+            Self::QueryModelGraph => {
+                "Query kr0ki-server's in-memory RDF graph (bounded query shapes, not SPARQL)."
             }
         }
     }
@@ -62,6 +96,32 @@ impl McpTool {
                 "properties": {
                     "manifest": {"type": "string", "description": "Kubernetes YAML manifest bundle."},
                     "output": {"type": "string", "enum": ["svg", "dot_json"], "default": "svg"}
+                }
+            }),
+            Self::ListModelProjects => serde_json::json!({"type": "object", "properties": {}}),
+            Self::ListModelCommits => serde_json::json!({
+                "type": "object", "required": ["project_id"],
+                "properties": {"project_id": {"type": "string", "description": "SysML v2 project id."}}
+            }),
+            Self::GetModelSnapshot | Self::QueryModelElements | Self::GetModelRoots => {
+                serde_json::json!({
+                    "type": "object", "required": ["project_id", "commit_id"],
+                    "properties": {"project_id": {"type": "string"}, "commit_id": {"type": "string"}}
+                })
+            }
+            Self::QueryModelRelationships => serde_json::json!({
+                "type": "object", "required": ["project_id", "commit_id", "element_id"],
+                "properties": {
+                    "project_id": {"type": "string"}, "commit_id": {"type": "string"},
+                    "element_id": {"type": "string"},
+                    "direction": {"type": "string", "enum": ["in", "out", "both"], "default": "both"}
+                }
+            }),
+            Self::QueryModelGraph => serde_json::json!({
+                "type": "object", "required": ["shape"],
+                "properties": {
+                    "shape": {"type": "string", "enum": ["triples_about", "related_via"]},
+                    "subject": {"type": "string", "description": "Element id (IRI local name) to query about."}
                 }
             }),
         }
@@ -104,6 +164,40 @@ impl McpTool {
                         name: "output",
                         placement: ArgPlacement::Query,
                     },
+                ],
+            },
+            Self::ListModelProjects => HttpBinding { method: HttpMethod::Get, path_template: "/model/projects", args: &[] },
+            Self::ListModelCommits => HttpBinding {
+                method: HttpMethod::Get, path_template: "/model/projects/{project_id}/commits",
+                args: &[ArgBinding { name: "project_id", placement: ArgPlacement::Path }],
+            },
+            Self::GetModelSnapshot => HttpBinding {
+                method: HttpMethod::Get, path_template: "/model/projects/{project_id}/commits/{commit_id}/snapshot",
+                args: &[ArgBinding { name: "project_id", placement: ArgPlacement::Path }, ArgBinding { name: "commit_id", placement: ArgPlacement::Path }],
+            },
+            Self::QueryModelElements => HttpBinding {
+                method: HttpMethod::Get, path_template: "/model/projects/{project_id}/commits/{commit_id}/elements",
+                args: &[ArgBinding { name: "project_id", placement: ArgPlacement::Path }, ArgBinding { name: "commit_id", placement: ArgPlacement::Path }],
+            },
+            Self::GetModelRoots => HttpBinding {
+                method: HttpMethod::Get, path_template: "/model/projects/{project_id}/commits/{commit_id}/roots",
+                args: &[ArgBinding { name: "project_id", placement: ArgPlacement::Path }, ArgBinding { name: "commit_id", placement: ArgPlacement::Path }],
+            },
+            Self::QueryModelRelationships => HttpBinding {
+                method: HttpMethod::Get,
+                path_template: "/model/projects/{project_id}/commits/{commit_id}/elements/{element_id}/relationships",
+                args: &[
+                    ArgBinding { name: "project_id", placement: ArgPlacement::Path },
+                    ArgBinding { name: "commit_id", placement: ArgPlacement::Path },
+                    ArgBinding { name: "element_id", placement: ArgPlacement::Path },
+                    ArgBinding { name: "direction", placement: ArgPlacement::Query },
+                ],
+            },
+            Self::QueryModelGraph => HttpBinding {
+                method: HttpMethod::Get, path_template: "/model/graph/query",
+                args: &[
+                    ArgBinding { name: "shape", placement: ArgPlacement::Query },
+                    ArgBinding { name: "subject", placement: ArgPlacement::Query },
                 ],
             },
         }
@@ -174,13 +268,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_three_tools_have_unique_names() {
+    fn all_ten_tools_have_unique_names() {
         let mut names: Vec<&str> = McpTool::ALL.iter().map(|t| t.name()).collect();
         let before = names.len();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), before, "duplicate McpTool name in ALL");
-        assert_eq!(McpTool::ALL.len(), 3);
+        assert_eq!(McpTool::ALL.len(), 10);
     }
 
     #[test]
@@ -242,5 +336,27 @@ mod tests {
         assert!(args
             .iter()
             .any(|a| a["name"] == "manifest" && a["placement"] == "body"));
+    }
+
+    #[test]
+    fn model_tools_have_the_expected_get_bindings() {
+        let commits = McpTool::ListModelCommits.http_binding();
+        assert!(matches!(commits.method, HttpMethod::Get));
+        assert_eq!(
+            commits.path_template,
+            "/model/projects/{project_id}/commits"
+        );
+        assert_eq!(commits.args[0].name, "project_id");
+
+        let relationships = McpTool::QueryModelRelationships.http_binding();
+        assert_eq!(relationships.args.len(), 4);
+        assert!(relationships
+            .args
+            .iter()
+            .any(|arg| arg.name == "direction" && matches!(arg.placement, ArgPlacement::Query)));
+
+        let graph = McpTool::QueryModelGraph.http_binding();
+        assert_eq!(graph.path_template, "/model/graph/query");
+        assert_eq!(graph.args.len(), 2);
     }
 }

@@ -6,6 +6,7 @@
 /playbook/dist
 /playbook/.vite
 /.kr0ki-cache
+/.env
 /.sysml-v2-release
 /.worktrees
 __pycache__/

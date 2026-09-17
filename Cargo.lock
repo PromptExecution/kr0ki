@@ -1011,6 +1011,7 @@ dependencies = [
  "axum",
  "http-body-util",
  "kr0ki-core",
+ "kr0ki-sysmlv2-client",
  "reqwest",
  "serde",
  "serde_json",

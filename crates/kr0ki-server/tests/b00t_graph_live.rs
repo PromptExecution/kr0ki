@@ -52,6 +52,8 @@ async fn b00t_graph_renders_a_real_turtle_fixture_to_svg() {
         b00t_graph_artifacts_path: Some(base.clone()),
         capabilities_path: None,
         kubediagram_worker_url: None,
+        sysmlv2_client: None,
+        model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
     };
     let app = router(state, None);
 

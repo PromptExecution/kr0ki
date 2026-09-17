@@ -20,6 +20,8 @@
 //!                              http_worker.py listener, e.g.
 //!                              http://127.0.0.1:8788. Unset disables the
 //!                              route with a 503, not a panic.
+//!   KR0KI_SYSMLV2_BASE_URL      if set, enables read-only `/model/*` routes.
+//!   KR0KI_SYSMLV2_TOKEN         optional bearer token for that model server.
 
 mod app;
 mod docs;
@@ -55,6 +57,16 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .map(std::path::PathBuf::from);
     let kubediagram_worker_url = std::env::var("KR0KI_KUBEDIAGRAM_WORKER_URL").ok();
+    let sysmlv2_client = std::env::var("KR0KI_SYSMLV2_BASE_URL")
+        .ok()
+        .filter(|base_url| !base_url.trim().is_empty())
+        .map(|base_url| {
+            let client = kr0ki_sysmlv2_client::SysmlV2Client::new(base_url);
+            Arc::new(match std::env::var("KR0KI_SYSMLV2_TOKEN").ok() {
+                Some(token) => client.with_token(token),
+                None => client,
+            })
+        });
 
     let hostname = std::process::Command::new("hostname")
         .output()
@@ -77,6 +89,7 @@ async fn main() -> anyhow::Result<()> {
         b00t_graph_artifacts_path = ?b00t_graph_artifacts_path.as_ref().map(|p| p.display().to_string()),
         capabilities_path = ?capabilities_path.as_ref().map(|p| p.display().to_string()),
         kubediagram_worker_url = ?kubediagram_worker_url,
+        sysmlv2_configured = sysmlv2_client.is_some(),
         "starting kr0ki"
     );
 
@@ -90,6 +103,8 @@ async fn main() -> anyhow::Result<()> {
         b00t_graph_artifacts_path,
         capabilities_path,
         kubediagram_worker_url,
+        sysmlv2_client,
+        model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
     };
 
     let listener = tokio::net::TcpListener::bind(&bind)

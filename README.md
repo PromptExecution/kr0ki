@@ -185,6 +185,16 @@ Run `just test-playbook` to submit every documented fixture through the deployed
 HTTP surface twice. It verifies output signatures, deterministic artifact bytes,
 and cache hits for every format/output combination that the UI advertises.
 
+### StoryB00k local settings
+
+The StoryB00k sidecar is configured only from the machine-local `.env`, never
+from committed deployment values. Copy `.env.example` to `.env`, set the
+OpenAI-compatible endpoint/key and the browser origins that may use the sidecar,
+then run `just pod-up`. That recipe creates or updates the local k0s
+`kr0ki-local-env` Secret without displaying its values. The playbook derives the
+sidecar host from the page host, so opening `http://<host>:8787/playbook/` reaches
+`http://<host>:8789` on the same machine.
+
 ### Fast local dev loop (no k0s)
 
 For format/fixture iteration, skip the podman-build → k0s-import → pod-recreate

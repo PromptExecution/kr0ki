@@ -44,6 +44,11 @@ spec:
     - name: kr0ki
       image: localhost/kr0ki-server:dev
       imagePullPolicy: Never
+      # `just pod-env` creates this from the machine-local, gitignored .env.
+      # Environment in this Secret is deployment configuration, never source.
+      envFrom:
+        - secretRef:
+            name: kr0ki-local-env
       env:
         - name: KR0KI_BIND
           value: 0.0.0.0:8787
@@ -111,6 +116,36 @@ spec:
       volumeMounts:
         - name: kubediagram-tmp
           mountPath: /tmp
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        readOnlyRootFilesystem: true
+    - name: kr0ki-storyb00k-agent
+      image: localhost/kr0ki-storyb00k-agent:dev
+      imagePullPolicy: Never
+      # Shared local settings include the LLM endpoint/key and CORS origins.
+      envFrom:
+        - secretRef:
+            name: kr0ki-local-env
+      env:
+        - name: KR0KI_URL
+          value: http://127.0.0.1:8787
+      ports:
+        - containerPort: 8789
+          hostPort: 8789
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 8789
+        initialDelaySeconds: 1
+        periodSeconds: 2
+        timeoutSeconds: 2
+        failureThreshold: 15
+      resources:
+        limits:
+          cpu: "250m"
+          memory: 128Mi
       securityContext:
         allowPrivilegeEscalation: false
         capabilities:
