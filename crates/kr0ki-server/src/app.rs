@@ -344,18 +344,18 @@ async fn b00t_graph(
     }
 }
 
+/// The plan's Global Constraints mandate the 1 MiB manifest limit be
+/// enforced exactly once, here in `kr0ki-server`'s HTTP handler — not
+/// duplicated in `bridge.py` or `http_worker.py` (both of which also happen
+/// to enforce it downstream, but this is the one authoritative check).
+const MAX_MANIFEST_BYTES: usize = 1_048_576;
+
 /// `POST /render/kubediagram?output=svg|dot_json` — mcp-http-parity design,
 /// 2026-09-16. Body is a Kubernetes manifest (multi-doc YAML). Proxies to
 /// the `kr0ki-mcp` sidecar's internal `/render` listener — never through
 /// kr0ki-server's own content-addressed cache (backlog, see the design
 /// doc's §1 — kube-diagrams' output isn't itself Kroki-renderable text, so
 /// it needs its own cache-key derivation, deliberately deferred).
-/// The plan's Global Constraints mandate this limit be enforced exactly
-/// once, here in `kr0ki-server`'s HTTP handler — not duplicated in
-/// `bridge.py` or `http_worker.py` (both of which also happen to enforce
-/// it downstream, but this is the one authoritative check).
-const MAX_MANIFEST_BYTES: usize = 1_048_576;
-
 async fn render_kubediagram(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
