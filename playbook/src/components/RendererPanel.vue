@@ -58,11 +58,13 @@ function onFileSelected(event) {
   event.target.value = ''
 }
 
-const renderEndpoint = computed(() =>
-  rendererUrl.value.trim()
-    ? `${rendererUrl.value.trim().replace(/\/$/, '')}/render/${props.example.format}?output=${output.value}`
-    : '',
-)
+const renderEndpoint = computed(() => {
+  if (!rendererUrl.value.trim()) return ''
+  // See Gallery.vue's endpointFor: a custom-route example (e.g.
+  // POST /render/k8s-topology) isn't reachable via /render/{format}.
+  const path = props.example.route || `/render/${props.example.format}`
+  return `${rendererUrl.value.trim().replace(/\/$/, '')}${path}?output=${output.value}`
+})
 
 async function render() {
   busy.value = true
