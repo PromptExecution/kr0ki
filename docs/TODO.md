@@ -84,8 +84,14 @@ cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
 
 - [x] **Graph container type** — `SysGraph` (`nodes: Vec<OntologicalNode>`, `edges:
   Vec<OntologicalEdge>`), serde JSON, round-trip tested, no `SchemaVersion` field
-  (DESIGN-NOTE §2.6/§2.8). `ufo-types` PR #27 (`feat/sysgraph-box2-container`),
-  open, not yet merged/tagged. Lands in `ufo-types::sysgraph`.
+  (DESIGN-NOTE §2.6/§2.8). `ufo-types` PR #27, merged. **Not yet consumed by kr0ki**
+  — `ufo_graph.rs`, `k8s_recognizer.rs`, and `sysml_lift.rs` all still pass a bare
+  `Vec<OntologicalEdge>` between stages rather than a `SysGraph`. Open question for
+  whoever picks this up: is adopting the envelope actually worth a signature change
+  to three already-shipped, tested modules, or is `Vec<OntologicalEdge>` fine as the
+  pipeline's working type and `SysGraph` only needed at a serialization boundary
+  (e.g. a future `GET /model/graph` snapshot route)? Not decided — don't silently
+  pick one without flagging it here first.
 - [x] **`ModelSnapshot → UFO graph` builder** — `kr0ki-core/src/ufo_graph.rs`
   (box 2 of `PLAN-KR0KI-002`). Raw KerML relationship `@type` → `UfoRelation` via a
   direct table lookup (`FeatureMembership`→`HasPart`, `Specialization`→`Specializes`,
@@ -279,7 +285,12 @@ cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
 - [ ] **KubeDiagrams oracle CI job** — diff kr0ki's k8s topology output against
   KubeDiagrams' `dot_json` over its `examples/` corpus (argo / istio / cert-manager /
   kube-prometheus-stack / online-boutique). Topology-recall regression signal.
-  (`EVAL-kubediagrams.md` §2c)
+  (`EVAL-kubediagrams.md` §2c) **Scope note (2026-09-17):** the existing
+  `tests/kubediagrams_oracle.rs` already diffs `k8s_recognizer`'s raw
+  `OntologicalEdge`s against the oracle — this item is about extending that same
+  comparison through the now-wired `sysml_lift` → `sysml_render` → `POST
+  /render/k8s-topology` pipeline, so a regression anywhere in the full chain (not
+  just the recognizer) trips CI.
 - [ ] **Negative / error corpus** — `SysML-v2-Release` has positive fixtures only; port
   selected error cases from the OMG Pilot Implementation's `org.omg.*.xpect.tests/**/*.xt`
   (EPL-2.0). Deferred; noted in `CONFORMANCE.md`.
