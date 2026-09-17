@@ -60,12 +60,23 @@ cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
   (`paging::derive_next_after`). Unit tests in `paging.rs` plus a wiremock
   integration test (`json_api_bracket_style_sends_bracket_form_params_and_follows_link`)
   verifying the bracket form round-trips through `reqwest`.
-- [ ] **Rust-source front-end** — Rust AST → UFO graph → recognizer → SysML constructs
+- [~] **Rust-source front-end** — Rust AST → UFO graph → recognizer → SysML constructs
   → diagram-as-code notation → render. Scoped in
-  [`PLAN-KR0KI-003.md`](PLAN-KR0KI-003-rust-source-frontend.md). **Not** the docgen
+  [`PLAN-KR0KI-003.md`](PLAN-KR0KI-003-rust-source-frontend.md), D7 and the
+  reuse-vs-clean-room question both resolved 2026-09-17. **Not** the docgen
   doc-symbol harvest and **not** the Histoire/Vue playbook (both stay documentation/
   testing tools, out of this pipeline — PLAN-003 §1 corrects a prior conflation of the
   two with this item).
+  - [x] Design: [`PATTERNS-rust-source.md`](PATTERNS-rust-source.md) — the box-3 rule
+    table for this arm, mirroring `PATTERNS-kubernetes.md`.
+  - [x] First implementation slice — `crates/kr0ki-core/src/rust_recognizer.rs`:
+    module containment + struct/enum field types → `iso_ir::{Node, Edge}`. Every
+    relation this arm needs is already covered by `sysml_lift.rs` (`has_part`), so
+    no box-3→4 lift work was needed for this slice.
+  - [ ] Deferred: call graph, trait `impl` blocks, cross-crate `requires` (each has
+    a stated reason in `PATTERNS-rust-source.md` §5, not silently missing).
+  - [ ] No route/MCP wiring yet — `walk_and_recognize` has no caller, matching
+    `sysml_lift`/`sysml_render`'s own "pure library first" pattern.
 - [ ] _(later)_ **k8s-source front-end** — manifests / kustomize / Helm → UFO graph via
   the Kubernetes recognizer (box 3).
 

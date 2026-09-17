@@ -19,6 +19,10 @@
 //! needs, previously design-only with no code. [`sysml_render`] is FR1
 //! itself: `Vec<Relation>` (box 4, e.g. from [`sysml_lift`]) → D2 / Mermaid
 //! diagram text, ready for the existing `render`/`RenderBackend` pipeline.
+//! [`rust_recognizer`] is a third box-1→2 arm (`docs/PATTERNS-rust-source.md`,
+//! `docs/PLAN-KR0KI-003-rust-source-frontend.md`): Rust source →
+//! `ufo_types::iso_ir::{Node, Edge}`, a sibling of `docgen::harvest`'s
+//! `SymbolVisitor` producing relationships instead of doc symbols.
 
 pub mod b00t_graph;
 pub mod cache;
@@ -31,6 +35,7 @@ pub mod k8s_recognizer;
 pub mod mcp_tool;
 pub mod probe;
 pub mod render;
+pub mod rust_recognizer;
 pub mod sysml_lift;
 pub mod sysml_render;
 pub mod ufo_graph;
