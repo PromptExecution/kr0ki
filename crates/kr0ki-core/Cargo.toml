@@ -23,11 +23,16 @@ usvg = "0.48.1"
 tiny-skia = "0.12.0"
 kr0ki-sysmlv2-client = { path = "../kr0ki-sysmlv2-client" }
 # Box 2 of the five-box ingestion pipeline (PLAN-KR0KI-002 §2): the canonical
-# UFO-typed semantic graph. Pinned to an exact tag, per this crate's own
-# CHANGELOG guidance ("pin an exact version or a git tag"). `ontology` /
-# `sysml_model` / `view` are default (not feature-gated) — no extra features
-# needed here.
-ufo-types = { git = "https://github.com/PromptExecution/ufo-types", tag = "v0.14.0" }
+# UFO-typed semantic graph. `ontology` / `sysml_model` / `view` / `sysgraph`
+# are default (not feature-gated) — no extra features needed here.
+# Pinned by git rev, not a tag, for `sysgraph` (kr0ki's own PR #27 there,
+# `SysGraph` — the box-2 container type this repo's TODO.md box 2 wanted):
+# no tag has cut it in yet, and `main` also carries other, unrelated
+# in-flight work (pipeline_types/pipeline_flowctl/pipeline_secrets, #19) this
+# repo has no context to vouch for bundling into a version number. Same
+# git-rev-pending-a-tag posture already used below for `holon-viz`; swap for
+# a version req once `ufo-types` cuts a tag that includes `sysgraph`.
+ufo-types = { git = "https://github.com/PromptExecution/ufo-types", rev = "fa17ca8ff58059b38ce775b1137e63e51c13defe" }
 # kr0ki#13 — box 5 (b00t-graph Turtle -> D2 route): the typed TypeRelationshipGraph /
 # CytoscapeGraph the D2 emitter targets. No tagged release exists yet (checked
 # 2026-09-16); pinned by git rev per this issue's own operator decision, to be
