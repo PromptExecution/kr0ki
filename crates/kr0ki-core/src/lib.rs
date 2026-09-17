@@ -12,9 +12,13 @@
 //! `TypeRelationshipGraph`/`CytoscapeGraph` (D1/D2/D3/D6 all resolved
 //! 2026-09-05..2026-09-10 — see `docs/PRD-KR0KI-001-foundational.md` §5) —
 //! it does not go through `ufo_graph`/`k8s_recognizer`'s `OntologicalEdge`
-//! pivot. FR1/FR4 rendering for the SysML-v2/Kubernetes arms still needs a
-//! further stage — lifting a UFO graph into `ufo_types::sysml_model::Relation`
-//! (box 4) — not built by either of those two modules.
+//! pivot. [`sysml_lift`] is that further stage: it lifts a
+//! `Vec<OntologicalEdge>` (from either `ufo_graph` or `k8s_recognizer`) into
+//! `ufo_types::sysml_model::Relation` (box 4) per `docs/PATTERNS-kubernetes.md`
+//! §4 — the step FR1/FR4 rendering for the SysML-v2/Kubernetes arms still
+//! needs, previously design-only with no code. [`sysml_render`] is FR1
+//! itself: `Vec<Relation>` (box 4, e.g. from [`sysml_lift`]) → D2 / Mermaid
+//! diagram text, ready for the existing `render`/`RenderBackend` pipeline.
 
 pub mod b00t_graph;
 pub mod cache;
@@ -26,6 +30,8 @@ pub mod k8s_recognizer;
 pub mod mcp_tool;
 pub mod probe;
 pub mod render;
+pub mod sysml_lift;
+pub mod sysml_render;
 pub mod ufo_graph;
 
 use cache::{cache_key, model_cache_key, CacheStatus, FsCache, OutputKind};

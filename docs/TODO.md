@@ -117,11 +117,19 @@ cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
 ## Box 5 — renderer adapters (kr0ki)
 
 - [x] `HttpKrokiBackend` — P0.
-- [ ] **`iso_ir → Mermaid / D2` adapter (FR1)** — follows
-  `b00t-cli/src/dispatch_sysml.rs` conventions (`edge_type: "sequence"` etc.). Consumes
-  box-4 output, **not** a raw `ModelSnapshot`.
+- [x] **`iso_ir → Mermaid / D2` adapter (FR1)** — `crates/kr0ki-core/src/sysml_render.rs`
+  (kr0ki PR #28, on top of `sysml_lift`): `to_d2`/`to_mermaid` over
+  `&[ufo_types::sysml_model::Relation]` — box-4 output, **not** a raw `ModelSnapshot`.
+  D2 emission reuses `b00t_graph::D2Emitter`'s own quoting helpers; Mermaid follows
+  `b00t-cli/src/dispatch_sysml.rs`'s `dispatch_chain_to_mermaid` conventions (header
+  comment, `flowchart TD`, string-assembly with no AST validator). Pure library — no
+  route/MCP wiring yet (tracked as a follow-up, not silently missing).
 - [ ] **per-`ViewDefinition` rendering (FR4)** — box-4 constructs + `SysmlViewKind` →
-  notation. Blocked on boxes 2+3.
+  notation. No longer blocked on boxes 2+3 (both done — see above) or box 3→4 (also
+  done, `sysml_lift.rs`, which already assigns a `SysmlViewKind` per lifted relation).
+  What's still missing: grouping `LiftedRelation`s by `view_kind` before calling
+  `sysml_render`, so each `ViewDefinition` renders as its own diagram rather than one
+  diagram with every relation mixed together.
 - [ ] **`systhread-core` isometric backend (FR3)** — call its `render.rs`; do not port
   or re-solve the Cassowary/kasuari layout.
 - [ ] ◑ **`KubeDiagramsBackend` — leaf feature, NOT the pipeline** — substantially

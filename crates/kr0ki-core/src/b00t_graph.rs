@@ -253,13 +253,13 @@ impl D2Emitter {
 /// D2 identifiers can be quoted with `"..."` to allow arbitrary characters;
 /// escape any embedded `"` and `\` so the result is always a single valid
 /// quoted-string token.
-fn d2_quote(id: &str) -> String {
+pub(crate) fn d2_quote(id: &str) -> String {
     format!("\"{}\"", id.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 /// D2 labels after `:` are plain text up to the newline; only the newline
 /// itself (which would otherwise end the statement early) needs neutralizing.
-fn d2_escape_label(label: &str) -> String {
+pub(crate) fn d2_escape_label(label: &str) -> String {
     label.replace('\n', " ")
 }
 
