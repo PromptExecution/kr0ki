@@ -176,19 +176,30 @@ cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
   What's still missing: grouping `LiftedRelation`s by `view_kind` before calling
   `sysml_render`, so each `ViewDefinition` renders as its own diagram rather than one
   diagram with every relation mixed together.
-- [ ] 🚩 **`systhread-core` isometric backend (FR3)** — **blocked, not merely
-  unstarted (checked 2026-09-17).** Call its `render.rs`; do not port or re-solve the
-  layout solver — but `systhread-core` isn't findable anywhere on this disk (no
-  checkout, no `Cargo.toml`/`Cargo.lock` reference in any repo searched under
-  `~/promptexecution` or `~/.b00t`), and no kr0ki doc gives its repository URL, only
-  the bare name (it's referenced as belonging to `nem-poweragent-lab`, e.g.
-  `nem-poweragent-lab#53`, `iso_ir`'s own module doc — `iso_ir::{Node, Edge}` was
-  literally promoted *from* `systhread-core` — but that promotion note doesn't carry
-  a URL either). Also: this line's own "Cassowary/kasuari" is a typo — the actual
-  crate is `kiwisolver` (`PRD-KR0KI-001-foundational.md` line 34, a Cassowary-
-  algorithm constraint solver). Cannot be started without either locating the real
-  repository or being handed it directly; do not guess at `render.rs`'s API to work
-  around this.
+- [x] **`systhread-core` isometric backend (FR3)** — call its `render.rs`; do not
+  port or re-solve the Cassowary (`kasuari`) layout. **Unblocked and shipped
+  2026-09-17.** Found at `fungible-farm/nem-poweragent-lab` (a different GitHub org
+  entirely), path `rust/systhread-core`, via `elasticdotventures/_b00t_`'s
+  `AGENTS.md` — no kr0ki doc had carried the URL before this. (Earlier same-day note
+  in this file claiming the crate is "`kiwisolver`" per `PRD-KR0KI-001-
+  foundational.md` was itself wrong — the real dependency is `kasuari`, confirmed
+  from that repo's own `Cargo.toml`; the original "Cassowary/kasuari" phrasing here
+  was correct all along.) `crates/kr0ki-core/src/isometric.rs`: `render_svg(title,
+  nodes, edges)` converts this crate's `ufo_types::iso_ir::{Node, Edge}` field-by-
+  field into `systhread_core::iso_ir`'s *nominally distinct but structurally
+  identical* re-export of the same promoted shape (that crate pins `ufo-types`
+  v0.11.0, this one v0.14.1 — same type lineage, two crate instances), calls the
+  real, public `systhread_core::layout::cassowary_positions` for the actual
+  Cassowary solve (never re-implemented), and reimplements only the small,
+  previously-private JSON-spec-assembly glue `systhread_core::render::render_svg`
+  needs (that crate's own `assemble()` isn't `pub`). Wired behind `POST
+  /render/rust-isometric` (`McpTool::RenderRustIsometric`) — no Kroki, no D2, no
+  cache (this route never calls `state.service`, so it needs no `AppState`),
+  `rust_recognizer::recognize_source`'s single-file scope. `kr0ki`-domain
+  `part_type`/`edge_type` strings (module/struct/has_part/…) fall through that
+  backend's own lab-specific styling tables to its documented generic/box defaults —
+  correct, not a degraded fallback; this backend was written for its own lab's
+  domain and was never going to grow kr0ki-specific glyphs.
 - [ ] ◑ **`KubeDiagramsBackend` — leaf feature, NOT the pipeline** — substantially
   shipped, and (as of mcp-http-parity) available both ways: as an MCP tool and as
   the originally-envisioned native HTTP route (`POST /render/kubediagram`) —

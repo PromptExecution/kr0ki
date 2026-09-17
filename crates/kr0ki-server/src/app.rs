@@ -64,6 +64,7 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
         .route("/render/kubediagram", post(render_kubediagram))
         .route("/render/k8s-topology", post(render_k8s_topology))
         .route("/render/rust-topology", post(render_rust_topology))
+        .route("/render/rust-isometric", post(render_rust_isometric))
         .route("/model/projects", get(list_model_projects))
         .route(
             "/model/projects/:project_id/commits",
@@ -800,6 +801,61 @@ async fn render_rust_topology(
         Ok(r) => rendered_response(output, r),
         Err(e) => service_error_response(e),
     }
+}
+
+/// `POST /render/rust-isometric` — FR3 (`docs/TODO.md` box 5): a single Rust
+/// source file rendered as an isometric SVG via `systhread-core`'s own
+/// layout/render backend (`crates/kr0ki-core/src/isometric.rs`), a
+/// completely different renderer from `render_rust_topology` — no Kroki, no
+/// D2, no `output` choice (always SVG), and — unlike every other `/render/*`
+/// route — no content-addressed cache: this doesn't call
+/// `state.service.render`, so it needs no `AppState` at all. Body scope is
+/// `rust_recognizer::recognize_source`'s: a single file, no cross-file
+/// resolution.
+async fn render_rust_isometric(body: Bytes) -> Response {
+    if body.is_empty() {
+        return error_json(
+            StatusCode::BAD_REQUEST,
+            "empty_source",
+            "rust source body is empty",
+        );
+    }
+    if body.len() > MAX_MANIFEST_BYTES {
+        return error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "source_too_large",
+            "rust source exceeds the 1 MiB limit",
+        );
+    }
+    let text = match std::str::from_utf8(&body) {
+        Ok(t) => t,
+        Err(_) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_utf8",
+                "rust source is not UTF-8",
+            )
+        }
+    };
+
+    let (nodes, edges) = match kr0ki_core::rust_recognizer::recognize_source(text) {
+        Ok(result) => result,
+        Err(e) => {
+            return error_json(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "bad_rust_source",
+                &e.to_string(),
+            )
+        }
+    };
+    let svg = kr0ki_core::isometric::render_svg("kr0ki rust-isometric", &nodes, &edges);
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "image/svg+xml")],
+        svg,
+    )
+        .into_response()
 }
 
 fn rendered_response(output: OutputKind, r: Rendered) -> Response {

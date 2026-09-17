@@ -75,7 +75,7 @@ async fn formats_lists_supported_slugs_only() {
 }
 
 #[tokio::test]
-async fn mcp_tools_lists_all_twelve_tools_with_bindings() {
+async fn mcp_tools_lists_all_thirteen_tools_with_bindings() {
     let app = test_app(test_state("mcp-tools"));
     let resp = app
         .oneshot(Request::get("/mcp/tools").body(Body::empty()).unwrap())
@@ -84,13 +84,14 @@ async fn mcp_tools_lists_all_twelve_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 12);
+    assert_eq!(tools.len(), 13);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
     assert!(names.contains(&"render_kubernetes_manifest"));
     assert!(names.contains(&"render_kubernetes_topology"));
     assert!(names.contains(&"render_rust_topology"));
+    assert!(names.contains(&"render_rust_isometric"));
     assert!(names.contains(&"query_model_graph"));
 
     let render = tools
@@ -775,6 +776,65 @@ async fn render_rust_topology_valid_source_reaches_the_unreachable_backend() {
     assert_eq!(status, StatusCode::BAD_GATEWAY);
     assert!(!body.contains("empty_source"));
     assert!(!body.contains("bad_rust_source"));
+}
+
+#[tokio::test]
+async fn render_rust_isometric_empty_body_is_400() {
+    let app = test_app(test_state("rust-isometric-empty"));
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-isometric")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("empty_source"));
+}
+
+#[tokio::test]
+async fn render_rust_isometric_rejects_invalid_rust_syntax() {
+    let app = test_app(test_state("rust-isometric-badsyntax"));
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-isometric")
+                .body(Body::from("fn this is not valid rust {{{"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(body.contains("bad_rust_source"));
+}
+
+#[tokio::test]
+async fn render_rust_isometric_returns_real_svg_with_no_backend_involved() {
+    // Unlike render_rust_topology/render_k8s_topology, this route never
+    // touches state.service -- test_state()'s unreachable stub backend
+    // proves nothing here except that this route doesn't need it at all.
+    let app = test_app(test_state("rust-isometric-valid"));
+    let source = "trait Drive {}\nstruct Car;\nimpl Drive for Car {}\n";
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-isometric")
+                .body(Body::from(source))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let (_, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(content_type.as_deref(), Some("image/svg+xml"));
+    assert!(body.contains("<svg"), "expected real SVG:\n{body}");
 }
 
 #[tokio::test]

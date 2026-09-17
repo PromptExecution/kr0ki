@@ -17,6 +17,7 @@ pub enum McpTool {
     RenderKubeDiagram,
     RenderK8sTopology,
     RenderRustTopology,
+    RenderRustIsometric,
     ListModelProjects,
     ListModelCommits,
     GetModelSnapshot,
@@ -33,6 +34,7 @@ impl McpTool {
         Self::RenderKubeDiagram,
         Self::RenderK8sTopology,
         Self::RenderRustTopology,
+        Self::RenderRustIsometric,
         Self::ListModelProjects,
         Self::ListModelCommits,
         Self::GetModelSnapshot,
@@ -49,6 +51,7 @@ impl McpTool {
             Self::RenderKubeDiagram => "render_kubernetes_manifest",
             Self::RenderK8sTopology => "render_kubernetes_topology",
             Self::RenderRustTopology => "render_rust_topology",
+            Self::RenderRustIsometric => "render_rust_isometric",
             Self::ListModelProjects => "list_model_projects",
             Self::ListModelCommits => "list_model_commits",
             Self::GetModelSnapshot => "get_model_snapshot",
@@ -78,6 +81,12 @@ impl McpTool {
                  kr0ki's Rust recognizer -> UFO graph -> SysML v2 relation -> D2 pipeline \
                  (docs/PATTERNS-rust-source.md). Single-file scope only -- no cross-file type \
                  resolution."
+            }
+            Self::RenderRustIsometric => {
+                "Render a single Rust source file's module/struct/trait/call structure as an \
+                 isometric SVG via systhread-core's own layout/render backend (FR3) -- a \
+                 different renderer from render_rust_topology, not a Kroki/D2 diagram, no output \
+                 choice (always SVG)."
             }
             Self::ListModelProjects => "List SysML v2 projects on the configured model server.",
             Self::ListModelCommits => "List commits (immutable model snapshots) for a project.",
@@ -129,6 +138,13 @@ impl McpTool {
                 "properties": {
                     "source": {"type": "string", "description": "A single Rust source file."},
                     "output": {"type": "string", "enum": ["svg", "png"], "default": "svg"}
+                }
+            }),
+            Self::RenderRustIsometric => serde_json::json!({
+                "type": "object",
+                "required": ["source"],
+                "properties": {
+                    "source": {"type": "string", "description": "A single Rust source file."}
                 }
             }),
             Self::ListModelProjects => serde_json::json!({"type": "object", "properties": {}}),
@@ -226,6 +242,14 @@ impl McpTool {
                         placement: ArgPlacement::Query,
                     },
                 ],
+            },
+            Self::RenderRustIsometric => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/render/rust-isometric",
+                args: &[ArgBinding {
+                    name: "source",
+                    placement: ArgPlacement::Body,
+                }],
             },
             Self::ListModelProjects => HttpBinding { method: HttpMethod::Get, path_template: "/model/projects", args: &[] },
             Self::ListModelCommits => HttpBinding {
@@ -329,13 +353,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_twelve_tools_have_unique_names() {
+    fn all_thirteen_tools_have_unique_names() {
         let mut names: Vec<&str> = McpTool::ALL.iter().map(|t| t.name()).collect();
         let before = names.len();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), before, "duplicate McpTool name in ALL");
-        assert_eq!(McpTool::ALL.len(), 12);
+        assert_eq!(McpTool::ALL.len(), 13);
+    }
+
+    #[test]
+    fn render_rust_isometric_binds_source_to_body_with_no_output_query_arg() {
+        let binding = McpTool::RenderRustIsometric.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(binding.path_template, "/render/rust-isometric");
+        assert_eq!(binding.args.len(), 1);
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "source" && matches!(a.placement, ArgPlacement::Body)));
     }
 
     #[test]

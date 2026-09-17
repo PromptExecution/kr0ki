@@ -314,6 +314,16 @@ pub const ALL: &[PlaybookExample] = &[
         outputs: &["svg", "png"],
         route: Some("/render/rust-topology"),
     },
+    PlaybookExample {
+        id: "rust-isometric-render-backend",
+        format: "rust-isometric",
+        title: "Rust code topology (isometric, systhread-core)",
+        input_kind: "Rust source",
+        description: "The same relationships as the D2 recognizer example, rendered through a completely different backend: systhread-core's own layout (Cassowary/kasuari constraint solving) and SVG renderer (FR3), not Kroki — no output choice, always SVG.",
+        source: "trait Drive {}\nstruct Engine;\nstruct Car {\n    engine: Engine,\n}\nimpl Drive for Car {}\nfn build() -> Car {\n    Car { engine: Engine }\n}\nfn main() {\n    build();\n}\n",
+        outputs: &["svg"],
+        route: Some("/render/rust-isometric"),
+    },
 ];
 
 #[cfg(test)]
@@ -446,6 +456,23 @@ mod tests {
             d2.contains("->"),
             "expected at least one D2 edge line:\n{d2}"
         );
+    }
+
+    #[test]
+    fn rust_isometric_example_actually_renders_through_systhread_core() {
+        let example = ALL
+            .iter()
+            .find(|e| e.id == "rust-isometric-render-backend")
+            .expect("rust-isometric-render-backend example exists");
+
+        let (nodes, edges) = crate::rust_recognizer::recognize_source(example.source)
+            .expect("example source is valid Rust");
+        assert!(
+            !edges.is_empty(),
+            "the example should recognize at least one relationship"
+        );
+        let svg = crate::isometric::render_svg(example.title, &nodes, &edges);
+        assert!(svg.contains("<svg"), "expected real SVG output:\n{svg}");
     }
 
     #[test]

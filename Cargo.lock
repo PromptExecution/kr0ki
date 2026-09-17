@@ -18,6 +18,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "allocator-api2"
+version = "0.2.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -469,6 +475,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
+name = "foldhash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+
+[[package]]
 name = "font-types"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -684,6 +696,17 @@ dependencies = [
  "bytemuck",
  "read-fonts",
  "smallvec",
+]
+
+[[package]]
+name = "hashbrown"
+version = "0.16.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+dependencies = [
+ "allocator-api2",
+ "equivalent",
+ "foldhash",
 ]
 
 [[package]]
@@ -970,7 +993,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
- "hashbrown",
+ "hashbrown 0.17.1",
 ]
 
 [[package]]
@@ -997,6 +1020,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "kasuari"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bde5057d6143cc94e861d90f591b9303d6716c6b9602309150bd068853c10899"
+dependencies = [
+ "hashbrown 0.16.1",
+ "portable-atomic",
+ "thiserror",
+]
+
+[[package]]
 name = "kr0ki-core"
 version = "0.0.1"
 dependencies = [
@@ -1013,13 +1047,14 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "syn 2.0.119",
- "sysml-v2-parser",
+ "sysml-v2-parser 0.55.0",
+ "systhread-core",
  "thiserror",
  "tiny-skia",
  "tokio",
  "toml",
  "tracing",
- "ufo-types",
+ "ufo-types 0.14.1",
  "usvg",
  "walkdir",
  "wiremock",
@@ -1324,6 +1359,12 @@ checksum = "50596ddc09eb5ad5f75cacd40209568e66df71baf86e1499a0e99c4cff12a5a6"
 dependencies = [
  "arrayvec",
 ]
+
+[[package]]
+name = "portable-atomic"
+version = "1.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05c8b63e8d9609db387f0324918f81d68fe27748f084ef092fb35954d0539a85"
 
 [[package]]
 name = "potential_utf"
@@ -1806,6 +1847,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_norway"
+version = "0.9.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e408f29489b5fd500fab51ff1484fc859bb655f32c671f307dcd733b72e8168c"
+dependencies = [
+ "indexmap",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml-norway",
+]
+
+[[package]]
 name = "serde_path_to_error"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2035,6 +2089,18 @@ dependencies = [
 
 [[package]]
 name = "sysml-v2-parser"
+version = "0.54.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5db89688b6bab9dacbf8150e3f32f636decd36e34fcb8aaacbdb52fe281a9134"
+dependencies = [
+ "log",
+ "nom",
+ "nom_locate",
+ "stacker",
+]
+
+[[package]]
+name = "sysml-v2-parser"
 version = "0.55.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "99a905556f2621bda6773caf400071aad786cdd96fefa7283b318a2a53a20684"
@@ -2044,6 +2110,19 @@ dependencies = [
  "nom",
  "nom_locate",
  "stacker",
+]
+
+[[package]]
+name = "systhread-core"
+version = "0.1.0"
+source = "git+https://github.com/fungible-farm/nem-poweragent-lab.git#4f41c75672594f8fc35241da31c0140841d9c6b4"
+dependencies = [
+ "kasuari",
+ "serde",
+ "serde_json",
+ "serde_norway",
+ "sysml-v2-parser 0.54.0",
+ "ufo-types 0.11.0",
 ]
 
 [[package]]
@@ -2339,6 +2418,18 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ufo-types"
+version = "0.11.0"
+source = "git+https://github.com/PromptExecution/ufo-types.git?rev=19422ac1988f916c83e15260b1f1a8969ef8d65a#19422ac1988f916c83e15260b1f1a8969ef8d65a"
+dependencies = [
+ "chrono",
+ "schemars",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "ufo-types"
 version = "0.14.1"
 source = "git+https://github.com/PromptExecution/ufo-types?rev=fa17ca8ff58059b38ce775b1137e63e51c13defe#fa17ca8ff58059b38ce775b1137e63e51c13defe"
 dependencies = [
@@ -2381,6 +2472,12 @@ name = "unsafe-libyaml"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
+
+[[package]]
+name = "unsafe-libyaml-norway"
+version = "0.2.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b39abd59bf32521c7f2301b52d05a6a2c975b6003521cbd0c6dc1582f0a22104"
 
 [[package]]
 name = "untrusted"

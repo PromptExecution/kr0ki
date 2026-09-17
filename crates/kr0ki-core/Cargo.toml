@@ -47,6 +47,20 @@ oxrdf = "0.3"
 # source.md #5): reads workspace Cargo.toml files to tell a workspace-sibling
 # crate apart from a genuine external dependency.
 toml = "0.8"
+# FR3 (docs/TODO.md box 5) -- the isometric SVG layout+render backend. Lives
+# at rust/systhread-core inside this monorepo (found via elasticdotventures/
+# _b00t_'s AGENTS.md, 2026-09-17 -- no kr0ki doc had the URL until now). Pulls
+# in its OWN ufo-types pin (v0.11.0, predates ontology/sysml_model/sysgraph
+# entirely) alongside this crate's v0.14.1 one -- two nominally distinct
+# crate instances of the same name/version-family, so
+# `systhread_core::iso_ir::{Node, Edge}` (a `pub use` re-export of *its*
+# ufo-types) is a different type from this crate's own `ufo_types::iso_ir`,
+# despite both being the same promoted shape. `crates/kr0ki-core/src/
+# isometric.rs` converts field-by-field between them at the boundary --
+# copying two-field/five-field structs across, never touching the actual
+# layout math, which stays entirely inside systhread-core as this box-5
+# item's own "do not port or re-solve" instruction requires.
+systhread-core = { git = "https://github.com/fungible-farm/nem-poweragent-lab.git" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "fs", "net", "rt-multi-thread"] }
