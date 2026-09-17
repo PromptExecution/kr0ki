@@ -42,10 +42,16 @@
 //! and `PATTERNS-rust-source.md` §5 for why "same-module" specifically, not a
 //! whole-tree lookup the way field types and trait impls get).
 //!
+//! Also covered, as two standalone functions rather than part of the
+//! `Vec<syn::File> -> (Vec<Node>, Vec<Edge>)` shape above (crate-level, not
+//! module/item-level — see their own doc comments): cross-crate `requires`
+//! edges ([`cross_crate_requires`]) for a `use` of a workspace-sibling crate,
+//! using [`workspace_member_crate_names`] to tell that apart from a use of a
+//! genuine external dependency.
+//!
 //! **Deferred** (needs more than AST pattern-matching, or an unresolved design
 //! choice — see `docs/PATTERNS-rust-source.md` §5 for each reason): cross-module/
-//! method/trait-dispatch calls, blanket/generic trait `impl` blocks, and
-//! cross-crate `requires` edges.
+//! method/trait-dispatch calls and blanket/generic trait `impl` blocks.
 //!
 //! **Inherited limitation, not new here:** like `SymbolVisitor`, each file's
 //! `module_path` starts empty regardless of that file's real position in the crate
@@ -516,6 +522,138 @@ fn collect_type_names(ty: &syn::Type, out: &mut Vec<String>) {
     }
 }
 
+// ---------------------------------------------------------------------
+// Cross-crate `requires` (PATTERNS-rust-source.md §5's last deferred item)
+// ---------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct CargoTomlPackage {
+    name: String,
+}
+
+#[derive(serde::Deserialize)]
+struct CargoTomlWorkspace {
+    members: Vec<String>,
+}
+
+#[derive(serde::Deserialize, Default)]
+struct CargoTomlDoc {
+    package: Option<CargoTomlPackage>,
+    workspace: Option<CargoTomlWorkspace>,
+}
+
+/// Every crate name declared as a `[package] name` of a workspace member
+/// listed in `workspace_root/Cargo.toml`'s `[workspace] members`, as the
+/// Rust identifier form `use` paths need (hyphens replaced with
+/// underscores — Cargo package names commonly use hyphens, `use` paths
+/// never can).
+///
+/// Members are read as literal paths only, not glob patterns
+/// (`kr0ki`'s own workspace lists every member explicitly; expanding a glob
+/// pattern like `"crates/*"` is unimplemented — a member entry that isn't a
+/// real directory with its own `Cargo.toml` is silently skipped, same
+/// "never guess, never error on the unrecognized" posture as every other
+/// heuristic in this module). Returns an empty set, not an error, for a
+/// `Cargo.toml` with no `[workspace]` table (a single, non-workspace crate
+/// has no siblings to distinguish from external dependencies).
+pub fn workspace_member_crate_names(workspace_root: &Path) -> anyhow::Result<HashSet<String>> {
+    let root_manifest = workspace_root.join("Cargo.toml");
+    let root_text = std::fs::read_to_string(&root_manifest)
+        .with_context(|| format!("reading {}", root_manifest.display()))?;
+    let root_doc: CargoTomlDoc = toml::from_str(&root_text)
+        .with_context(|| format!("parsing {}", root_manifest.display()))?;
+    let Some(workspace) = root_doc.workspace else {
+        return Ok(HashSet::new());
+    };
+
+    let mut names = HashSet::new();
+    for member in &workspace.members {
+        let member_manifest = workspace_root.join(member).join("Cargo.toml");
+        let Ok(member_text) = std::fs::read_to_string(&member_manifest) else {
+            continue;
+        };
+        let Ok(member_doc) = toml::from_str::<CargoTomlDoc>(&member_text) else {
+            continue;
+        };
+        if let Some(package) = member_doc.package {
+            names.insert(package.name.replace('-', "_"));
+        }
+    }
+    Ok(names)
+}
+
+/// `use other_crate::Item` importing from a workspace-sibling crate becomes
+/// a `requires` edge from `this_crate` to `other_crate`
+/// (`PATTERNS-rust-source.md` §2 row 5). An import from a genuine external
+/// dependency (anything not in `workspace_crates`) is not recognized — this
+/// module has no source for it to place a meaningful node, and telling
+/// "interesting to this workspace's own architecture" apart from "just a
+/// library dependency" is exactly what `workspace_crates` (from
+/// [`workspace_member_crate_names`]) answers. `self`/`super`/`crate` leading
+/// segments and a `use` of `this_crate`'s own name are excluded — neither
+/// denotes a *different* crate. One edge per distinct target crate, however
+/// many `use` sites reference it.
+pub fn cross_crate_requires(
+    files: &[syn::File],
+    this_crate: &str,
+    workspace_crates: &HashSet<String>,
+) -> Vec<Edge> {
+    let mut required = HashSet::new();
+    for file in files {
+        for name in collect_use_crate_names(file) {
+            if name == "self" || name == "super" || name == "crate" || name == this_crate {
+                continue;
+            }
+            if workspace_crates.contains(&name) {
+                required.insert(name);
+            }
+        }
+    }
+    let mut names: Vec<String> = required.into_iter().collect();
+    names.sort_unstable(); // deterministic edge order
+    names
+        .into_iter()
+        .map(|name| Edge {
+            id: format!("{this_crate}_requires_{name}"),
+            from: this_crate.to_string(),
+            to: name,
+            edge_type: "requires".to_string(),
+            kind: None,
+        })
+        .collect()
+}
+
+/// The leading path segment of every top-level `use` tree in `file` — the
+/// crate name a `use` statement imports from, before any real name
+/// resolution (`self`/`super`/`crate`/an aliased re-export are not filtered
+/// here; [`cross_crate_requires`] does that, since what counts as "not a
+/// different crate" is that function's concern, not this collector's).
+fn collect_use_crate_names(file: &syn::File) -> Vec<String> {
+    fn walk(tree: &syn::UseTree, out: &mut Vec<String>) {
+        match tree {
+            syn::UseTree::Path(p) => out.push(p.ident.to_string()),
+            // `use { foo::A, bar::B };` — a top-level group has no single
+            // leading segment of its own; recurse into each branch.
+            syn::UseTree::Group(g) => {
+                for item in &g.items {
+                    walk(item, out);
+                }
+            }
+            // `use Foo;` / `use Foo as Bar;` / `use *;` with no leading
+            // path segment at all — nothing to extract.
+            syn::UseTree::Name(_) | syn::UseTree::Rename(_) | syn::UseTree::Glob(_) => {}
+        }
+    }
+
+    let mut out = Vec::new();
+    for item in &file.items {
+        if let syn::Item::Use(item_use) = item {
+            walk(&item_use.tree, &mut out);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -851,5 +989,102 @@ mod tests {
         "#;
         let (_, edges) = recognize_source(src).unwrap();
         assert!(!edges.iter().any(|e| e.edge_type == "flows_to"));
+    }
+
+    fn parse_all(sources: &[&str]) -> Vec<syn::File> {
+        sources
+            .iter()
+            .map(|s| syn::parse_file(s).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn use_of_a_workspace_sibling_crate_becomes_requires() {
+        let files = parse_all(&["use other_crate::Thing;"]);
+        let workspace_crates: HashSet<String> = ["other_crate".to_string()].into_iter().collect();
+        let edges = cross_crate_requires(&files, "this_crate", &workspace_crates);
+        assert_eq!(edges.len(), 1);
+        assert_eq!(edges[0].from, "this_crate");
+        assert_eq!(edges[0].to, "other_crate");
+        assert_eq!(edges[0].edge_type, "requires");
+    }
+
+    #[test]
+    fn use_of_a_genuine_external_dependency_is_not_recognized() {
+        let files = parse_all(&["use serde::Serialize;", "use tokio::spawn;"]);
+        let workspace_crates: HashSet<String> = ["other_crate".to_string()].into_iter().collect();
+        let edges = cross_crate_requires(&files, "this_crate", &workspace_crates);
+        assert!(edges.is_empty());
+    }
+
+    #[test]
+    fn use_of_self_super_crate_and_the_current_crate_itself_are_excluded() {
+        let files = parse_all(&[
+            "use self::inner::Thing;",
+            "use super::Other;",
+            "use crate::local::Item;",
+            "use this_crate::AlsoLocal;",
+        ]);
+        let workspace_crates: HashSet<String> = ["this_crate".to_string()].into_iter().collect();
+        let edges = cross_crate_requires(&files, "this_crate", &workspace_crates);
+        assert!(edges.is_empty());
+    }
+
+    #[test]
+    fn grouped_use_statements_are_all_recognized() {
+        let files = parse_all(&["use {other_crate::A, another_crate::B};"]);
+        let workspace_crates: HashSet<String> =
+            ["other_crate".to_string(), "another_crate".to_string()]
+                .into_iter()
+                .collect();
+        let mut edges = cross_crate_requires(&files, "this_crate", &workspace_crates);
+        edges.sort_by(|a, b| a.to.cmp(&b.to));
+        assert_eq!(edges.len(), 2);
+        assert_eq!(edges[0].to, "another_crate");
+        assert_eq!(edges[1].to, "other_crate");
+    }
+
+    #[test]
+    fn multiple_use_sites_of_the_same_crate_produce_one_edge() {
+        let files = parse_all(&[
+            "use other_crate::A;",
+            "use other_crate::B;",
+            "use other_crate::c::D;",
+        ]);
+        let workspace_crates: HashSet<String> = ["other_crate".to_string()].into_iter().collect();
+        let edges = cross_crate_requires(&files, "this_crate", &workspace_crates);
+        assert_eq!(edges.len(), 1);
+    }
+
+    #[test]
+    fn workspace_member_crate_names_reads_kr0kis_own_workspace() {
+        // Dogfoods this function against the real repository: proves it
+        // reads an actual Cargo workspace correctly, not just a synthetic
+        // fixture. CARGO_MANIFEST_DIR is crates/kr0ki-core; the workspace
+        // root is one level up.
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
+        let names = workspace_member_crate_names(workspace_root).unwrap();
+        assert!(names.contains("kr0ki_core"));
+        assert!(names.contains("kr0ki_server"));
+        assert!(names.contains("kr0ki_sysmlv2_client"));
+    }
+
+    #[test]
+    fn cross_crate_requires_dogfoods_against_kr0kis_own_ufo_graph_rs() {
+        // ufo_graph.rs genuinely does `use kr0ki_sysmlv2_client::{...}` --
+        // proves the whole pipeline (real Cargo.toml -> real source file)
+        // end to end, not just synthetic snippets.
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
+        let workspace_crates = workspace_member_crate_names(workspace_root).unwrap();
+
+        let ufo_graph_source =
+            std::fs::read_to_string(manifest_dir.join("src/ufo_graph.rs")).unwrap();
+        let files = parse_all(&[&ufo_graph_source]);
+        let edges = cross_crate_requires(&files, "kr0ki_core", &workspace_crates);
+        assert!(edges
+            .iter()
+            .any(|e| e.from == "kr0ki_core" && e.to == "kr0ki_sysmlv2_client"));
     }
 }

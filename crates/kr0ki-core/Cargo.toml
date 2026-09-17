@@ -38,6 +38,10 @@ holon-viz = { git = "https://github.com/PromptExecution/ledgrrr", rev = "3e9e3f4
 # here, just SPO triples).
 oxttl = "0.2"
 oxrdf = "0.3"
+# Box 1's cross-crate `requires` slice (rust_recognizer.rs, PATTERNS-rust-
+# source.md #5): reads workspace Cargo.toml files to tell a workspace-sibling
+# crate apart from a genuine external dependency.
+toml = "0.8"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "fs", "net", "rt-multi-thread"] }

@@ -145,7 +145,18 @@ method call (`x.foo()`), and everything needing real dispatch (trait methods, `S
 paths, calls through a closure/fn-pointer variable) — reduced recall, not a
 compromise on correctness.
 
+**Cross-crate `requires` (§2 row 5) — shipped, as two standalone functions rather
+than part of the module/item-level pass above.** `workspace_member_crate_names`
+reads the workspace root and every member's `Cargo.toml` to build the set of
+workspace-sibling crate names; `cross_crate_requires` recognizes a `use` of one of
+them (excluding `self`/`super`/`crate`/the current crate) as a `requires` edge, and
+leaves a `use` of a genuine external dependency unrecognized — this module has no
+source for it to place a meaningful node. Both are dogfooded against kr0ki's own
+real workspace and `ufo_graph.rs`'s real `use kr0ki_sysmlv2_client::{...}`, not just
+synthetic fixtures.
+
 **Deferred, tracked not silently missing:**
-- **Cross-crate `requires`** (§2 row 5) — needs distinguishing a workspace-local crate
-  from a genuine external dependency, which means reading `Cargo.toml` workspace
-  membership, not just `syn::visit`.
+- Everything §5's original call-graph note named — cross-module calls, method
+  calls, trait dispatch — see the call-graph slice's own scope note above for why
+  "same-module only" specifically, not "not yet attempted."
+- Blanket/generic trait `impl` blocks (still no decided edge shape).
