@@ -75,7 +75,7 @@ async fn formats_lists_supported_slugs_only() {
 }
 
 #[tokio::test]
-async fn mcp_tools_lists_all_thirteen_tools_with_bindings() {
+async fn mcp_tools_lists_all_twelve_tools_with_bindings() {
     let app = test_app(test_state("mcp-tools"));
     let resp = app
         .oneshot(Request::get("/mcp/tools").body(Body::empty()).unwrap())
@@ -84,14 +84,13 @@ async fn mcp_tools_lists_all_thirteen_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 13);
+    assert_eq!(tools.len(), 12);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
     assert!(names.contains(&"render_kubernetes_manifest"));
     assert!(names.contains(&"render_kubernetes_topology"));
-    assert!(names.contains(&"render_rust_topology"));
-    assert!(names.contains(&"render_rust_isometric"));
+    assert!(names.contains(&"render_sysmlv2_snapshot"));
     assert!(names.contains(&"query_model_graph"));
 
     let render = tools
@@ -110,12 +109,78 @@ async fn mcp_tools_lists_all_thirteen_tools_with_bindings() {
 async fn model_routes_return_503_when_no_client_is_configured() {
     let app = test_app(test_state("model-unconfigured"));
     let response = app
+        .clone()
         .oneshot(Request::get("/model/projects").body(Body::empty()).unwrap())
         .await
         .unwrap();
     let (status, body) = body_string(response).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert!(body.contains("sysmlv2_client_not_configured"));
+
+    let response = app
+        .oneshot(
+            Request::post("/render/sysmlv2/projects/proj-1/commits/c1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(body.contains("sysmlv2_client_not_configured"));
+}
+
+#[tokio::test]
+async fn render_sysmlv2_snapshot_uses_the_model_api_not_source_language_input() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path(
+            "/projects/proj-1/commits/c1/elements",
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {"@id": "assembly", "@type": "PartDefinition", "name": "Assembly"},
+                {"@id": "engine", "@type": "PartUsage", "name": "Engine"},
+                {"@id": "owns-engine", "@type": "FeatureMembership",
+                 "owner": {"@id": "assembly"}, "member": {"@id": "engine"}}
+            ])),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path(
+            "/projects/proj-1/commits/c1/roots",
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!(["assembly"])),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/d2/svg"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_string("<svg/>"))
+        .mount(&server)
+        .await;
+
+    let mut state = test_state_with_sysmlv2_client("render-sysmlv2", server.uri());
+    state.service = Arc::new(RenderService::new(
+        HttpKrokiBackend::new(server.uri()),
+        FsCache::new(std::env::temp_dir().join(format!(
+            "kr0ki-http-test-{}-render-sysmlv2-backend",
+            std::process::id()
+        ))),
+    ));
+    let response = test_app(state)
+        .oneshot(
+            Request::post("/render/sysmlv2/projects/proj-1/commits/c1?output=svg")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, "<svg/>");
 }
 
 fn test_state_with_sysmlv2_client(tag: &str, base_url: String) -> AppState {
@@ -702,139 +767,6 @@ async fn render_k8s_topology_valid_manifest_reaches_the_unreachable_backend() {
     assert_eq!(status, StatusCode::BAD_GATEWAY);
     assert!(!body.contains("empty_manifest"));
     assert!(!body.contains("bad_manifest"));
-}
-
-#[tokio::test]
-async fn render_rust_topology_empty_body_is_400() {
-    let app = test_app(test_state("rust-topology-empty"));
-    let resp = app
-        .oneshot(
-            Request::post("/render/rust-topology")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let (status, body) = body_string(resp).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body.contains("empty_source"));
-}
-
-#[tokio::test]
-async fn render_rust_topology_rejects_oversized_source_before_parsing() {
-    let app = test_app(test_state("rust-topology-oversized"));
-    let oversized = "a".repeat(1_048_577);
-    let resp = app
-        .oneshot(
-            Request::post("/render/rust-topology")
-                .body(Body::from(oversized))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let (status, body) = body_string(resp).await;
-    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
-    assert!(body.contains("source_too_large"));
-}
-
-#[tokio::test]
-async fn render_rust_topology_rejects_invalid_rust_syntax_before_any_backend_call() {
-    // http://127.0.0.1:1 (test_state's fixed backend) is unreachable -- if
-    // the handler validates/parses before rendering, this call never
-    // reaches it.
-    let app = test_app(test_state("rust-topology-badsyntax"));
-    let resp = app
-        .oneshot(
-            Request::post("/render/rust-topology")
-                .body(Body::from("fn this is not valid rust {{{"))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let (status, body) = body_string(resp).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(body.contains("bad_rust_source"));
-}
-
-#[tokio::test]
-async fn render_rust_topology_valid_source_reaches_the_unreachable_backend() {
-    // A well-formed source with a real relationship (a trait impl) passes
-    // parsing/recognition/lift/to_d2, so the handler proceeds all the way
-    // to state.service.render() -- proving the pipeline itself didn't error
-    // out before ever reaching the (deliberately unreachable) backend.
-    let app = test_app(test_state("rust-topology-valid"));
-    let source = "trait Drive {}\nstruct Car;\nimpl Drive for Car {}\n";
-    let resp = app
-        .oneshot(
-            Request::post("/render/rust-topology")
-                .body(Body::from(source))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let (status, body) = body_string(resp).await;
-    assert_eq!(status, StatusCode::BAD_GATEWAY);
-    assert!(!body.contains("empty_source"));
-    assert!(!body.contains("bad_rust_source"));
-}
-
-#[tokio::test]
-async fn render_rust_isometric_empty_body_is_400() {
-    let app = test_app(test_state("rust-isometric-empty"));
-    let resp = app
-        .oneshot(
-            Request::post("/render/rust-isometric")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let (status, body) = body_string(resp).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body.contains("empty_source"));
-}
-
-#[tokio::test]
-async fn render_rust_isometric_rejects_invalid_rust_syntax() {
-    let app = test_app(test_state("rust-isometric-badsyntax"));
-    let resp = app
-        .oneshot(
-            Request::post("/render/rust-isometric")
-                .body(Body::from("fn this is not valid rust {{{"))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let (status, body) = body_string(resp).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(body.contains("bad_rust_source"));
-}
-
-#[tokio::test]
-async fn render_rust_isometric_returns_real_svg_with_no_backend_involved() {
-    // Unlike render_rust_topology/render_k8s_topology, this route never
-    // touches state.service -- test_state()'s unreachable stub backend
-    // proves nothing here except that this route doesn't need it at all.
-    let app = test_app(test_state("rust-isometric-valid"));
-    let source = "trait Drive {}\nstruct Car;\nimpl Drive for Car {}\n";
-    let resp = app
-        .oneshot(
-            Request::post("/render/rust-isometric")
-                .body(Body::from(source))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let status = resp.status();
-    let content_type = resp
-        .headers()
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_string);
-    let (_, body) = body_string(resp).await;
-    assert_eq!(status, StatusCode::OK);
-    assert_eq!(content_type.as_deref(), Some("image/svg+xml"));
-    assert!(body.contains("<svg"), "expected real SVG:\n{body}");
 }
 
 #[tokio::test]

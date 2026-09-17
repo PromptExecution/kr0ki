@@ -12,7 +12,6 @@
 //!
 //! ```text
 //! Vec<k8s manifest JSON> ──▶ [THIS] ──▶ Vec<OntologicalEdge>
-//!                                    └─▶ SysGraph (KubernetesRecognizer::recognize_to_sysgraph)
 //! ```
 //!
 //! # Provenance: `philippemerle/KubeDiagrams`
@@ -269,42 +268,6 @@ impl KubernetesRecognizer {
         }
         edges.extend(service_selector_edges(manifests));
         edges
-    }
-
-    /// [`Self::recognize`], wrapped in `ufo_types::sysgraph::SysGraph`
-    /// (`docs/TODO.md` box 2's "Graph container type") — a node per
-    /// manifest in the batch, `UfoStereotype::SubKind` of `"K8sObject"`
-    /// exactly as `docs/PATTERNS-kubernetes.md` §3 already specifies
-    /// ("Deployment, Service, Pod, ConfigMap, … → `SubKind` of
-    /// `K8sObject`"), plus every edge `recognize` produces.
-    ///
-    /// Unlike [`crate::rust_recognizer::to_sysgraph`] (whose edges can never
-    /// dangle — it builds both nodes and edges from one complete tree walk),
-    /// an edge here legitimately can: a `SimpleFieldRule` target (a
-    /// `RuntimeClass`, a `Node`, …) is only a node if its own manifest is
-    /// also present in `manifests`. [`ufo_types::sysgraph::SysGraph::dangling_edges`]
-    /// is the caller-invoked check for exactly this — expected to be
-    /// non-empty for a partial manifest batch, not a bug.
-    pub fn recognize_to_sysgraph(&self, manifests: &[Value]) -> ufo_types::sysgraph::SysGraph {
-        use ufo_types::stereotype::UfoStereotype;
-        use ufo_types::sysgraph::{OntologicalNode, SysGraph};
-
-        let mut graph = SysGraph::new();
-        for m in manifests {
-            let (Some(id), Some(kind)) = (manifest_element_id(m), manifest_kind(m)) else {
-                continue;
-            };
-            let label = manifest_name(m).unwrap_or(kind).to_string();
-            let stereotype = UfoStereotype::SubKind {
-                name: kind.to_string(),
-                parent: "K8sObject".to_string(),
-            };
-            graph.push_node(OntologicalNode::with_label(id, stereotype, label));
-        }
-        for edge in self.recognize(manifests) {
-            graph.push_edge(edge);
-        }
-        graph
     }
 
     fn simple_field_edges(&self, m: &Value) -> Vec<OntologicalEdge> {
@@ -988,68 +951,5 @@ mod tests {
         });
         let edges = KubernetesRecognizer::new().recognize(std::slice::from_ref(&cm));
         assert!(edges.is_empty());
-    }
-
-    fn playbook_demo_manifests() -> Vec<Value> {
-        // The exact three-object bundle kr0ki_core::examples' k8s-topology-
-        // web-service fixture uses, live-verified end to end (kr0ki PR #31).
-        serde_yaml::Deserializer::from_str(
-            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: app-config\n  namespace: demo\n\
-             data:\n  LOG_LEVEL: info\n---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  \
-             name: web\n  namespace: demo\n  labels:\n    app: web\nspec:\n  replicas: 2\n  \
-             selector:\n    matchLabels:\n      app: web\n  template:\n    metadata:\n      \
-             labels:\n        app: web\n    spec:\n      containers:\n        - name: web\n          \
-             image: web:latest\n          envFrom:\n            - configMapRef:\n                \
-             name: app-config\n---\napiVersion: v1\nkind: Service\nmetadata:\n  name: web\n  \
-             namespace: demo\nspec:\n  selector:\n    app: web\n  ports:\n    - port: 80\n",
-        )
-        .map(|doc| serde::Deserialize::deserialize(doc).expect("valid manifest doc"))
-        .collect()
-    }
-
-    #[test]
-    fn recognize_to_sysgraph_has_no_dangling_edges_for_a_self_contained_batch() {
-        let manifests = playbook_demo_manifests();
-        let graph = KubernetesRecognizer::new().recognize_to_sysgraph(&manifests);
-        assert_eq!(graph.nodes.len(), 3);
-        assert!(
-            graph.dangling_edges().is_empty(),
-            "every referenced object is in this batch: {:?}",
-            graph.dangling_edges()
-        );
-    }
-
-    #[test]
-    fn recognize_to_sysgraph_nodes_are_subkind_of_k8sobject() {
-        use ufo_types::stereotype::UfoStereotype;
-
-        let manifests = playbook_demo_manifests();
-        let graph = KubernetesRecognizer::new().recognize_to_sysgraph(&manifests);
-        let deployment = graph
-            .node(&ElementId::new("k8s:demo/Deployment/web"))
-            .expect("deployment node");
-        assert_eq!(deployment.label.as_deref(), Some("web"));
-        assert_eq!(
-            deployment.stereotype,
-            UfoStereotype::SubKind {
-                name: "Deployment".to_string(),
-                parent: "K8sObject".to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn recognize_to_sysgraph_reports_a_dangling_edge_for_a_reference_outside_the_batch() {
-        let pvc = json!({
-            "apiVersion": "v1", "kind": "PersistentVolumeClaim",
-            "metadata": { "name": "data", "namespace": "ns1" },
-            "spec": { "storageClassName": "fast", "volumeName": "pv-1" }
-        });
-        // Neither the StorageClass nor the PersistentVolume this PVC
-        // references is included in the batch -- both referenced edges
-        // must dangle, not silently vanish or panic.
-        let graph = KubernetesRecognizer::new().recognize_to_sysgraph(std::slice::from_ref(&pvc));
-        assert_eq!(graph.nodes.len(), 1);
-        assert_eq!(graph.dangling_edges().len(), 2);
     }
 }

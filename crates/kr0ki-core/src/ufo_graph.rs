@@ -80,50 +80,6 @@ pub fn build_ufo_graph(snapshot: &ModelSnapshot) -> Vec<OntologicalEdge> {
         .collect()
 }
 
-/// [`build_ufo_graph`], wrapped in `ufo_types::sysgraph::SysGraph`
-/// (`docs/TODO.md` box 2's "Graph container type") — one node per
-/// non-relationship element (every `@type` that parses as an
-/// `ufo_types::sysml_model::ElementKind`), plus every edge
-/// `build_ufo_graph` already produces, unchanged.
-///
-/// The `ElementKind → UfoStereotype` mapping has no prior precedent
-/// anywhere in this codebase or `ufo-types` (`docs/DESIGN-NOTE-typed-model-
-/// layer.md` §2.10 — resolved there, this function is that section's
-/// implementation): a `*Definition` → `Kind`, a `*Usage` → `Role`, `Package`
-/// → `Kind("Package")` (neither, per `ElementKind::is_definition`/
-/// `is_usage`, which are already exhaustive over the other 23 variants). A
-/// relationship element's `@type` (`FeatureMembership`, `Specialization`,
-/// …) isn't one of `ElementKind`'s 24 variants at all, so it parses to
-/// `Err` and is silently excluded here — it's already an edge, not a node.
-pub fn to_sysgraph(snapshot: &ModelSnapshot) -> ufo_types::sysgraph::SysGraph {
-    use ufo_types::stereotype::UfoStereotype;
-    use ufo_types::sysgraph::{OntologicalNode, SysGraph};
-    use ufo_types::sysml_model::ElementKind;
-
-    let mut graph = SysGraph::new();
-    for el in &snapshot.elements {
-        let Ok(kind) = el.ty().parse::<ElementKind>() else {
-            continue;
-        };
-        let kind_name = kind.kerml_name().to_string();
-        let stereotype = if kind.is_usage() {
-            UfoStereotype::Role(kind_name)
-        } else {
-            // is_definition(), or Package (neither) -- both are Kind.
-            UfoStereotype::Kind(kind_name)
-        };
-        let node = match el.name() {
-            Some(name) => OntologicalNode::with_label(ElementId::new(el.id()), stereotype, name),
-            None => OntologicalNode::new(ElementId::new(el.id()), stereotype),
-        };
-        graph.push_node(node);
-    }
-    for edge in build_ufo_graph(snapshot) {
-        graph.push_edge(edge);
-    }
-    graph
-}
-
 fn ontological_edge_for(el: &Element) -> Option<OntologicalEdge> {
     let (relation, source, target) = match el.ty() {
         "FeatureMembership" => (
@@ -393,62 +349,5 @@ mod tests {
         assert_eq!(graph.len(), 2);
         assert_eq!(graph[0].id, "rel1");
         assert_eq!(graph[1].id, "rel2");
-    }
-
-    #[test]
-    fn to_sysgraph_gives_definitions_kind_and_usages_role() {
-        use ufo_types::stereotype::UfoStereotype;
-
-        let snap = snapshot(vec![
-            element(json!({ "@id": "e1", "@type": "PartUsage", "name": "pump" })),
-            element(json!({ "@id": "e2", "@type": "PartDefinition", "name": "Assembly" })),
-            element(json!({ "@id": "e3", "@type": "Package", "name": "root" })),
-        ]);
-        let graph = to_sysgraph(&snap);
-
-        let usage = graph.node(&ElementId::new("e1")).expect("e1 node");
-        assert_eq!(usage.label.as_deref(), Some("pump"));
-        assert_eq!(usage.stereotype, UfoStereotype::Role("PartUsage".into()));
-
-        let definition = graph.node(&ElementId::new("e2")).expect("e2 node");
-        assert_eq!(
-            definition.stereotype,
-            UfoStereotype::Kind("PartDefinition".into())
-        );
-
-        let package = graph.node(&ElementId::new("e3")).expect("e3 node");
-        assert_eq!(package.stereotype, UfoStereotype::Kind("Package".into()));
-    }
-
-    #[test]
-    fn to_sysgraph_excludes_relationship_elements_from_nodes_but_keeps_their_edges() {
-        let snap = snapshot(vec![
-            element(json!({ "@id": "e1", "@type": "PartUsage", "name": "pump" })),
-            element(json!({ "@id": "e2", "@type": "PartDefinition", "name": "Assembly" })),
-            element(json!({
-                "@id": "rel1", "@type": "FeatureMembership",
-                "owner": { "@id": "e2" }, "member": { "@id": "e1" }
-            })),
-        ]);
-        let graph = to_sysgraph(&snap);
-        assert_eq!(
-            graph.nodes.len(),
-            2,
-            "only the two non-relationship elements"
-        );
-        assert_eq!(graph.edges.len(), 1);
-        assert!(
-            graph.dangling_edges().is_empty(),
-            "both endpoints of rel1 have nodes: {:?}",
-            graph.dangling_edges()
-        );
-    }
-
-    #[test]
-    fn to_sysgraph_element_with_no_name_gets_no_label() {
-        let snap = snapshot(vec![element(json!({ "@id": "e1", "@type": "PartUsage" }))]);
-        let graph = to_sysgraph(&snap);
-        let node = graph.node(&ElementId::new("e1")).expect("e1 node");
-        assert_eq!(node.label, None);
     }
 }

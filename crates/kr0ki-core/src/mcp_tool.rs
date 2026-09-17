@@ -16,8 +16,7 @@ pub enum McpTool {
     ListFormats,
     RenderKubeDiagram,
     RenderK8sTopology,
-    RenderRustTopology,
-    RenderRustIsometric,
+    RenderSysmlV2Snapshot,
     ListModelProjects,
     ListModelCommits,
     GetModelSnapshot,
@@ -33,8 +32,7 @@ impl McpTool {
         Self::ListFormats,
         Self::RenderKubeDiagram,
         Self::RenderK8sTopology,
-        Self::RenderRustTopology,
-        Self::RenderRustIsometric,
+        Self::RenderSysmlV2Snapshot,
         Self::ListModelProjects,
         Self::ListModelCommits,
         Self::GetModelSnapshot,
@@ -50,8 +48,7 @@ impl McpTool {
             Self::ListFormats => "list_formats",
             Self::RenderKubeDiagram => "render_kubernetes_manifest",
             Self::RenderK8sTopology => "render_kubernetes_topology",
-            Self::RenderRustTopology => "render_rust_topology",
-            Self::RenderRustIsometric => "render_rust_isometric",
+            Self::RenderSysmlV2Snapshot => "render_sysmlv2_snapshot",
             Self::ListModelProjects => "list_model_projects",
             Self::ListModelCommits => "list_model_commits",
             Self::GetModelSnapshot => "get_model_snapshot",
@@ -76,17 +73,8 @@ impl McpTool {
                  SysML v2 relation -> D2 pipeline (docs/PATTERNS-kubernetes.md), not the vendored \
                  KubeDiagrams tool."
             }
-            Self::RenderRustTopology => {
-                "Render a single Rust source file's module/struct/trait/call structure through \
-                 kr0ki's Rust recognizer -> UFO graph -> SysML v2 relation -> D2 pipeline \
-                 (docs/PATTERNS-rust-source.md). Single-file scope only -- no cross-file type \
-                 resolution."
-            }
-            Self::RenderRustIsometric => {
-                "Render a single Rust source file's module/struct/trait/call structure as an \
-                 isometric SVG via systhread-core's own layout/render backend (FR3) -- a \
-                 different renderer from render_rust_topology, not a Kroki/D2 diagram, no output \
-                 choice (always SVG)."
+            Self::RenderSysmlV2Snapshot => {
+                "Render a validated SysML v2 project commit from the configured model server."
             }
             Self::ListModelProjects => "List SysML v2 projects on the configured model server.",
             Self::ListModelCommits => "List commits (immutable model snapshots) for a project.",
@@ -132,19 +120,13 @@ impl McpTool {
                     "output": {"type": "string", "enum": ["svg", "png"], "default": "svg"}
                 }
             }),
-            Self::RenderRustTopology => serde_json::json!({
+            Self::RenderSysmlV2Snapshot => serde_json::json!({
                 "type": "object",
-                "required": ["source"],
+                "required": ["project_id", "commit_id"],
                 "properties": {
-                    "source": {"type": "string", "description": "A single Rust source file."},
+                    "project_id": {"type": "string", "description": "SysML v2 project id."},
+                    "commit_id": {"type": "string", "description": "Immutable SysML v2 commit id."},
                     "output": {"type": "string", "enum": ["svg", "png"], "default": "svg"}
-                }
-            }),
-            Self::RenderRustIsometric => serde_json::json!({
-                "type": "object",
-                "required": ["source"],
-                "properties": {
-                    "source": {"type": "string", "description": "A single Rust source file."}
                 }
             }),
             Self::ListModelProjects => serde_json::json!({"type": "object", "properties": {}}),
@@ -229,27 +211,14 @@ impl McpTool {
                     },
                 ],
             },
-            Self::RenderRustTopology => HttpBinding {
+            Self::RenderSysmlV2Snapshot => HttpBinding {
                 method: HttpMethod::Post,
-                path_template: "/render/rust-topology",
+                path_template: "/render/sysmlv2/projects/{project_id}/commits/{commit_id}",
                 args: &[
-                    ArgBinding {
-                        name: "source",
-                        placement: ArgPlacement::Body,
-                    },
-                    ArgBinding {
-                        name: "output",
-                        placement: ArgPlacement::Query,
-                    },
+                    ArgBinding { name: "project_id", placement: ArgPlacement::Path },
+                    ArgBinding { name: "commit_id", placement: ArgPlacement::Path },
+                    ArgBinding { name: "output", placement: ArgPlacement::Query },
                 ],
-            },
-            Self::RenderRustIsometric => HttpBinding {
-                method: HttpMethod::Post,
-                path_template: "/render/rust-isometric",
-                args: &[ArgBinding {
-                    name: "source",
-                    placement: ArgPlacement::Body,
-                }],
             },
             Self::ListModelProjects => HttpBinding { method: HttpMethod::Get, path_template: "/model/projects", args: &[] },
             Self::ListModelCommits => HttpBinding {
@@ -353,40 +322,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_thirteen_tools_have_unique_names() {
+    fn all_twelve_tools_have_unique_names() {
         let mut names: Vec<&str> = McpTool::ALL.iter().map(|t| t.name()).collect();
         let before = names.len();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), before, "duplicate McpTool name in ALL");
-        assert_eq!(McpTool::ALL.len(), 13);
+        assert_eq!(McpTool::ALL.len(), 12);
     }
 
     #[test]
-    fn render_rust_isometric_binds_source_to_body_with_no_output_query_arg() {
-        let binding = McpTool::RenderRustIsometric.http_binding();
+    fn render_sysmlv2_snapshot_binds_only_model_identity_and_output() {
+        let binding = McpTool::RenderSysmlV2Snapshot.http_binding();
         assert!(matches!(binding.method, HttpMethod::Post));
-        assert_eq!(binding.path_template, "/render/rust-isometric");
-        assert_eq!(binding.args.len(), 1);
+        assert_eq!(
+            binding.path_template,
+            "/render/sysmlv2/projects/{project_id}/commits/{commit_id}"
+        );
+        assert_eq!(binding.args.len(), 3);
         assert!(binding
             .args
             .iter()
-            .any(|a| a.name == "source" && matches!(a.placement, ArgPlacement::Body)));
-    }
-
-    #[test]
-    fn render_rust_topology_binds_source_to_body_output_to_query() {
-        let binding = McpTool::RenderRustTopology.http_binding();
-        assert!(matches!(binding.method, HttpMethod::Post));
-        assert_eq!(binding.path_template, "/render/rust-topology");
+            .any(|arg| arg.name == "project_id" && matches!(arg.placement, ArgPlacement::Path)));
         assert!(binding
             .args
             .iter()
-            .any(|a| a.name == "source" && matches!(a.placement, ArgPlacement::Body)));
+            .any(|arg| arg.name == "commit_id" && matches!(arg.placement, ArgPlacement::Path)));
         assert!(binding
             .args
             .iter()
-            .any(|a| a.name == "output" && matches!(a.placement, ArgPlacement::Query)));
+            .any(|arg| arg.name == "output" && matches!(arg.placement, ArgPlacement::Query)));
+        assert!(binding
+            .args
+            .iter()
+            .all(|arg| !matches!(arg.placement, ArgPlacement::Body)));
     }
 
     #[test]

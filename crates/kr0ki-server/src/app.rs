@@ -63,8 +63,10 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
         .route("/render/:format", post(render))
         .route("/render/kubediagram", post(render_kubediagram))
         .route("/render/k8s-topology", post(render_k8s_topology))
-        .route("/render/rust-topology", post(render_rust_topology))
-        .route("/render/rust-isometric", post(render_rust_isometric))
+        .route(
+            "/render/sysmlv2/projects/:project_id/commits/:commit_id",
+            post(render_sysmlv2_snapshot),
+        )
         .route("/model/projects", get(list_model_projects))
         .route(
             "/model/projects/:project_id/commits",
@@ -215,6 +217,50 @@ async fn get_model_snapshot(
             Json(snapshot).into_response()
         }
         Err(error) => client_error_response(error),
+    }
+}
+
+/// Render a content-addressed SysML v2 snapshot from the configured model
+/// server. A compiler may produce the model upstream; kr0ki never ingests or
+/// interprets the compiler's source language.
+async fn render_sysmlv2_snapshot(
+    State(state): State<AppState>,
+    Path((project_id, commit_id)): Path<(String, String)>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let client = match require_sysmlv2_client(&state) {
+        Ok(client) => client,
+        Err(response) => return *response,
+    };
+    let snapshot = match client.snapshot(&project_id, &commit_id).await {
+        Ok(snapshot) => snapshot,
+        Err(error) => return client_error_response(error),
+    };
+    let edges = kr0ki_core::ufo_graph::build_ufo_graph(&snapshot);
+    let relations: Vec<_> = kr0ki_core::sysml_lift::lift_edges(&edges)
+        .into_iter()
+        .map(|lifted| lifted.relation)
+        .collect();
+    let d2 = kr0ki_core::sysml_render::to_d2(&relations);
+    let output = params
+        .get("output")
+        .and_then(|value| OutputKind::from_param(value))
+        .unwrap_or(OutputKind::Svg);
+
+    match state
+        .service
+        .render_model(
+            "sysmlv2-snapshot",
+            DiagramFormat::D2,
+            output,
+            &d2,
+            &snapshot.content_hash,
+            "sysmlv2-ufo-graph-v1",
+        )
+        .await
+    {
+        Ok(rendered) => rendered_response(output, rendered),
+        Err(error) => service_error_response(error),
     }
 }
 
@@ -730,132 +776,6 @@ fn parse_multi_doc_yaml(text: &str) -> Result<Vec<serde_json::Value>, serde_yaml
         .map(serde_json::Value::deserialize)
         .collect::<Result<Vec<_>, _>>()
         .map(|docs| docs.into_iter().filter(|v| !v.is_null()).collect())
-}
-
-/// `POST /render/rust-topology?output=svg|png` — the Rust arm of the same
-/// native pipeline `/render/k8s-topology` wires for Kubernetes
-/// (`docs/PATTERNS-rust-source.md`,
-/// `crates/kr0ki-core/src/rust_recognizer.rs`). Body is a **single** Rust
-/// source file — `rust_recognizer::recognize_source`'s own scope, not
-/// `walk_and_recognize`'s whole-tree walk (an HTTP body has no filesystem
-/// tree to walk; single-file scope also means no cross-file type/call
-/// resolution, a real limitation this route inherits honestly rather than
-/// working around). `to_sysgraph` lifts the recognizer's raw `iso_ir`
-/// output to a `SysGraph` (box 2), `sysml_lift::lift_edges` lifts its edges
-/// to `sysml_model::Relation` (box 4), `sysml_render::to_d2` emits D2, and
-/// — like `/render/k8s-topology` — that text goes through the normal
-/// content-addressed `RenderService` cache.
-async fn render_rust_topology(
-    State(state): State<AppState>,
-    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
-    body: Bytes,
-) -> Response {
-    if body.is_empty() {
-        return error_json(
-            StatusCode::BAD_REQUEST,
-            "empty_source",
-            "rust source body is empty",
-        );
-    }
-    if body.len() > MAX_MANIFEST_BYTES {
-        return error_json(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "source_too_large",
-            "rust source exceeds the 1 MiB limit",
-        );
-    }
-    let text = match std::str::from_utf8(&body) {
-        Ok(t) => t,
-        Err(_) => {
-            return error_json(
-                StatusCode::BAD_REQUEST,
-                "invalid_utf8",
-                "rust source is not UTF-8",
-            )
-        }
-    };
-
-    let (nodes, edges) = match kr0ki_core::rust_recognizer::recognize_source(text) {
-        Ok(result) => result,
-        Err(e) => {
-            return error_json(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "bad_rust_source",
-                &e.to_string(),
-            )
-        }
-    };
-    let graph = kr0ki_core::rust_recognizer::to_sysgraph(&nodes, &edges);
-    let relations: Vec<_> = kr0ki_core::sysml_lift::lift_edges(&graph.edges)
-        .into_iter()
-        .map(|lifted| lifted.relation)
-        .collect();
-    let d2 = kr0ki_core::sysml_render::to_d2(&relations);
-
-    let output = params
-        .get("output")
-        .and_then(|v| OutputKind::from_param(v))
-        .unwrap_or(OutputKind::Svg);
-
-    match state.service.render(DiagramFormat::D2, output, &d2).await {
-        Ok(r) => rendered_response(output, r),
-        Err(e) => service_error_response(e),
-    }
-}
-
-/// `POST /render/rust-isometric` — FR3 (`docs/TODO.md` box 5): a single Rust
-/// source file rendered as an isometric SVG via `systhread-core`'s own
-/// layout/render backend (`crates/kr0ki-core/src/isometric.rs`), a
-/// completely different renderer from `render_rust_topology` — no Kroki, no
-/// D2, no `output` choice (always SVG), and — unlike every other `/render/*`
-/// route — no content-addressed cache: this doesn't call
-/// `state.service.render`, so it needs no `AppState` at all. Body scope is
-/// `rust_recognizer::recognize_source`'s: a single file, no cross-file
-/// resolution.
-async fn render_rust_isometric(body: Bytes) -> Response {
-    if body.is_empty() {
-        return error_json(
-            StatusCode::BAD_REQUEST,
-            "empty_source",
-            "rust source body is empty",
-        );
-    }
-    if body.len() > MAX_MANIFEST_BYTES {
-        return error_json(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "source_too_large",
-            "rust source exceeds the 1 MiB limit",
-        );
-    }
-    let text = match std::str::from_utf8(&body) {
-        Ok(t) => t,
-        Err(_) => {
-            return error_json(
-                StatusCode::BAD_REQUEST,
-                "invalid_utf8",
-                "rust source is not UTF-8",
-            )
-        }
-    };
-
-    let (nodes, edges) = match kr0ki_core::rust_recognizer::recognize_source(text) {
-        Ok(result) => result,
-        Err(e) => {
-            return error_json(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "bad_rust_source",
-                &e.to_string(),
-            )
-        }
-    };
-    let svg = kr0ki_core::isometric::render_svg("kr0ki rust-isometric", &nodes, &edges);
-
-    (
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, "image/svg+xml")],
-        svg,
-    )
-        .into_response()
 }
 
 fn rendered_response(output: OutputKind, r: Rendered) -> Response {

@@ -95,21 +95,14 @@ cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
 
 - [x] **Graph container type** — `SysGraph` (`nodes: Vec<OntologicalNode>`, `edges:
   Vec<OntologicalEdge>`), serde JSON, round-trip tested, no `SchemaVersion` field
-  (DESIGN-NOTE §2.6/§2.8). `ufo-types` PR #27, merged. **Now consumed by all three
-  source arms** (2026-09-17 — resolves the open question this bullet used to pose):
-  `rust_recognizer::to_sysgraph`, `KubernetesRecognizer::recognize_to_sysgraph`,
-  `ufo_graph::to_sysgraph` — each **additive** (the pre-existing edge-only functions
-  are unchanged and still the pipeline's working type internally; `sysml_lift`
-  itself still takes `&[OntologicalEdge]`, not a whole `SysGraph`, since it operates
-  per-edge and doesn't need node identity). `SysGraph` is the envelope a caller
-  reaches for when it wants nodes *with* edges together — proving a real integrity
-  invariant via `dangling_edges()` (all three arms' new tests do this), or a future
-  serialization boundary (`GET /model/graph` snapshot route) — not a breaking
-  signature change forced onto three already-shipped, tested, live-wired modules.
-  The Kubernetes and SysML-v2 arms' `ElementKind`/kind→`UfoStereotype` mappings
-  follow their own docs (`PATTERNS-kubernetes.md` §3,
-  `DESIGN-NOTE-typed-model-layer.md` §2.10 — the latter a genuinely new decision,
-  no prior precedent existed anywhere for it, confirmed before writing it).
+  (DESIGN-NOTE §2.6/§2.8). `ufo-types` PR #27, merged. **Not yet consumed by kr0ki**
+  — `ufo_graph.rs`, `k8s_recognizer.rs`, and `sysml_lift.rs` all still pass a bare
+  `Vec<OntologicalEdge>` between stages rather than a `SysGraph`. Open question for
+  whoever picks this up: is adopting the envelope actually worth a signature change
+  to three already-shipped, tested modules, or is `Vec<OntologicalEdge>` fine as the
+  pipeline's working type and `SysGraph` only needed at a serialization boundary
+  (e.g. a future `GET /model/graph` snapshot route)? Not decided — don't silently
+  pick one without flagging it here first.
 - [x] **`ModelSnapshot → UFO graph` builder** — `kr0ki-core/src/ufo_graph.rs`
   (box 2 of `PLAN-KR0KI-002`). Raw KerML relationship `@type` → `UfoRelation` via a
   direct table lookup (`FeatureMembership`→`HasPart`, `Specialization`→`Specializes`,
@@ -176,30 +169,8 @@ cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
   What's still missing: grouping `LiftedRelation`s by `view_kind` before calling
   `sysml_render`, so each `ViewDefinition` renders as its own diagram rather than one
   diagram with every relation mixed together.
-- [x] **`systhread-core` isometric backend (FR3)** — call its `render.rs`; do not
-  port or re-solve the Cassowary (`kasuari`) layout. **Unblocked and shipped
-  2026-09-17.** Found at `fungible-farm/nem-poweragent-lab` (a different GitHub org
-  entirely), path `rust/systhread-core`, via `elasticdotventures/_b00t_`'s
-  `AGENTS.md` — no kr0ki doc had carried the URL before this. (Earlier same-day note
-  in this file claiming the crate is "`kiwisolver`" per `PRD-KR0KI-001-
-  foundational.md` was itself wrong — the real dependency is `kasuari`, confirmed
-  from that repo's own `Cargo.toml`; the original "Cassowary/kasuari" phrasing here
-  was correct all along.) `crates/kr0ki-core/src/isometric.rs`: `render_svg(title,
-  nodes, edges)` converts this crate's `ufo_types::iso_ir::{Node, Edge}` field-by-
-  field into `systhread_core::iso_ir`'s *nominally distinct but structurally
-  identical* re-export of the same promoted shape (that crate pins `ufo-types`
-  v0.11.0, this one v0.14.1 — same type lineage, two crate instances), calls the
-  real, public `systhread_core::layout::cassowary_positions` for the actual
-  Cassowary solve (never re-implemented), and reimplements only the small,
-  previously-private JSON-spec-assembly glue `systhread_core::render::render_svg`
-  needs (that crate's own `assemble()` isn't `pub`). Wired behind `POST
-  /render/rust-isometric` (`McpTool::RenderRustIsometric`) — no Kroki, no D2, no
-  cache (this route never calls `state.service`, so it needs no `AppState`),
-  `rust_recognizer::recognize_source`'s single-file scope. `kr0ki`-domain
-  `part_type`/`edge_type` strings (module/struct/has_part/…) fall through that
-  backend's own lab-specific styling tables to its documented generic/box defaults —
-  correct, not a degraded fallback; this backend was written for its own lab's
-  domain and was never going to grow kr0ki-specific glyphs.
+- [ ] **`systhread-core` isometric backend (FR3)** — call its `render.rs`; do not port
+  or re-solve the Cassowary/kasuari layout.
 - [ ] ◑ **`KubeDiagramsBackend` — leaf feature, NOT the pipeline** — substantially
   shipped, and (as of mcp-http-parity) available both ways: as an MCP tool and as
   the originally-envisioned native HTTP route (`POST /render/kubediagram`) —

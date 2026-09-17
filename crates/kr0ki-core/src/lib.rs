@@ -31,7 +31,6 @@ pub mod examples;
 pub mod flatten;
 pub mod format;
 pub mod graph_store;
-pub mod isometric;
 pub mod k8s_recognizer;
 pub mod mcp_tool;
 pub mod probe;
