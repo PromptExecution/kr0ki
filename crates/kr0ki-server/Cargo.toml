@@ -23,6 +23,9 @@ tracing-subscriber.workspace = true
 # POST /render/kubediagram proxies to the kr0ki-mcp sidecar's internal
 # http_worker.py listener — mcp-http-parity design, 2026-09-16.
 reqwest = { workspace = true }
+# POST /render/k8s-topology parses a multi-doc YAML manifest bundle into
+# the JSON k8s_recognizer::KubernetesRecognizer::recognize expects.
+serde_yaml = "0.9"
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["json"] }

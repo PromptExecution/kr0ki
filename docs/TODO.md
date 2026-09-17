@@ -133,8 +133,19 @@ cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
   `&[ufo_types::sysml_model::Relation]` — box-4 output, **not** a raw `ModelSnapshot`.
   D2 emission reuses `b00t_graph::D2Emitter`'s own quoting helpers; Mermaid follows
   `b00t-cli/src/dispatch_sysml.rs`'s `dispatch_chain_to_mermaid` conventions (header
-  comment, `flowchart TD`, string-assembly with no AST validator). Pure library — no
-  route/MCP wiring yet (tracked as a follow-up, not silently missing).
+  comment, `flowchart TD`, string-assembly with no AST validator).
+- [x] **Route/MCP wiring for the Kubernetes arm** — `POST
+  /render/k8s-topology?output=svg|png` / MCP tool `render_kubernetes_topology`
+  (`crates/kr0ki-server/src/app.rs::render_k8s_topology`, kr0ki PR TBD): body = a
+  multi-doc K8s YAML manifest bundle → `k8s_recognizer::KubernetesRecognizer::recognize`
+  → `sysml_lift::lift_edges` → `sysml_render::to_d2` → `state.service.render` — the
+  full pipeline, through the same content-addressed cache every other `/render/*`
+  route uses (unlike `/render/kubediagram`, which proxies to the vendored tool and is
+  deliberately uncached). `GET /mcp/tools` and `bridge.py` pick it up automatically
+  (no bridge.py change needed — manifest-driven dispatch, mcp-http-parity). The Rust
+  arm (`rust_recognizer.rs`) has no route yet — it only covers module
+  containment/field types so far, not enough of a real codebase's structure to be
+  worth wiring until the call-graph/trait-impl slices land (see Box 1 above).
 - [ ] **per-`ViewDefinition` rendering (FR4)** — box-4 constructs + `SysmlViewKind` →
   notation. No longer blocked on boxes 2+3 (both done — see above) or box 3→4 (also
   done, `sysml_lift.rs`, which already assigns a `SysmlViewKind` per lifted relation).

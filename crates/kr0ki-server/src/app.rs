@@ -62,6 +62,7 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
         .route("/playbook/*path", get(playbook_asset))
         .route("/render/:format", post(render))
         .route("/render/kubediagram", post(render_kubediagram))
+        .route("/render/k8s-topology", post(render_k8s_topology))
         .route("/model/projects", get(list_model_projects))
         .route(
             "/model/projects/:project_id/commits",
@@ -635,6 +636,98 @@ async fn render_kubediagram(
             &e.to_string(),
         ),
     }
+}
+
+/// `POST /render/k8s-topology?output=svg|png` — the new native pipeline
+/// (`docs/PATTERNS-kubernetes.md`, `crates/kr0ki-core/src/{k8s_recognizer,
+/// sysml_lift,sysml_render}.rs`), distinct from `/render/kubediagram`'s proxy
+/// to the vendored KubeDiagrams tool. Body is a multi-doc Kubernetes YAML
+/// manifest bundle. `k8s_recognizer::KubernetesRecognizer::recognize` lifts
+/// it to `OntologicalEdge`s (box 2/3), `sysml_lift::lift_edges` lifts those to
+/// `sysml_model::Relation` (box 4), `sysml_render::to_d2` emits D2 text, and
+/// — unlike `/render/kubediagram` — that text goes through the same
+/// content-addressed `RenderService` cache every other `/render/*` route
+/// uses (mirrors `b00t_graph`'s own parse-then-`state.service.render` shape).
+async fn render_k8s_topology(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    body: Bytes,
+) -> Response {
+    if body.is_empty() {
+        return error_json(
+            StatusCode::BAD_REQUEST,
+            "empty_manifest",
+            "kubernetes manifest body is empty",
+        );
+    }
+    if body.len() > MAX_MANIFEST_BYTES {
+        return error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "manifest_too_large",
+            "kubernetes manifest exceeds the 1 MiB limit",
+        );
+    }
+    let text = match std::str::from_utf8(&body) {
+        Ok(t) => t,
+        Err(_) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_utf8",
+                "manifest is not UTF-8",
+            )
+        }
+    };
+
+    let manifests = match parse_multi_doc_yaml(text) {
+        Ok(m) => m,
+        Err(e) => {
+            return error_json(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "bad_manifest",
+                &e.to_string(),
+            )
+        }
+    };
+    if manifests.is_empty() {
+        return error_json(
+            StatusCode::BAD_REQUEST,
+            "empty_manifest",
+            "manifest contains no documents",
+        );
+    }
+
+    let recognizer = kr0ki_core::k8s_recognizer::KubernetesRecognizer::new();
+    let edges = recognizer.recognize(&manifests);
+    let relations: Vec<_> = kr0ki_core::sysml_lift::lift_edges(&edges)
+        .into_iter()
+        .map(|lifted| lifted.relation)
+        .collect();
+    let d2 = kr0ki_core::sysml_render::to_d2(&relations);
+
+    let output = params
+        .get("output")
+        .and_then(|v| OutputKind::from_param(v))
+        .unwrap_or(OutputKind::Svg);
+
+    match state.service.render(DiagramFormat::D2, output, &d2).await {
+        Ok(r) => rendered_response(output, r),
+        Err(e) => service_error_response(e),
+    }
+}
+
+/// Split a multi-doc YAML manifest bundle (`---`-separated) into one
+/// `serde_json::Value` per document, skipping empty/`null` documents (a
+/// leading or trailing bare `---` produces one). Each document is
+/// deserialized directly from the YAML `Deserializer` into `Value` — no
+/// intermediate `serde_yaml::Value` — so nested numeric/string typing
+/// matches what `k8s_recognizer` (built against real `kubectl get -o json`
+/// shape) expects.
+fn parse_multi_doc_yaml(text: &str) -> Result<Vec<serde_json::Value>, serde_yaml::Error> {
+    use serde::Deserialize;
+    serde_yaml::Deserializer::from_str(text)
+        .map(serde_json::Value::deserialize)
+        .collect::<Result<Vec<_>, _>>()
+        .map(|docs| docs.into_iter().filter(|v| !v.is_null()).collect())
 }
 
 fn rendered_response(output: OutputKind, r: Rendered) -> Response {

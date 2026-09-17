@@ -9,8 +9,12 @@ KubeDiagrams `dot_json` oracle (`crates/kr0ki-core/tests/kubediagrams_oracle.rs`
 Coverage is an intentional subset of KubeDiagrams' ~51-kind catalogue — see that
 module's doc comment for what's ported vs. deferred. **§4 (`UfoRelation` ->
 `ufo_types::sysml_model::Relation`, the box-3→box-4 lift the renderer adapters
-actually consume) is still design-only, no code** — this is what still blocks FR1/FR4
-rendering.
+actually consume) is implemented** in `crates/kr0ki-core/src/sysml_lift.rs`, and wired
+end-to-end (manifests → recognizer → lift → D2 → render) behind `POST
+/render/k8s-topology` / MCP tool `render_kubernetes_topology`
+(`crates/kr0ki-server/src/app.rs::render_k8s_topology`) — distinct from
+`/render/kubediagram`, which proxies to the vendored KubeDiagrams tool instead of
+this native pipeline.
 
 The first **pattern recognizer** — box 3 of the five-box ingestion pipeline: the rule
 set that lifts a canonical UFO-typed semantic graph (derived from Kubernetes cluster
