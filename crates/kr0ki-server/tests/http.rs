@@ -75,7 +75,7 @@ async fn formats_lists_supported_slugs_only() {
 }
 
 #[tokio::test]
-async fn mcp_tools_lists_all_eleven_tools_with_bindings() {
+async fn mcp_tools_lists_all_twelve_tools_with_bindings() {
     let app = test_app(test_state("mcp-tools"));
     let resp = app
         .oneshot(Request::get("/mcp/tools").body(Body::empty()).unwrap())
@@ -84,12 +84,13 @@ async fn mcp_tools_lists_all_eleven_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 11);
+    assert_eq!(tools.len(), 12);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
     assert!(names.contains(&"render_kubernetes_manifest"));
     assert!(names.contains(&"render_kubernetes_topology"));
+    assert!(names.contains(&"render_rust_topology"));
     assert!(names.contains(&"query_model_graph"));
 
     let render = tools
@@ -700,6 +701,80 @@ async fn render_k8s_topology_valid_manifest_reaches_the_unreachable_backend() {
     assert_eq!(status, StatusCode::BAD_GATEWAY);
     assert!(!body.contains("empty_manifest"));
     assert!(!body.contains("bad_manifest"));
+}
+
+#[tokio::test]
+async fn render_rust_topology_empty_body_is_400() {
+    let app = test_app(test_state("rust-topology-empty"));
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-topology")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("empty_source"));
+}
+
+#[tokio::test]
+async fn render_rust_topology_rejects_oversized_source_before_parsing() {
+    let app = test_app(test_state("rust-topology-oversized"));
+    let oversized = "a".repeat(1_048_577);
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-topology")
+                .body(Body::from(oversized))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert!(body.contains("source_too_large"));
+}
+
+#[tokio::test]
+async fn render_rust_topology_rejects_invalid_rust_syntax_before_any_backend_call() {
+    // http://127.0.0.1:1 (test_state's fixed backend) is unreachable -- if
+    // the handler validates/parses before rendering, this call never
+    // reaches it.
+    let app = test_app(test_state("rust-topology-badsyntax"));
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-topology")
+                .body(Body::from("fn this is not valid rust {{{"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(body.contains("bad_rust_source"));
+}
+
+#[tokio::test]
+async fn render_rust_topology_valid_source_reaches_the_unreachable_backend() {
+    // A well-formed source with a real relationship (a trait impl) passes
+    // parsing/recognition/lift/to_d2, so the handler proceeds all the way
+    // to state.service.render() -- proving the pipeline itself didn't error
+    // out before ever reaching the (deliberately unreachable) backend.
+    let app = test_app(test_state("rust-topology-valid"));
+    let source = "trait Drive {}\nstruct Car;\nimpl Drive for Car {}\n";
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-topology")
+                .body(Body::from(source))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(!body.contains("empty_source"));
+    assert!(!body.contains("bad_rust_source"));
 }
 
 #[tokio::test]

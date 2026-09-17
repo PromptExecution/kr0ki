@@ -16,6 +16,7 @@ pub enum McpTool {
     ListFormats,
     RenderKubeDiagram,
     RenderK8sTopology,
+    RenderRustTopology,
     ListModelProjects,
     ListModelCommits,
     GetModelSnapshot,
@@ -31,6 +32,7 @@ impl McpTool {
         Self::ListFormats,
         Self::RenderKubeDiagram,
         Self::RenderK8sTopology,
+        Self::RenderRustTopology,
         Self::ListModelProjects,
         Self::ListModelCommits,
         Self::GetModelSnapshot,
@@ -46,6 +48,7 @@ impl McpTool {
             Self::ListFormats => "list_formats",
             Self::RenderKubeDiagram => "render_kubernetes_manifest",
             Self::RenderK8sTopology => "render_kubernetes_topology",
+            Self::RenderRustTopology => "render_rust_topology",
             Self::ListModelProjects => "list_model_projects",
             Self::ListModelCommits => "list_model_commits",
             Self::GetModelSnapshot => "get_model_snapshot",
@@ -69,6 +72,12 @@ impl McpTool {
                 "Render Kubernetes manifest YAML through kr0ki's own recognizer -> UFO graph -> \
                  SysML v2 relation -> D2 pipeline (docs/PATTERNS-kubernetes.md), not the vendored \
                  KubeDiagrams tool."
+            }
+            Self::RenderRustTopology => {
+                "Render a single Rust source file's module/struct/trait/call structure through \
+                 kr0ki's Rust recognizer -> UFO graph -> SysML v2 relation -> D2 pipeline \
+                 (docs/PATTERNS-rust-source.md). Single-file scope only -- no cross-file type \
+                 resolution."
             }
             Self::ListModelProjects => "List SysML v2 projects on the configured model server.",
             Self::ListModelCommits => "List commits (immutable model snapshots) for a project.",
@@ -111,6 +120,14 @@ impl McpTool {
                 "required": ["manifest"],
                 "properties": {
                     "manifest": {"type": "string", "description": "Kubernetes multi-doc YAML manifest bundle."},
+                    "output": {"type": "string", "enum": ["svg", "png"], "default": "svg"}
+                }
+            }),
+            Self::RenderRustTopology => serde_json::json!({
+                "type": "object",
+                "required": ["source"],
+                "properties": {
+                    "source": {"type": "string", "description": "A single Rust source file."},
                     "output": {"type": "string", "enum": ["svg", "png"], "default": "svg"}
                 }
             }),
@@ -188,6 +205,20 @@ impl McpTool {
                 args: &[
                     ArgBinding {
                         name: "manifest",
+                        placement: ArgPlacement::Body,
+                    },
+                    ArgBinding {
+                        name: "output",
+                        placement: ArgPlacement::Query,
+                    },
+                ],
+            },
+            Self::RenderRustTopology => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/render/rust-topology",
+                args: &[
+                    ArgBinding {
+                        name: "source",
                         placement: ArgPlacement::Body,
                     },
                     ArgBinding {
@@ -298,13 +329,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_eleven_tools_have_unique_names() {
+    fn all_twelve_tools_have_unique_names() {
         let mut names: Vec<&str> = McpTool::ALL.iter().map(|t| t.name()).collect();
         let before = names.len();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), before, "duplicate McpTool name in ALL");
-        assert_eq!(McpTool::ALL.len(), 11);
+        assert_eq!(McpTool::ALL.len(), 12);
+    }
+
+    #[test]
+    fn render_rust_topology_binds_source_to_body_output_to_query() {
+        let binding = McpTool::RenderRustTopology.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(binding.path_template, "/render/rust-topology");
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "source" && matches!(a.placement, ArgPlacement::Body)));
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "output" && matches!(a.placement, ArgPlacement::Query)));
     }
 
     #[test]
