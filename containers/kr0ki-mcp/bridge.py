@@ -12,15 +12,13 @@ import json
 import os
 import sys
 import urllib.error
-import urllib.parse
 import urllib.request
+
+import manifest_dispatch
 
 BASE_URL = os.environ.get("KR0KI_URL", "http://host.containers.internal:8787").rstrip("/")
 AUTH_TOKEN = os.environ.get("KR0KI_AUTH_TOKEN")
 MAX_INPUT_BYTES = 1_048_576
-
-_manifest_cache = None
-
 
 def response(request_id, result):
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
@@ -34,60 +32,11 @@ def tool_error(message):
     return {"content": [{"type": "text", "text": message}], "isError": True}
 
 
-def http_call(method, url, data=None):
-    headers = {"Accept": "application/json"}
-    if AUTH_TOKEN:
-        headers["Authorization"] = f"Bearer {AUTH_TOKEN}"
-    if data is not None:
-        headers["Content-Type"] = "text/plain; charset=utf-8"
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=60) as result:
-        return result.headers.get_content_type(), result.read()
-
-
-def fetch_manifest():
-    global _manifest_cache
-    if _manifest_cache is None:
-        _, body = http_call("GET", f"{BASE_URL}/mcp/tools")
-        _manifest_cache = json.loads(body)
-    return _manifest_cache
-
-
 def mcp_tools_list():
     return [
         {"name": t["name"], "description": t["description"], "inputSchema": t["inputSchema"]}
-        for t in fetch_manifest()
+        for t in manifest_dispatch.fetch_manifest(BASE_URL)
     ]
-
-
-def find_tool(name):
-    for t in fetch_manifest():
-        if t["name"] == name:
-            return t
-    return None
-
-
-def apply_binding(tool, arguments):
-    """Turn a tool's httpBinding + a tools/call's arguments into (method, url, body)."""
-    binding = tool["httpBinding"]
-    path = binding["pathTemplate"]
-    query = {}
-    body = None
-    for arg in binding["args"]:
-        name = arg["name"]
-        value = arguments.get(name)
-        if value is None:
-            continue
-        if arg["placement"] == "path":
-            path = path.replace(f"{{{name}}}", urllib.parse.quote(str(value), safe=""))
-        elif arg["placement"] == "query":
-            query[name] = str(value)
-        elif arg["placement"] == "body":
-            body = str(value).encode("utf-8")
-    url = f"{BASE_URL}{path}"
-    if query:
-        url += "?" + urllib.parse.urlencode(query)
-    return binding["method"], url, body
 
 
 def call_tool(arguments):
@@ -97,7 +46,7 @@ def call_tool(arguments):
         return tool_error("arguments must be an object")
 
     try:
-        tool = find_tool(name)
+        tool = manifest_dispatch.find_tool(manifest_dispatch.fetch_manifest(BASE_URL), name)
     except (urllib.error.HTTPError, urllib.error.URLError) as exc:
         return tool_error(f"failed to fetch tool manifest: {exc}")
 
@@ -109,11 +58,11 @@ def call_tool(arguments):
         if isinstance(value, str) and len(value.encode("utf-8")) > MAX_INPUT_BYTES:
             return tool_error("input exceeds the 1 MiB MCP bridge limit")
 
-    method, url, body = apply_binding(tool, params)
+    method, url, body = manifest_dispatch.apply_binding(tool, params, BASE_URL)
     output = params.get("output", "svg")
 
     try:
-        content_type, response_body = http_call(method, url, body)
+        content_type, response_body = manifest_dispatch.http_call(method, url, body)
     except urllib.error.HTTPError as exc:
         return tool_error(f"kr0ki rejected the request ({exc.code}): {exc.read().decode('utf-8', 'replace')}")
     except urllib.error.URLError as exc:

@@ -28,6 +28,8 @@ fn test_state(tag: &str) -> AppState {
         b00t_graph_artifacts_path: None,
         capabilities_path: None,
         kubediagram_worker_url: None,
+        sysmlv2_client: None,
+        model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
     }
 }
 
@@ -73,7 +75,7 @@ async fn formats_lists_supported_slugs_only() {
 }
 
 #[tokio::test]
-async fn mcp_tools_lists_all_three_tools_with_bindings() {
+async fn mcp_tools_lists_all_ten_tools_with_bindings() {
     let app = test_app(test_state("mcp-tools"));
     let resp = app
         .oneshot(Request::get("/mcp/tools").body(Body::empty()).unwrap())
@@ -82,11 +84,12 @@ async fn mcp_tools_lists_all_three_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 3);
+    assert_eq!(tools.len(), 10);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
     assert!(names.contains(&"render_kubernetes_manifest"));
+    assert!(names.contains(&"query_model_graph"));
 
     let render = tools
         .iter()
@@ -98,6 +101,125 @@ async fn mcp_tools_lists_all_three_tools_with_bindings() {
         .as_array()
         .unwrap()
         .contains(&serde_json::json!("format")));
+}
+
+#[tokio::test]
+async fn model_routes_return_503_when_no_client_is_configured() {
+    let app = test_app(test_state("model-unconfigured"));
+    let response = app
+        .oneshot(Request::get("/model/projects").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(body.contains("sysmlv2_client_not_configured"));
+}
+
+fn test_state_with_sysmlv2_client(tag: &str, base_url: String) -> AppState {
+    let mut state = test_state(tag);
+    state.sysmlv2_client = Some(Arc::new(kr0ki_sysmlv2_client::SysmlV2Client::new(base_url)));
+    state
+}
+
+#[tokio::test]
+async fn model_projects_proxy_and_snapshot_materializes_the_graph() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/projects"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {"@id": "proj-1", "name": "Toaster"}
+            ])),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path(
+            "/projects/proj-1/commits/c1/elements",
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {"@id": "elem-1", "@type": "PartUsage", "name": "Engine"}
+            ])),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path(
+            "/projects/proj-1/commits/c1/roots",
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!(["elem-1"])),
+        )
+        .mount(&server)
+        .await;
+
+    let response = test_app(test_state_with_sysmlv2_client(
+        "model-projects",
+        server.uri(),
+    ))
+    .oneshot(Request::get("/model/projects").body(Body::empty()).unwrap())
+    .await
+    .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("proj-1"));
+
+    let state = test_state_with_sysmlv2_client("model-snapshot", server.uri());
+    let graph = state.model_graph.clone();
+    let response = test_app(state)
+        .oneshot(
+            Request::get("/model/projects/proj-1/commits/c1/snapshot")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(graph
+        .query(
+            kr0ki_core::graph_store::QueryShape::TriplesAbout,
+            Some("elem-1")
+        )
+        .iter()
+        .any(|(_, predicate, object)| predicate == "name" && object == "Engine"));
+}
+
+#[tokio::test]
+async fn model_graph_query_is_bounded_and_validates_its_shape() {
+    let state = test_state("model-graph");
+    let element: kr0ki_sysmlv2_client::Element = serde_json::from_value(serde_json::json!({
+        "@id": "elem-1", "@type": "PartUsage", "name": "Engine"
+    }))
+    .unwrap();
+    state
+        .model_graph
+        .insert_element_triples("proj-1", "c1", &element);
+    let app = test_app(state);
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/model/graph/query?shape=triples_about&subject=elem-1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Engine"));
+
+    let response = app
+        .oneshot(
+            Request::get("/model/graph/query?shape=unknown")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("invalid_shape"));
 }
 
 #[tokio::test]

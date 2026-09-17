@@ -62,6 +62,10 @@ spec:
         # shared network namespace exactly like KR0KI_BACKEND_URL is.
         - name: KR0KI_KUBEDIAGRAM_WORKER_URL
           value: http://127.0.0.1:8788
+        # Optional: without a configured read-only SysML v2 server, /model/*
+        # deliberately returns 503 instead of inventing a backend.
+        - name: KR0KI_SYSMLV2_BASE_URL
+          value: ""
       ports:
         - containerPort: 8787
           hostPort: 8787
@@ -111,6 +115,35 @@ spec:
       volumeMounts:
         - name: kubediagram-tmp
           mountPath: /tmp
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+        readOnlyRootFilesystem: true
+    - name: kr0ki-storyb00k-agent
+      image: localhost/kr0ki-storyb00k-agent:dev
+      imagePullPolicy: Never
+      env:
+        - name: KR0KI_URL
+          value: http://127.0.0.1:8787
+        - name: OPENAI_API_KEY
+          value: unused-local-llamacpp-key
+        - name: OPENAI_API_URL
+          value: http://127.0.0.1:8001/v1
+      ports:
+        - containerPort: 8789
+      readinessProbe:
+        httpGet:
+          path: /health
+          port: 8789
+        initialDelaySeconds: 1
+        periodSeconds: 2
+        timeoutSeconds: 2
+        failureThreshold: 15
+      resources:
+        limits:
+          cpu: "250m"
+          memory: 128Mi
       securityContext:
         allowPrivilegeEscalation: false
         capabilities:

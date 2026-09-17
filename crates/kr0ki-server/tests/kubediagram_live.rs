@@ -43,6 +43,8 @@ async fn kr0ki_renders_its_own_deployment_manifest() {
         b00t_graph_artifacts_path: None,
         capabilities_path: None,
         kubediagram_worker_url: Some(worker_url),
+        sysmlv2_client: None,
+        model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
     };
     let app = router(state, None);
 

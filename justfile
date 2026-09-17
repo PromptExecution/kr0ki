@@ -72,6 +72,7 @@ dev_kroki_port := "8010"
 # without an explicit resource budget (matches the pod manifest's own 2Gi/1 CPU).
 dev-kroki-up:
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-kroki-compat:dev -f containers/kroki-compat/Containerfile .
+    podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-storyb00k-agent:dev -f containers/kr0ki-storyb00k-agent/Containerfile .
     podman rm -f kr0ki-dev-kroki >/dev/null 2>&1 || true
     podman run -d --name kr0ki-dev-kroki --memory=2g --memory-swap=2g --cpus=1 -p {{dev_kroki_port}}:8000 -e KROKI_SAFE_MODE=secure localhost/kr0ki-kroki-compat:dev
     @for i in $(seq 1 30); do curl -fsS http://127.0.0.1:{{dev_kroki_port}}/health >/dev/null 2>&1 && exit 0; sleep 1; done; echo "kroki-compat did not become ready" >&2; exit 1
@@ -118,6 +119,7 @@ pod-up: pod-build
     just k0s-load localhost/kr0ki-server:dev
     just k0s-load localhost/kr0ki-mcp:dev
     just k0s-load localhost/kr0ki-kroki-compat:dev
+    just k0s-load localhost/kr0ki-storyb00k-agent:dev
     kubectl --context Default apply -f deploy/namespace.yaml
     # This is a standalone Pod, not a Deployment: apply alone preserves old
     # containers when the tag is unchanged. Recreate after import for hot reload.
