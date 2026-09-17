@@ -6,7 +6,8 @@ in [`PLAN-KR0KI-002.md`](PLAN-KR0KI-002.md); the typed-layer shape in
 [`DESIGN-NOTE-typed-model-layer.md`](DESIGN-NOTE-typed-model-layer.md). This file just
 tracks *what is left to do*, ordered by the five-box pipeline.
 
-_Last updated: 2026-09-15._
+_Last updated: 2026-09-15; corrected 2026-09-17 — boxes 2/3 and the ledgrrr
+cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
 
 ---
 
@@ -70,30 +71,38 @@ _Last updated: 2026-09-15._
 
 ## Box 2 — canonical UFO-typed semantic graph (in `ufo-types`)
 
-- [ ] **Graph container type** — a typed envelope holding UFO-stereotyped nodes +
-  `Vec<OntologicalEdge>` (the v2-correct "SysGraph"; **not** `SchemaVersion`-carrying —
-  content-hash + golden-fixture discipline, DESIGN-NOTE §2.7/§2.8). serde JSON,
-  ouroboros round-trip test (same bar as `systhread-core`'s `PositionedGraph`).
-- [ ] **`ModelSnapshot → UFO graph` builder** — element `@type` → `UfoStereotype` +
-  `ElementKind`; KerML relationships → `Relation`; non-KerML edges → `UfoRelation` /
-  `Relation::Domain`. Lives in `ufo-types` (or the D3-designated crate), **not** kr0ki.
-- [ ] **Provenance population** — one `SourceAnchor` per node/edge:
-  `KermlQualifiedName` from `@id`, `Vcs { commit }` from the snapshot, `SysmlFile` /
-  `K8sObject` from the source front-end. Deterministic only.
+- [x] **Graph container type** — `SysGraph` (`nodes: Vec<OntologicalNode>`, `edges:
+  Vec<OntologicalEdge>`), serde JSON, round-trip tested, no `SchemaVersion` field
+  (DESIGN-NOTE §2.6/§2.8). `ufo-types` PR #27 (`feat/sysgraph-box2-container`),
+  open, not yet merged/tagged. Lands in `ufo-types::sysgraph`.
+- [x] **`ModelSnapshot → UFO graph` builder** — `kr0ki-core/src/ufo_graph.rs`
+  (box 2 of `PLAN-KR0KI-002`). Raw KerML relationship `@type` → `UfoRelation` via a
+  direct table lookup (`FeatureMembership`→`HasPart`, `Specialization`→`Specializes`,
+  etc. — see the module's own mapping table). Already shipped; this checkbox was
+  stale.
+- [ ] **Provenance population** — the Kubernetes arm already does this
+  (`k8s_recognizer.rs` pushes `SourceAnchor::K8sObject` on every edge it builds).
+  **The SysML-v2 arm (`ufo_graph.rs`) does not yet** — no `SourceAnchor` is attached
+  to the edges it produces. Needs `KermlQualifiedName` from the element's `@id` and
+  `Vcs { commit }` from the `ModelSnapshot`. Genuinely still open.
 
 ## Box 3 — pattern recognizers
 
-- [ ] **Kubernetes recognizer** — port `philippemerle/KubeDiagrams`'
-  `bin/kube-diagrams.yaml` (~51 GVK entries + Gateway API) into a **static Rust rule
-  table**, keeping the per-JSONPath distinction KubeDiagrams collapses → the 25
-  canonical `UfoRelation` kinds (`OWNER`→`has_part`, `CONTROLLED_BY`→`controls`,
-  `SELECTOR`→`selects` map 1:1; the `REFERENCE` bucket splits by JSONPath — table in
-  `EVAL-kubediagrams.md` §3). **Do not** port their `exec()` mechanism. Add a `NOTICE`
-  (Apache-2.0). Emit `OntologicalEdge`s into box 2.
-- [ ] **Recognizer rule-set versioning** — fold a hash of the rule-set version into the
-  model cache key so a recognizer change invalidates derived views (PLAN §3).
-- [ ] **CRD extension point** — mirror KubeDiagrams' `.kdc` config pattern
-  (`PATTERNS-kubernetes.md`).
+- [x] **Kubernetes recognizer** — `crates/kr0ki-core/src/k8s_recognizer.rs` (kr0ki#12,
+  955 lines). Ports `vendor/kubediagrams/bin/kube-diagrams.yaml`'s GVK→relationship
+  catalogue into a static Rust rule table (`builtin_rules`), keeping the per-JSONPath
+  distinction, emitting `OntologicalEdge`s with `SourceAnchor::K8sObject` provenance.
+  Differentially validated against a real KubeDiagrams oracle
+  (`tests/kubediagrams_oracle.rs`). Coverage is an intentional subset — see the
+  module's own "what's ported vs. deliberately deferred" doc comment (admission
+  webhooks, NetworkPolicy rules, Endpoints/EndpointSlice targetRef, Gateway API still
+  open, tracked as a kr0ki#12 follow-up, not silently missing). This checkbox and the
+  two below were stale — the work already shipped.
+- [x] **Recognizer rule-set versioning** — `KubernetesRecognizer::rule_set_version()`
+  hashes the active rule set (built-in + extensions); intended to fold into
+  `cache::model_cache_key`'s `rule_set_version` field.
+- [x] **CRD extension point** — `KubernetesRecognizer::with_rule`/`with_rules` append
+  caller-supplied `SimpleFieldRule`s on top of `builtin_rules`.
 - [ ] _(later)_ additional recognizers — the pattern is established by the k8s one.
 
 ## Box 4 — SysML v2 model constructs (`ufo-types`, mostly done)
@@ -226,12 +235,10 @@ _Last updated: 2026-09-15._
   three tool names and capabilities themselves are unchanged. Runs rootless
   (`USER 65532:65532`). Live in this session as `mcp__kr0ki-mcp__*`.
   `_b00t_/kroki.mcp.toml` extension not needed given this already exists.
-- [ ] **`ledgrrr` / `holon-viz` client seam + E2E** — extract a small kr0ki HTTP client
-  library and add a `CytoscapeGraph → D2` emitter in `holon-viz`; then prove
-  `holon-viz sample → D2 → local kr0ki → SVG` (including a repeated cache hit). Do not
-  route its existing Mermaid renderer through kr0ki: standalone kr0ki intentionally
-  excludes Mermaid because Kroki needs a companion browser. Keep the existing
-  Cytoscape/HTML and Mermaid outputs as separate consumers until this contract exists.
+- [x] **`ledgrrr` / `holon-viz` client seam + E2E** — `crates/kr0ki-core/src/b00t_graph.rs`
+  (kr0ki#13): Turtle → `holon_viz::type_graph::TypeRelationshipGraph` →
+  `CytoscapeGraph` → `D2Emitter` → the existing Kroki render pipeline. This checkbox
+  was stale — the work already shipped.
 
 ## Conformance / QA
 
