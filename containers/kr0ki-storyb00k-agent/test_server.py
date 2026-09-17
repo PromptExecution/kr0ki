@@ -29,6 +29,13 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(json.loads(response.read())["status"], "ok")
 
+    def test_options_allows_playbook_cross_origin_requests(self):
+        connection = HTTPConnection("127.0.0.1", self.httpd.server_address[1], timeout=5)
+        connection.request("OPTIONS", "/run")
+        response = connection.getresponse()
+        self.assertEqual(response.status, 204)
+        self.assertEqual(response.getheader("Access-Control-Allow-Origin"), "http://localhost:8787")
+
     @patch("server.load_skills", return_value={})
     @patch("server.fetch_manifest", return_value=[])
     @patch("server.llm_client.OpenAICompatibleClient.from_env")
