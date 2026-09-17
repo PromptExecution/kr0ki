@@ -111,6 +111,7 @@ pod-build:
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-server:dev -f containers/kr0ki-server/Containerfile .
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-mcp:dev -f containers/kr0ki-mcp/Containerfile .
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-kroki-compat:dev -f containers/kroki-compat/Containerfile .
+    podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-storyb00k-agent:dev -f containers/kr0ki-storyb00k-agent/Containerfile .
 
 k0s-load image:
     podman save {{image}} | sudo k0s ctr images import -
