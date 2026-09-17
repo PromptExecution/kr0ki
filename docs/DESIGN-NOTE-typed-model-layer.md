@@ -230,6 +230,34 @@ So the answer to "land it" is: the notation axis is already landed as `DiagramFo
 the view-kind axis is v2 model data, not a Rust enum, and is D3/D6-blocked; `UmlRelation`
 has no successor. Nothing new to add.
 
+### 2.10 `ElementKind` → `UfoStereotype` — resolved 2026-09-17, no prior precedent
+
+`2026-08-26-systhread-3d-explorer-design.md` wanted per-element UFO stereotype
+retention but left it "deferred, unbuilt"; nothing else in `ufo-types` or kr0ki derives
+a `UfoStereotype` from an `ElementKind` (`ufo_types::mbse::MbseExport` goes the
+*opposite* direction — a `Stereotyped` Rust value → SysML v2 text — the caller already
+supplies the stereotype). This is that missing mapping, needed for
+`ufo_graph::to_sysgraph` (kr0ki, SysGraph adoption for the SysML-v2 arm) to give every
+node a stereotype the way `PATTERNS-kubernetes.md` §3 and `PATTERNS-rust-source.md` §3
+already do for their arms.
+
+Mechanical, using `ElementKind::is_definition`/`is_usage` (already exhaustive over 23 of
+24 variants — the 24th, `Package`, is neither, by its own doc comment):
+
+| `ElementKind` | `UfoStereotype` | Reason |
+|---|---|---|
+| `Package` | `Kind("Package")` | a persistent namespace/container — same reasoning as `PATTERNS-rust-source.md`'s `module → Kind` |
+| any `*Definition` | `Kind(kind_name)` | a `*Definition` metaclass defines a class of things — UFO `Kind`'s core sense, rigid and essential |
+| any `*Usage` | `Role(kind_name)` | a `*Usage` only exists as a contextual, relationally-dependent occurrence of its definition within a particular containing structure — matches `Role`'s "anti-rigid, relationally dependent type" more than a second `Kind` would (two `Kind`s for one concept, defined vs. used, would blur the def/usage distinction §2.1 exists to keep) |
+
+`kind_name` is the `ElementKind`'s own name (`"PartDefinition"`, `"PartUsage"`, …), not
+the model element's own `name()` — mirrors both existing arms' precedent (Kubernetes:
+`SubKind { name: "Deployment", .. }`, not the specific Deployment's own name; Rust:
+`Kind("struct")`, not the specific struct's own name). A relationship element (whose
+`@type` isn't one of `ElementKind`'s 24 variants at all — `FeatureMembership`,
+`Specialization`, …) simply produces no node here; it already becomes an edge via
+`build_ufo_graph`, not a node.
+
 ---
 
 ## 3. What the reference got right
