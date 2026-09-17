@@ -15,6 +15,7 @@ pub enum McpTool {
     RenderDiagram,
     ListFormats,
     RenderKubeDiagram,
+    RenderK8sTopology,
     ListModelProjects,
     ListModelCommits,
     GetModelSnapshot,
@@ -29,6 +30,7 @@ impl McpTool {
         Self::RenderDiagram,
         Self::ListFormats,
         Self::RenderKubeDiagram,
+        Self::RenderK8sTopology,
         Self::ListModelProjects,
         Self::ListModelCommits,
         Self::GetModelSnapshot,
@@ -43,6 +45,7 @@ impl McpTool {
             Self::RenderDiagram => "render_diagram",
             Self::ListFormats => "list_formats",
             Self::RenderKubeDiagram => "render_kubernetes_manifest",
+            Self::RenderK8sTopology => "render_kubernetes_topology",
             Self::ListModelProjects => "list_model_projects",
             Self::ListModelCommits => "list_model_commits",
             Self::GetModelSnapshot => "get_model_snapshot",
@@ -61,6 +64,11 @@ impl McpTool {
             Self::ListFormats => "List formats currently supported by the local kr0ki service.",
             Self::RenderKubeDiagram => {
                 "Render Kubernetes manifest YAML through the internal KubeDiagrams worker."
+            }
+            Self::RenderK8sTopology => {
+                "Render Kubernetes manifest YAML through kr0ki's own recognizer -> UFO graph -> \
+                 SysML v2 relation -> D2 pipeline (docs/PATTERNS-kubernetes.md), not the vendored \
+                 KubeDiagrams tool."
             }
             Self::ListModelProjects => "List SysML v2 projects on the configured model server.",
             Self::ListModelCommits => "List commits (immutable model snapshots) for a project.",
@@ -96,6 +104,14 @@ impl McpTool {
                 "properties": {
                     "manifest": {"type": "string", "description": "Kubernetes YAML manifest bundle."},
                     "output": {"type": "string", "enum": ["svg", "dot_json"], "default": "svg"}
+                }
+            }),
+            Self::RenderK8sTopology => serde_json::json!({
+                "type": "object",
+                "required": ["manifest"],
+                "properties": {
+                    "manifest": {"type": "string", "description": "Kubernetes multi-doc YAML manifest bundle."},
+                    "output": {"type": "string", "enum": ["svg", "png"], "default": "svg"}
                 }
             }),
             Self::ListModelProjects => serde_json::json!({"type": "object", "properties": {}}),
@@ -155,6 +171,20 @@ impl McpTool {
             Self::RenderKubeDiagram => HttpBinding {
                 method: HttpMethod::Post,
                 path_template: "/render/kubediagram",
+                args: &[
+                    ArgBinding {
+                        name: "manifest",
+                        placement: ArgPlacement::Body,
+                    },
+                    ArgBinding {
+                        name: "output",
+                        placement: ArgPlacement::Query,
+                    },
+                ],
+            },
+            Self::RenderK8sTopology => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/render/k8s-topology",
                 args: &[
                     ArgBinding {
                         name: "manifest",
@@ -268,13 +298,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_ten_tools_have_unique_names() {
+    fn all_eleven_tools_have_unique_names() {
         let mut names: Vec<&str> = McpTool::ALL.iter().map(|t| t.name()).collect();
         let before = names.len();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), before, "duplicate McpTool name in ALL");
-        assert_eq!(McpTool::ALL.len(), 10);
+        assert_eq!(McpTool::ALL.len(), 11);
+    }
+
+    #[test]
+    fn render_k8s_topology_binds_manifest_to_body_output_to_query() {
+        let binding = McpTool::RenderK8sTopology.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(binding.path_template, "/render/k8s-topology");
+        assert_eq!(binding.args.len(), 2);
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "manifest" && matches!(a.placement, ArgPlacement::Body)));
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "output" && matches!(a.placement, ArgPlacement::Query)));
+        // Unlike RenderKubeDiagram (svg/dot_json, the vendored tool's own output
+        // kinds), this route renders through kr0ki's own service, so its output
+        // enum matches RenderDiagram's (svg/png).
+        let schema = McpTool::RenderK8sTopology.input_schema();
+        assert_eq!(
+            schema["properties"]["output"]["enum"],
+            serde_json::json!(["svg", "png"])
+        );
     }
 
     #[test]

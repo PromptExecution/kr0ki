@@ -75,7 +75,7 @@ async fn formats_lists_supported_slugs_only() {
 }
 
 #[tokio::test]
-async fn mcp_tools_lists_all_ten_tools_with_bindings() {
+async fn mcp_tools_lists_all_eleven_tools_with_bindings() {
     let app = test_app(test_state("mcp-tools"));
     let resp = app
         .oneshot(Request::get("/mcp/tools").body(Body::empty()).unwrap())
@@ -84,11 +84,12 @@ async fn mcp_tools_lists_all_ten_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 10);
+    assert_eq!(tools.len(), 11);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
     assert!(names.contains(&"render_kubernetes_manifest"));
+    assert!(names.contains(&"render_kubernetes_topology"));
     assert!(names.contains(&"query_model_graph"));
 
     let render = tools
@@ -594,6 +595,101 @@ async fn render_kubediagram_is_503_when_worker_unreachable() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert!(body.contains("kubediagram_worker_unreachable"));
+}
+
+#[tokio::test]
+async fn render_k8s_topology_empty_body_is_400() {
+    let app = test_app(test_state("k8s-topology-empty"));
+    let resp = app
+        .oneshot(
+            Request::post("/render/k8s-topology")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("empty_manifest"));
+}
+
+#[tokio::test]
+async fn render_k8s_topology_rejects_oversized_manifest_before_parsing() {
+    let app = test_app(test_state("k8s-topology-oversized"));
+    let oversized = "a".repeat(1_048_577);
+    let resp = app
+        .oneshot(
+            Request::post("/render/k8s-topology")
+                .body(Body::from(oversized))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert!(body.contains("manifest_too_large"));
+}
+
+#[tokio::test]
+async fn render_k8s_topology_rejects_malformed_yaml_before_any_backend_call() {
+    // http://127.0.0.1:1 (test_state's fixed backend) is unreachable -- if
+    // the handler validates/parses before rendering, this call never
+    // reaches it.
+    let app = test_app(test_state("k8s-topology-badyaml"));
+    let resp = app
+        .oneshot(
+            Request::post("/render/k8s-topology")
+                .body(Body::from("not: [valid yaml"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(body.contains("bad_manifest"));
+}
+
+#[tokio::test]
+async fn render_k8s_topology_all_null_documents_is_400_empty_manifest() {
+    // A bare "---" with nothing else parses as a single null YAML document;
+    // after filtering nulls, zero manifests remain.
+    let app = test_app(test_state("k8s-topology-allnull"));
+    let resp = app
+        .oneshot(
+            Request::post("/render/k8s-topology")
+                .body(Body::from("---"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("empty_manifest"));
+}
+
+#[tokio::test]
+async fn render_k8s_topology_valid_manifest_reaches_the_unreachable_backend() {
+    // A well-formed, recognizable manifest passes validation and parsing,
+    // so the handler proceeds all the way to state.service.render() --
+    // proving the recognize -> lift -> to_d2 pipeline itself didn't error
+    // out before ever reaching the (deliberately unreachable) backend.
+    let app = test_app(test_state("k8s-topology-valid"));
+    let manifest = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cfg\n";
+    let resp = app
+        .oneshot(
+            Request::post("/render/k8s-topology")
+                .body(Body::from(manifest))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    // Not a validation error -- the pipeline ran and only the network call
+    // to the unreachable stub backend failed (RenderError::Unavailable ->
+    // 502, service_error_response).
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(!body.contains("empty_manifest"));
+    assert!(!body.contains("bad_manifest"));
 }
 
 #[tokio::test]
