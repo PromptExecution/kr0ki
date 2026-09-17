@@ -69,14 +69,25 @@ cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
   two with this item).
   - [x] Design: [`PATTERNS-rust-source.md`](PATTERNS-rust-source.md) — the box-3 rule
     table for this arm, mirroring `PATTERNS-kubernetes.md`.
-  - [x] First implementation slice — `crates/kr0ki-core/src/rust_recognizer.rs`:
-    module containment + struct/enum field types → `iso_ir::{Node, Edge}`. Every
-    relation this arm needs is already covered by `sysml_lift.rs` (`has_part`), so
-    no box-3→4 lift work was needed for this slice.
-  - [ ] Deferred: call graph, trait `impl` blocks, cross-crate `requires` (each has
-    a stated reason in `PATTERNS-rust-source.md` §5, not silently missing).
-  - [ ] No route/MCP wiring yet — `walk_and_recognize` has no caller, matching
-    `sysml_lift`/`sysml_render`'s own "pure library first" pattern.
+  - [x] `crates/kr0ki-core/src/rust_recognizer.rs` — all five relationship kinds
+    `PATTERNS-rust-source.md` §2 names: module containment + struct/enum field
+    types (first slice); non-generic/non-blanket trait `impl`s → `satisfies`;
+    direct same-module calls → `flows_to` (deliberately *not* a whole-tree name
+    lookup — see the module's own scope note on why global function-name
+    resolution would assert wrong edges, unlike types/traits); and cross-crate
+    `requires` via `workspace_member_crate_names`/`cross_crate_requires`
+    (dogfooded against kr0ki's own real workspace). Every relation this arm
+    needs is already covered by `sysml_lift.rs`, so no box-3→4 lift work was
+    needed for any of it.
+  - [ ] Still deferred, each with a stated reason in `PATTERNS-rust-source.md` §5:
+    cross-module/method/trait-dispatch calls (needs real name resolution, not
+    AST pattern-matching) and blanket/generic trait `impl`s (no decided edge
+    shape).
+  - [ ] No route/MCP wiring yet — `walk_and_recognize`/`cross_crate_requires` have
+    no caller, matching `sysml_lift`/`sysml_render`'s own "pure library first"
+    pattern (which *did* get wired, `/render/k8s-topology` — this arm is next
+    once it's worth a route: needs either the deferred call-graph coverage or a
+    caller that's fine with today's scope).
 - [ ] _(later)_ **k8s-source front-end** — manifests / kustomize / Helm → UFO graph via
   the Kubernetes recognizer (box 3).
 
