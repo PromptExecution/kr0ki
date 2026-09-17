@@ -129,7 +129,9 @@ spec:
         - name: OPENAI_API_KEY
           value: unused-local-llamacpp-key
         - name: OPENAI_API_URL
-          value: http://127.0.0.1:8001/v1
+          # This host daemon is outside the pod network namespace. The local k0s
+          # node address is intentionally deployment configuration, never code.
+          value: http://192.168.1.137:8001/v1
       ports:
         - containerPort: 8789
       readinessProbe:

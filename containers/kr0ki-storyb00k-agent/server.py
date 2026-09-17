@@ -1,5 +1,6 @@
 """AG-UI SSE sidecar for read-only model storytelling and gated draft proposals."""
 
+import base64
 import json
 import os
 import sys
@@ -29,6 +30,24 @@ def sse_event(event):
 
 def local_draft_tool():
     return {"type": "function", "function": {"name": "propose_draft_change", "description": "Propose a disposable draft-only change for explicit user approval.", "parameters": {"type": "object", "required": ["subject", "predicate", "object"], "properties": {"subject": {"type": "string"}, "predicate": {"type": "string"}, "object": {"type": "string"}}}}}
+
+
+def panel_from_tool_result(name, arguments, content_type, result):
+    """Preserve binary render output rather than corrupting PNG bytes as UTF-8."""
+    panel = {
+        "kind": "render" if name.startswith("render_") else "query-result",
+        "toolName": name,
+        "source": {
+            "text": arguments.get("source") or arguments.get("manifest"),
+            "format": arguments.get("format"),
+        } if name.startswith("render_") else None,
+    }
+    if content_type.startswith("image/") and content_type != "image/svg+xml":
+        panel["imageDataUrl"] = f"data:{content_type};base64,{base64.b64encode(result).decode('ascii')}"
+        panel["content"] = ""
+    else:
+        panel["content"] = result.decode("utf-8", "replace")
+    return panel
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -77,7 +96,9 @@ class Handler(BaseHTTPRequestHandler):
             tools = [{"type": "function", "function": {"name": tool["name"], "description": tool["description"], "parameters": tool["inputSchema"]}} for tool in manifest]
             tools.append(local_draft_tool())
             messages = [{"role": "system", "content": "\n\n".join(load_skills().values())}] + payload.get("messages", [])
-            message = llm_client.OpenAICompatibleClient.from_env().chat_completion(messages, tools)["choices"][0]["message"]
+            client = llm_client.OpenAICompatibleClient.from_env()
+            message = client.chat_completion(messages, tools)["choices"][0]["message"]
+            follow_up_messages = messages + [message]
             for call in message.get("tool_calls") or []:
                 name, arguments = call["function"]["name"], json.loads(call["function"]["arguments"])
                 if name == "propose_draft_change":
@@ -87,9 +108,15 @@ class Handler(BaseHTTPRequestHandler):
                 tool = find_tool(manifest, name)
                 if tool is None:
                     continue
+                self.wfile.write(sse_event({"type": "TOOL_CALL_START", "runId": run_id, "toolCallId": call.get("id", name), "toolName": name, "args": arguments}))
                 method, url, body = apply_binding(tool, arguments, KR0KI_URL)
-                _, result = http_call(method, url, body)
-                self.wfile.write(sse_event({"type": "STATE_DELTA", "runId": run_id, "delta": [{"op": "add", "path": "/panels/-", "value": {"kind": "render" if name.startswith("render_") else "query-result", "toolName": name, "content": result.decode("utf-8", "replace"), "source": arguments if name.startswith("render_") else None}}]}))
+                content_type, result = http_call(method, url, body)
+                panel = panel_from_tool_result(name, arguments, content_type, result)
+                self.wfile.write(sse_event({"type": "TOOL_CALL_END", "runId": run_id, "toolCallId": call.get("id", name), "toolName": name, "result": panel["content"]}))
+                self.wfile.write(sse_event({"type": "STATE_DELTA", "runId": run_id, "delta": [{"op": "add", "path": "/panels/-", "value": panel}]}))
+                follow_up_messages.append({"role": "tool", "tool_call_id": call.get("id", name), "content": panel["content"] or "Rendered binary image."})
+            if message.get("tool_calls"):
+                message = client.chat_completion(follow_up_messages, tools=[])["choices"][0]["message"]
             if message.get("content"):
                 self.wfile.write(sse_event({"type": "TEXT_MESSAGE_CONTENT", "runId": run_id, "role": "assistant", "content": message["content"]}))
             self.wfile.write(sse_event({"type": "RUN_FINISHED", "runId": run_id}))

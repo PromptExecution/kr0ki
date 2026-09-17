@@ -134,6 +134,19 @@ class BridgeDispatchTest(unittest.TestCase):
         self.assertNotIn("error", result)
         self.assertTrue(result["result"]["isError"])
 
+    @patch("manifest_dispatch.urllib.request.urlopen")
+    def test_http_call_headers_override_defaults(self, urlopen):
+        response = urlopen.return_value.__enter__.return_value
+        response.headers.get_content_type.return_value = "application/json"
+        response.read.return_value = b"{}"
+        manifest_dispatch.http_call(
+            "POST", "http://example.invalid", b"x",
+            headers={"Authorization": "Bearer custom", "Content-Type": "application/json"},
+        )
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.get_header("Authorization"), "Bearer custom")
+        self.assertEqual(request.get_header("Content-type"), "application/json")
+
 
 if __name__ == "__main__":
     unittest.main()

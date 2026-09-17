@@ -11,8 +11,13 @@ describe('StoryB00kPanel', () => {
   })
 
   it('renders a diagram and its source together', () => {
-    const panel = mount(StoryB00kPanel, { props: { panel: { kind: 'render', content: '<svg><title>x</title></svg>', source: { source: 'a -> b', format: 'd2' } } } })
+    const panel = mount(StoryB00kPanel, { props: { panel: { kind: 'render', content: '<svg><title>x</title></svg>', source: { text: 'a -> b', format: 'd2' } } } })
     expect(panel.find('[data-testid="rendered-output"]').exists()).toBe(true)
     expect(panel.find('[data-testid="source-text"]').text()).toContain('a -> b')
+  })
+
+  it('uses an image element for binary render output', () => {
+    const panel = mount(StoryB00kPanel, { props: { panel: { kind: 'render', content: '', imageDataUrl: 'data:image/png;base64,AA==' } } })
+    expect(panel.find('[data-testid="rendered-image"]').attributes('src')).toContain('image/png')
   })
 })

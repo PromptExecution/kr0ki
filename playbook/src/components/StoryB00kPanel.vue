@@ -15,8 +15,9 @@ const kindLabel = {
   <article class="storyb00k-panel" :data-kind="panel.kind">
     <span class="storyb00k-panel__label">{{ kindLabel[panel.kind] || 'Agent output' }}</span>
     <div v-if="panel.kind === 'render'" class="storyb00k-panel__render">
-      <div data-testid="rendered-output" v-html="panel.content"></div>
-      <pre v-if="panel.source?.source || panel.source?.text" data-testid="source-text">{{ panel.source.source || panel.source.text }}</pre>
+      <img v-if="panel.imageDataUrl" data-testid="rendered-image" :src="panel.imageDataUrl" alt="Rendered diagram" />
+      <div v-else data-testid="rendered-output" v-html="panel.content"></div>
+      <pre v-if="panel.source?.text" data-testid="source-text">{{ panel.source.text }}</pre>
     </div>
     <pre v-else-if="panel.kind === 'query-result'">{{ panel.content }}</pre>
     <p v-else>{{ panel.content }}</p>
