@@ -34,13 +34,18 @@
 //! in it, including nested modules); struct/enum field types that resolve, by
 //! simple name, to another struct/enum declared anywhere in the walked tree (also
 //! `has_part` — see [`PATTERNS-rust-source.md` §2.1] for why a field is composition,
-//! not a `requires` dependency); and non-generic, non-blanket trait `impl` blocks
+//! not a `requires` dependency); non-generic, non-blanket trait `impl` blocks
 //! (`impl Trait for Type` → a `satisfies` edge — see
-//! [`RelationshipVisitor::push_trait_impl_edge`] for the exact scope).
+//! [`RelationshipVisitor::push_trait_impl_edge`] for the exact scope); and direct,
+//! same-module, unqualified function calls (a `flows_to` edge per call site — see
+//! [`RelationshipVisitor::push_call_edges`]/[`find_call_names`] for the exact scope,
+//! and `PATTERNS-rust-source.md` §5 for why "same-module" specifically, not a
+//! whole-tree lookup the way field types and trait impls get).
 //!
 //! **Deferred** (needs more than AST pattern-matching, or an unresolved design
-//! choice — see `docs/PATTERNS-rust-source.md` §5 for each reason): the call graph,
-//! blanket/generic trait `impl` blocks, and cross-crate `requires` edges.
+//! choice — see `docs/PATTERNS-rust-source.md` §5 for each reason): cross-module/
+//! method/trait-dispatch calls, blanket/generic trait `impl` blocks, and
+//! cross-crate `requires` edges.
 //!
 //! **Inherited limitation, not new here:** like `SymbolVisitor`, each file's
 //! `module_path` starts empty regardless of that file's real position in the crate
@@ -62,7 +67,7 @@
 //! `has_part` edge) — never an error, mirroring [`crate::ufo_graph`]'s own
 //! "unrecognized element stays unlifted" philosophy.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::Context;
@@ -87,11 +92,18 @@ pub fn walk_and_recognize(root: &Path) -> anyhow::Result<(Vec<Node>, Vec<Edge>)>
     }
 
     let local_types = collect_local_type_names(&files);
+    let module_functions = collect_module_functions(&files);
 
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
     for file in &files {
-        recognize_file(file, &local_types, &mut nodes, &mut edges);
+        recognize_file(
+            file,
+            &local_types,
+            &module_functions,
+            &mut nodes,
+            &mut edges,
+        );
     }
     Ok((nodes, edges))
 }
@@ -102,10 +114,18 @@ pub fn walk_and_recognize(root: &Path) -> anyhow::Result<(Vec<Node>, Vec<Edge>)>
 /// whole-tree entry point real callers want.
 pub fn recognize_source(source: &str) -> syn::Result<(Vec<Node>, Vec<Edge>)> {
     let file = syn::parse_file(source)?;
-    let local_types = collect_local_type_names(std::slice::from_ref(&file));
+    let files = std::slice::from_ref(&file);
+    let local_types = collect_local_type_names(files);
+    let module_functions = collect_module_functions(files);
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
-    recognize_file(&file, &local_types, &mut nodes, &mut edges);
+    recognize_file(
+        &file,
+        &local_types,
+        &module_functions,
+        &mut nodes,
+        &mut edges,
+    );
     Ok((nodes, edges))
 }
 
@@ -161,15 +181,61 @@ fn collect_local_type_names(files: &[syn::File]) -> HashMap<String, String> {
     out
 }
 
+/// The set of free-function names declared directly in each module
+/// (`module qualified path -> {fn names}`) — deliberately *not* a single
+/// global table like [`collect_local_type_names`]'s: a call's callee only
+/// resolves against functions in the *same module* as the call site
+/// (`PATTERNS-rust-source.md` §5's call-graph scope decision). Rust
+/// guarantees at most one `fn` of a given name per module scope, so this
+/// bound eliminates the cross-module name-collision risk a global lookup
+/// would have for short, common function names (`new`, `parse`, `run`) —
+/// unlike [`collect_local_type_names`]'s table, which accepts that risk for
+/// type names because they collide far less often in practice.
+fn collect_module_functions(files: &[syn::File]) -> HashMap<String, HashSet<String>> {
+    struct Collector<'a> {
+        module_path: Vec<String>,
+        out: &'a mut HashMap<String, HashSet<String>>,
+    }
+
+    impl syn::visit::Visit<'_> for Collector<'_> {
+        fn visit_item_mod(&mut self, node: &syn::ItemMod) {
+            self.module_path.push(node.ident.to_string());
+            syn::visit::visit_item_mod(self, node);
+            self.module_path.pop();
+        }
+
+        fn visit_item_fn(&mut self, node: &syn::ItemFn) {
+            // No recursion into the body: a fn nested inside another fn's
+            // body isn't a call target this first slice resolves against.
+            self.out
+                .entry(self.module_path.join("::"))
+                .or_default()
+                .insert(node.sig.ident.to_string());
+        }
+    }
+
+    let mut out = HashMap::new();
+    for file in files {
+        let mut collector = Collector {
+            module_path: Vec::new(),
+            out: &mut out,
+        };
+        syn::visit::visit_file(&mut collector, file);
+    }
+    out
+}
+
 fn recognize_file(
     file: &syn::File,
     local_types: &HashMap<String, String>,
+    module_functions: &HashMap<String, HashSet<String>>,
     nodes: &mut Vec<Node>,
     edges: &mut Vec<Edge>,
 ) {
     let mut visitor = RelationshipVisitor {
         module_path: Vec::new(),
         local_types,
+        module_functions,
         nodes,
         edges,
     };
@@ -179,6 +245,7 @@ fn recognize_file(
 struct RelationshipVisitor<'a> {
     module_path: Vec<String>,
     local_types: &'a HashMap<String, String>,
+    module_functions: &'a HashMap<String, HashSet<String>>,
     nodes: &'a mut Vec<Node>,
     edges: &'a mut Vec<Edge>,
 }
@@ -225,7 +292,9 @@ impl syn::visit::Visit<'_> for RelationshipVisitor<'_> {
     }
 
     fn visit_item_fn(&mut self, node: &syn::ItemFn) {
-        self.declare_item(&node.sig.ident.to_string(), "function");
+        let name = node.sig.ident.to_string();
+        self.declare_item(&name, "function");
+        self.push_call_edges(&name, node);
         syn::visit::visit_item_fn(self, node);
     }
 
@@ -360,6 +429,62 @@ impl RelationshipVisitor<'_> {
         self.push_node(&trait_qname, "trait");
         self.push_edge(&type_qname, &trait_qname, "satisfies");
     }
+
+    /// Direct, same-module, unqualified calls only
+    /// (`PATTERNS-rust-source.md` §5's call-graph scope decision) → one
+    /// `flows_to` edge per recognized call site, caller function → callee
+    /// function. See [`find_call_names`] for exactly what counts as a
+    /// recognized call (a bare `foo()`, not `self.foo()` / `Type::foo()` /
+    /// `module::foo()`), and [`collect_module_functions`] for why the
+    /// callee must be declared in the *same* module as the call site.
+    fn push_call_edges(&mut self, fn_name: &str, node: &syn::ItemFn) {
+        let module_key = self.qualified(&self.module_path);
+        let Some(local_fns) = self.module_functions.get(&module_key) else {
+            return;
+        };
+        let caller_qname = self.qualified_name(fn_name);
+        for callee_name in find_call_names(&node.block) {
+            if !local_fns.contains(&callee_name) {
+                continue;
+            }
+            let callee_qname = self.qualified_name(&callee_name);
+            self.push_edge(&caller_qname, &callee_qname, "flows_to");
+        }
+    }
+}
+
+/// Every unqualified, single-segment call-site callee name in `block` —
+/// `foo(..)`, never `self.foo(..)` (that's a method call, a different
+/// `syn::Expr` variant entirely), `Type::foo(..)` / `module::foo(..)`
+/// (multi-segment path — excluded, since resolving *those* needs real name
+/// resolution this module doesn't do), or a qualified-self call
+/// (`<T as Trait>::foo()`, excluded via `qself`). Does not recurse into a
+/// nested `fn` item's own body — a call inside a function nested within
+/// `block` is that inner function's call, not this one's.
+fn find_call_names(block: &syn::Block) -> Vec<String> {
+    struct CallCollector<'a> {
+        out: &'a mut Vec<String>,
+    }
+
+    impl syn::visit::Visit<'_> for CallCollector<'_> {
+        fn visit_expr_call(&mut self, node: &syn::ExprCall) {
+            if let syn::Expr::Path(p) = node.func.as_ref() {
+                if p.qself.is_none() && p.path.segments.len() == 1 {
+                    self.out.push(p.path.segments[0].ident.to_string());
+                }
+            }
+            syn::visit::visit_expr_call(self, node);
+        }
+
+        fn visit_item_fn(&mut self, _node: &syn::ItemFn) {
+            // Don't attribute a nested fn item's calls to the enclosing one.
+        }
+    }
+
+    let mut out = Vec::new();
+    let mut collector = CallCollector { out: &mut out };
+    syn::visit::visit_block(&mut collector, block);
+    out
 }
 
 /// Every path-type simple name reachable from `ty` without real type
@@ -626,5 +751,105 @@ mod tests {
             "shapes::Area",
             "satisfies"
         ));
+    }
+
+    #[test]
+    fn direct_same_module_call_becomes_flows_to() {
+        let src = r#"
+            fn helper() {}
+            fn run() {
+                helper();
+            }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(&edges, "run", "helper", "flows_to"));
+    }
+
+    #[test]
+    fn method_calls_and_qualified_calls_are_not_recognized() {
+        let src = r#"
+            struct Car;
+            impl Car {
+                fn honk(&self) {}
+                fn start(&self) {
+                    self.honk();
+                    Car::honk(self);
+                }
+            }
+            fn run() {
+                other::helper();
+            }
+            mod other {
+                pub fn helper() {}
+            }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(!edges.iter().any(|e| e.edge_type == "flows_to"));
+    }
+
+    #[test]
+    fn calls_across_modules_are_not_recognized_even_with_the_same_simple_name() {
+        // The whole point of the same-module scope: two unrelated `parse`
+        // functions in different modules must never cross-link, even
+        // though a whole-tree name lookup (like local_types uses for
+        // field/trait resolution) would have collided them.
+        let src = r#"
+            mod a {
+                pub fn parse() {}
+                pub fn run() {
+                    parse();
+                }
+            }
+            mod b {
+                pub fn parse() {}
+            }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(&edges, "a::run", "a::parse", "flows_to"));
+        assert!(!has_edge(&edges, "a::run", "b::parse", "flows_to"));
+        assert_eq!(
+            edges.iter().filter(|e| e.edge_type == "flows_to").count(),
+            1
+        );
+    }
+
+    #[test]
+    fn calls_inside_a_nested_fn_item_are_not_attributed_to_the_outer_function() {
+        let src = r#"
+            fn helper() {}
+            fn outer() {
+                fn inner() {
+                    helper();
+                }
+            }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(!has_edge(&edges, "outer", "helper", "flows_to"));
+        assert!(has_edge(&edges, "inner", "helper", "flows_to"));
+    }
+
+    #[test]
+    fn calls_inside_a_closure_are_attributed_to_the_enclosing_function() {
+        let src = r#"
+            fn helper() {}
+            fn run() {
+                let f = || helper();
+                f();
+            }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(&edges, "run", "helper", "flows_to"));
+    }
+
+    #[test]
+    fn a_call_to_an_unrecognized_name_is_silently_skipped() {
+        let src = r#"
+            fn run() {
+                std::process::exit(0);
+                println!("hi");
+            }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(!edges.iter().any(|e| e.edge_type == "flows_to"));
     }
 }
