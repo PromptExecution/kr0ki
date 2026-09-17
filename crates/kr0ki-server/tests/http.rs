@@ -233,9 +233,19 @@ async fn examples_catalog_covers_every_advertised_format() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let examples: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(examples.len(), kr0ki_core::format::DiagramFormat::ALL.len());
+    // Format-routed examples (route: null) are 1:1 with DiagramFormat; a
+    // custom-route example (e.g. k8s-topology) adds to the catalog without
+    // being one of them -- see kr0ki_core::examples::PlaybookExample::route.
+    let format_routed = examples
+        .iter()
+        .filter(|example| example["route"].is_null())
+        .count();
+    assert_eq!(format_routed, kr0ki_core::format::DiagramFormat::ALL.len());
     assert!(examples.iter().all(|example| example["source"].is_string()));
     assert!(examples.iter().any(|example| example["format"] == "d2"));
+    assert!(examples
+        .iter()
+        .any(|example| example["route"] == "/render/k8s-topology"));
 }
 
 #[tokio::test]

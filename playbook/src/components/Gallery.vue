@@ -25,9 +25,12 @@ const summary = computed(() => {
 })
 
 function endpointFor(example, output) {
-  return rendererUrl.value.trim()
-    ? `${rendererUrl.value.trim().replace(/\/$/, '')}/render/${example.format}?output=${output}`
-    : ''
+  if (!rendererUrl.value.trim()) return ''
+  // A custom-route example (e.g. POST /render/k8s-topology) isn't reachable
+  // by templating `format` into /render/{format} -- its input isn't
+  // diagram-format source text at all. Use the declared route verbatim.
+  const path = example.route || `/render/${example.format}`
+  return `${rendererUrl.value.trim().replace(/\/$/, '')}${path}?output=${output}`
 }
 
 async function testOne(example) {

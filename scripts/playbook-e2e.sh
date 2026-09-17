@@ -39,6 +39,15 @@ rg -q 'Start blank' "$WORK_DIR/playbook.js"
 rg -q 'Reset to example' "$WORK_DIR/playbook.js"
 rg -q 'Upload file' "$WORK_DIR/playbook.js"
 
+# A custom-route example (POST /render/k8s-topology) isn't reachable by
+# templating format into /render/{format} -- Gallery.vue/RendererPanel.vue's
+# endpoint construction must fall back to example.route when it's set.
+rg -q 'example\.route\s*\|\|' "$WORK_DIR/playbook.js"
+
+# The catalog itself must carry that one custom-route entry, distinct from
+# every DiagramFormat-routed example (kr0ki_core::examples::PlaybookExample::route).
+rg -q '"id":"k8s-topology-web-service".*"route":"/render/k8s-topology"' "$WORK_DIR/examples.json"
+
 # This endpoint renders the D2 source through RenderService, then serves the
 # cached artifact. It is the live visual contract for the Box-5 Rust flow.
 curl -fsS -D "$WORK_DIR/flow.headers" \
@@ -63,5 +72,27 @@ SECOND_KEY="$(awk 'BEGIN{IGNORECASE=1} /^x-kr0ki-key:/ {print $2}' "$WORK_DIR/se
 [[ "$FIRST_KEY" =~ ^[[:xdigit:]]{64}$ ]]
 [[ "$FIRST_KEY" == "$SECOND_KEY" ]]
 rg -qi '^x-kr0ki-cache: hit' "$WORK_DIR/second.headers"
+
+# The k8s-topology recognizer -> lift -> D2 pipeline (kr0ki#30), driven with
+# its own catalog fixture (pulled from the live catalog, not a duplicated
+# local copy, so this can't silently drift from what the recognizer test in
+# kr0ki-core's own examples.rs already proved produces real edges).
+jq -r '.[] | select(.id == "k8s-topology-web-service") | .source' \
+  "$WORK_DIR/examples.json" >"$WORK_DIR/k8s-topology.yaml"
+[[ -s "$WORK_DIR/k8s-topology.yaml" ]]
+curl -fsS -D "$WORK_DIR/k8s-first.headers" \
+  -X POST "$KR0KI_URL/render/k8s-topology?output=svg" \
+  --data-binary "@$WORK_DIR/k8s-topology.yaml" -o "$WORK_DIR/k8s-first.svg"
+curl -fsS -D "$WORK_DIR/k8s-second.headers" \
+  -X POST "$KR0KI_URL/render/k8s-topology?output=svg" \
+  --data-binary "@$WORK_DIR/k8s-topology.yaml" -o "$WORK_DIR/k8s-second.svg"
+cmp "$WORK_DIR/k8s-first.svg" "$WORK_DIR/k8s-second.svg"
+rg -qi '^x-kr0ki-cache: hit' "$WORK_DIR/k8s-second.headers"
+rg -q '<svg' "$WORK_DIR/k8s-first.svg"
+# Real recognized relationships, not a bare unconnected node list -- the
+# exact assertion kr0ki-core's own
+# k8s_topology_example_actually_exercises_the_recognizer_pipeline test makes,
+# now proven against the real deployed Kroki backend instead of just to_d2().
+rg -q 'selects|dependency' "$WORK_DIR/k8s-first.svg"
 
 echo "PASS: playb00k live flow rendered and cache-verified at $KR0KI_URL"
