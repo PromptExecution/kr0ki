@@ -379,6 +379,26 @@ async fn render_kubediagram_rejects_invalid_output_before_any_worker_call() {
 }
 
 #[tokio::test]
+async fn render_kubediagram_rejects_oversized_manifest_before_any_worker_call() {
+    let app = test_app(test_state_with_kubediagram_worker(
+        "kubediagram-oversized",
+        "http://127.0.0.1:1".to_string(),
+    ));
+    let oversized = "a".repeat(1_048_577);
+    let resp = app
+        .oneshot(
+            Request::post("/render/kubediagram")
+                .body(Body::from(oversized))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert!(body.contains("manifest_too_large"));
+}
+
+#[tokio::test]
 async fn render_kubediagram_proxies_to_the_worker_and_returns_svg() {
     let server = wiremock::MockServer::start().await;
     wiremock::Mock::given(wiremock::matchers::method("POST"))

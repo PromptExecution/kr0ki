@@ -3,9 +3,17 @@
 
 Runs as the kr0ki-mcp container's own long-running process (its ENTRYPOINT).
 kr0ki-server's POST /render/kubediagram proxies here directly over the pod's
-localhost network — this replaces the old stdio-JSON-RPC-over-subprocess hop
-that containers/kubediagram-mcp/bridge.py used to provide. Internal-only:
-never exposed outside the pod's network namespace.
+network — this replaces the old stdio-JSON-RPC-over-subprocess hop that
+containers/kubediagram-mcp/bridge.py used to provide.
+
+Binds 0.0.0.0:{port} — required so the kubelet readinessProbe (which always
+targets the Pod IP, never 127.0.0.1) can reach it. This means it is reachable
+from anywhere inside the cluster's pod network, not just this pod's own
+loopback. Safety comes from input handling, not network isolation: no `-c`
+flag is ever passed to kube-diagrams, manifests are parsed with
+yaml.safe_load only (inherited from the vendored CLI), and the container
+runs rootless with all capabilities dropped and a read-only root filesystem
+(see deploy/kr0ki-local.pod.yaml and docs/CONTAINERS.md).
 """
 
 import json

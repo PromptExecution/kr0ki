@@ -4,6 +4,7 @@
 """
 import json
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 import bridge
@@ -115,6 +116,22 @@ class BridgeDispatchTest(unittest.TestCase):
         )
         self.assertTrue(result["result"]["isError"])
         self.assertIn("1 MiB", result["result"]["content"][0]["text"])
+
+    @patch("bridge.http_call")
+    def test_manifest_fetch_failure_during_tools_call_preserves_request_id(self, mock_http_call):
+        bridge._manifest_cache = None
+        mock_http_call.side_effect = urllib.error.URLError("connection refused")
+        result = bridge.handle(
+            {
+                "jsonrpc": "2.0",
+                "id": 42,
+                "method": "tools/call",
+                "params": {"name": "render_diagram", "arguments": {}},
+            }
+        )
+        self.assertEqual(result["id"], 42)
+        self.assertNotIn("error", result)
+        self.assertTrue(result["result"]["isError"])
 
 
 if __name__ == "__main__":

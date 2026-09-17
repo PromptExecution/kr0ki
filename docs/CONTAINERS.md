@@ -33,13 +33,19 @@ If the service has FR7 bearer authentication enabled, add the already-provisione
 token in `.mcp.json` or repository files.
 
 KubeDiagrams is an internal worker, because it is a quick Kubernetes-manifest renderer
-—not a SysML/UFO pipeline stage. The worker is invoked over stdio inside the façade
-container, has no host mount or Linux capability, and does not expose KubeDiagrams'
-`-c` option (that configuration can execute Python). Codex never registers a second
-`kubediagram-mcp` server. `kr0ki-mcp` exposes the
-allow-listed `render_kubernetes_manifest` capability and proxies it to a bundled
-internal KubeDiagrams stdio MCP worker; arbitrary downstream commands and the
-upstream `-c` configuration flag remain unavailable.
+—not a SysML/UFO pipeline stage. `containers/kr0ki-mcp/http_worker.py` is the
+`kr0ki-mcp` container's own ENTRYPOINT: a persistent HTTP listener bound to
+`0.0.0.0:8788` inside the pod (required so the kubelet readinessProbe — which
+always targets the Pod IP, never `127.0.0.1` — can reach it; see
+`deploy/kr0ki-local.pod.yaml`). It shells out to `kube-diagrams` without ever
+passing the upstream `-c` option (that configuration can execute Python) and
+parses manifests with `yaml.safe_load` throughout. Codex never registers a
+second `kubediagram-mcp` server. Two callers reach the worker the same way:
+`kr0ki-server`'s native `POST /render/kubediagram` HTTP route, and
+`bridge.py`'s `render_kubernetes_manifest` MCP tool (same tool name and
+interface as before, now dispatched generically from the `GET /mcp/tools`
+manifest rather than a hardcoded branch). Neither path has a host mount or a
+Linux capability, and arbitrary downstream commands remain unavailable.
 
 ```sh
 just pod-up

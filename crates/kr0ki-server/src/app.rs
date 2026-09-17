@@ -350,6 +350,12 @@ async fn b00t_graph(
 /// kr0ki-server's own content-addressed cache (backlog, see the design
 /// doc's §1 — kube-diagrams' output isn't itself Kroki-renderable text, so
 /// it needs its own cache-key derivation, deliberately deferred).
+/// The plan's Global Constraints mandate this limit be enforced exactly
+/// once, here in `kr0ki-server`'s HTTP handler — not duplicated in
+/// `bridge.py` or `http_worker.py` (both of which also happen to enforce
+/// it downstream, but this is the one authoritative check).
+const MAX_MANIFEST_BYTES: usize = 1_048_576;
+
 async fn render_kubediagram(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
@@ -368,6 +374,14 @@ async fn render_kubediagram(
             StatusCode::BAD_REQUEST,
             "empty_manifest",
             "kubernetes manifest body is empty",
+        );
+    }
+
+    if body.len() > MAX_MANIFEST_BYTES {
+        return error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "manifest_too_large",
+            "kubernetes manifest exceeds the 1 MiB limit",
         );
     }
 

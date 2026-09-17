@@ -116,12 +116,16 @@ _Last updated: 2026-09-15._
 - [ ] **`systhread-core` isometric backend (FR3)** — call its `render.rs`; do not port
   or re-solve the Cassowary/kasuari layout.
 - [ ] ◑ **`KubeDiagramsBackend` — leaf feature, NOT the pipeline** — substantially
-  shipped, but as an MCP tool rather than the originally-envisioned native HTTP
-  route (an intentional, better-aligned divergence — see NFR5 below). What's already
-  there: `containers/kubediagram-mcp/bridge.py` spawns `kube-diagrams` as a subprocess
-  with **no `-c`** ever passed (arbitrary-Python `exec()` avoided by construction, not
-  by filtering), a 1 MiB manifest cap, and a 60s timeout; `containers/kr0ki-mcp`
-  bundles it and proxies to it (`call_kubediagram_worker`), runs as `USER 65532:65532`
+  shipped, and (as of mcp-http-parity) available both ways: as an MCP tool and as
+  the originally-envisioned native HTTP route (`POST /render/kubediagram`) —
+  both paths now exist side by side rather than one having displaced the other
+  (see NFR5 below). What's already there: `containers/kr0ki-mcp/http_worker.py`
+  spawns `kube-diagrams` as a subprocess with **no `-c`** ever passed
+  (arbitrary-Python `exec()` avoided by construction, not by filtering), a 1 MiB
+  manifest cap, and a 60s timeout; `kr0ki-server`'s `POST /render/kubediagram`
+  route and `bridge.py`'s `render_kubernetes_manifest` MCP tool (dispatched
+  generically off the `GET /mcp/tools` manifest, not a hardcoded branch) both
+  proxy to it over HTTP. The worker runs as `USER 65532:65532`
   (rootless), and `deploy/kr0ki-local.pod.yaml`'s `kr0ki-mcp` container sets
   `allowPrivilegeEscalation: false`, drops all capabilities, and
   `readOnlyRootFilesystem: true`. Pinned via the container's own `pip install` version
@@ -216,9 +220,12 @@ _Last updated: 2026-09-15._
 - [x] **NFR5 — b00t interface** — `containers/kr0ki-mcp/bridge.py` is exactly the
   named option: a `kr0ki` MCP surface (`render_diagram`, `list_formats`,
   `render_kubernetes_manifest`), stdio JSON-RPC, no bespoke HTTP exposed to the
-  agent. Runs rootless (`USER 65532:65532`). Live in this session as
-  `mcp__kr0ki-mcp__*`. `_b00t_/kroki.mcp.toml` extension not needed given this
-  already exists.
+  agent. As of mcp-http-parity, `bridge.py` is a generic manifest-driven
+  dispatcher — it fetches `GET /mcp/tools` once and dispatches every
+  `tools/call` from that manifest instead of hand-coded per-tool branches; the
+  three tool names and capabilities themselves are unchanged. Runs rootless
+  (`USER 65532:65532`). Live in this session as `mcp__kr0ki-mcp__*`.
+  `_b00t_/kroki.mcp.toml` extension not needed given this already exists.
 - [ ] **`ledgrrr` / `holon-viz` client seam + E2E** — extract a small kr0ki HTTP client
   library and add a `CytoscapeGraph → D2` emitter in `holon-viz`; then prove
   `holon-viz sample → D2 → local kr0ki → SVG` (including a repeated cache hit). Do not

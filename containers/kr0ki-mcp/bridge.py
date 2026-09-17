@@ -96,7 +96,11 @@ def call_tool(arguments):
     if not isinstance(params, dict):
         return tool_error("arguments must be an object")
 
-    tool = find_tool(name)
+    try:
+        tool = find_tool(name)
+    except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+        return tool_error(f"failed to fetch tool manifest: {exc}")
+
     if tool is None:
         return tool_error(f"unknown tool: {name}")
 
