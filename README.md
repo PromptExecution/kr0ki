@@ -138,7 +138,11 @@ entire SysML-model path.
 | `/health` | GET | — | — | `{"status":"ok","service":"kr0ki","version":"..."}` |
 | `/formats` | GET | — | — | `["plantuml","c4plantuml","graphviz","d2",...]` |
 | `/render/{format}` | POST | `?output=svg\|png` | raw diagram text | rendered bytes + `Content-Type` + `X-Kr0ki-Cache` + `X-Kr0ki-Key` |
+| `/render/kubediagram` | POST | `?output=svg\|dot_json` | Kubernetes manifest (multi-doc YAML, ≤1 MiB) | proxied `kube-diagrams` output; not cached (mcp-http-parity) |
 | `/cache/{key}` | GET | `?output=svg\|png` | — | cached bytes or 404 |
+| `/mcp/tools` | GET | — | — | `[{"name":...,"description":...,"inputSchema":{...},"httpBinding":{...}},...]` — the manifest `bridge.py` dispatches from (mcp-http-parity) |
+| `/capabilities` | GET | — | — | `kroki` container's self-reported companion-required status per converter, or 503 if not (yet) written (kr0ki#20) |
+| `/b00t-graph/{tag}` | GET | `?output=svg\|png` | — | b00t-graph Turtle artifact -> D2 -> SVG/PNG, or 404/422/503 (kr0ki#13) |
 | `/docs` | GET | — | — | HTML docs (harvested from kr0ki source) |
 | `/docs/api.json` | GET | — | — | JSON symbol export |
 | `/docs/api.tomllm` | GET | — | — | b00t-format .tomllm export |

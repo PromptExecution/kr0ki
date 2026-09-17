@@ -19,8 +19,13 @@ tokio = { workspace = true }
 axum.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# POST /render/kubediagram proxies to the kr0ki-mcp sidecar's internal
+# http_worker.py listener — mcp-http-parity design, 2026-09-16.
+reqwest = { workspace = true }
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["json"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+# Mocks the kubediagram worker's HTTP responses in render_kubediagram tests.
+wiremock = "0.6"

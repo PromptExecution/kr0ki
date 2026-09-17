@@ -6,8 +6,12 @@ RUN apk add --no-cache graphviz bash build-base graphviz-dev \
 
 WORKDIR /opt/kr0ki-mcp
 COPY containers/kr0ki-mcp/bridge.py /opt/kr0ki-mcp/bridge.py
-COPY containers/kubediagram-mcp/bridge.py /opt/kubediagram-mcp/bridge.py
+COPY containers/kr0ki-mcp/http_worker.py /opt/kr0ki-mcp/http_worker.py
 COPY vendor/kubediagrams/bin /usr/local/bin/
 
 USER 65532:65532
-ENTRYPOINT ["python3", "/opt/kr0ki-mcp/bridge.py"]
+# http_worker.py is the container's real, long-running service (mcp-http-
+# parity design, 2026-09-16). bridge.py (stdio MCP) is invoked explicitly
+# per-session via `kubectl exec` — see .mcp.json — independent of this
+# ENTRYPOINT.
+ENTRYPOINT ["python3", "/opt/kr0ki-mcp/http_worker.py"]

@@ -10,6 +10,7 @@ build:
 # Full test suite (unit + in-process HTTP). Live render tests stay ignored.
 test:
     cargo test --workspace
+    cd containers/kr0ki-mcp && python3 test_bridge.py && python3 test_http_worker.py
 
 # Live render test against a real Kroki (needs a backend URL).
 test-live backend="https://kroki.io":

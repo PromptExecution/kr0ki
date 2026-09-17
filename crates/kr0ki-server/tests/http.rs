@@ -27,6 +27,7 @@ fn test_state(tag: &str) -> AppState {
         playbook_dir: std::env::temp_dir().join("kr0ki-no-playbook-assets"),
         b00t_graph_artifacts_path: None,
         capabilities_path: None,
+        kubediagram_worker_url: None,
     }
 }
 
@@ -69,6 +70,34 @@ async fn formats_lists_supported_slugs_only() {
         !body.contains("mermaid"),
         "companion-only formats must not be advertised"
     );
+}
+
+#[tokio::test]
+async fn mcp_tools_lists_all_three_tools_with_bindings() {
+    let app = test_app(test_state("mcp-tools"));
+    let resp = app
+        .oneshot(Request::get("/mcp/tools").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
+    assert_eq!(tools.len(), 3);
+    let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"render_diagram"));
+    assert!(names.contains(&"list_formats"));
+    assert!(names.contains(&"render_kubernetes_manifest"));
+
+    let render = tools
+        .iter()
+        .find(|t| t["name"] == "render_diagram")
+        .unwrap();
+    assert_eq!(render["httpBinding"]["method"], "POST");
+    assert_eq!(render["httpBinding"]["pathTemplate"], "/render/{format}");
+    assert!(render["inputSchema"]["required"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("format")));
 }
 
 #[tokio::test]
@@ -284,6 +313,165 @@ async fn capabilities_returns_the_file_contents_as_json() {
     assert!(body.contains("\"companion_required\":true"));
 
     let _ = tokio::fs::remove_dir_all(&dir).await;
+}
+
+#[tokio::test]
+async fn render_kubediagram_is_503_when_not_configured() {
+    // test_state() leaves kubediagram_worker_url: None.
+    let app = test_app(test_state("kubediagram-unconfigured"));
+    let resp = app
+        .oneshot(
+            Request::post("/render/kubediagram")
+                .body(Body::from("apiVersion: v1\nkind: Pod"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(body.contains("kubediagram_worker_not_configured"));
+}
+
+fn test_state_with_kubediagram_worker(tag: &str, worker_url: String) -> AppState {
+    let mut state = test_state(tag);
+    state.kubediagram_worker_url = Some(worker_url);
+    state
+}
+
+#[tokio::test]
+async fn render_kubediagram_empty_body_is_400_before_any_worker_call() {
+    // http://127.0.0.1:1 is unreachable — if the handler validates before
+    // proxying, this call never actually reaches it.
+    let app = test_app(test_state_with_kubediagram_worker(
+        "kubediagram-empty",
+        "http://127.0.0.1:1".to_string(),
+    ));
+    let resp = app
+        .oneshot(
+            Request::post("/render/kubediagram")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("empty_manifest"));
+}
+
+#[tokio::test]
+async fn render_kubediagram_rejects_invalid_output_before_any_worker_call() {
+    let app = test_app(test_state_with_kubediagram_worker(
+        "kubediagram-badoutput",
+        "http://127.0.0.1:1".to_string(),
+    ));
+    let resp = app
+        .oneshot(
+            Request::post("/render/kubediagram?output=png")
+                .body(Body::from("apiVersion: v1\nkind: Pod"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("invalid_output"));
+}
+
+#[tokio::test]
+async fn render_kubediagram_rejects_oversized_manifest_before_any_worker_call() {
+    let app = test_app(test_state_with_kubediagram_worker(
+        "kubediagram-oversized",
+        "http://127.0.0.1:1".to_string(),
+    ));
+    let oversized = "a".repeat(1_048_577);
+    let resp = app
+        .oneshot(
+            Request::post("/render/kubediagram")
+                .body(Body::from(oversized))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert!(body.contains("manifest_too_large"));
+}
+
+#[tokio::test]
+async fn render_kubediagram_proxies_to_the_worker_and_returns_svg() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/render"))
+        .and(wiremock::matchers::query_param("output", "svg"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_bytes(b"<svg>ok</svg>".to_vec()),
+        )
+        .mount(&server)
+        .await;
+
+    let app = test_app(test_state_with_kubediagram_worker(
+        "kubediagram-proxy",
+        server.uri(),
+    ));
+    let resp = app
+        .oneshot(
+            Request::post("/render/kubediagram")
+                .body(Body::from("apiVersion: v1\nkind: Pod"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("<svg>ok</svg>"));
+}
+
+#[tokio::test]
+async fn render_kubediagram_maps_worker_422_to_bad_manifest() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/render"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(422).set_body_string("kube-diagrams failed: bad yaml"),
+        )
+        .mount(&server)
+        .await;
+
+    let app = test_app(test_state_with_kubediagram_worker(
+        "kubediagram-badmanifest",
+        server.uri(),
+    ));
+    let resp = app
+        .oneshot(
+            Request::post("/render/kubediagram")
+                .body(Body::from("not: valid: yaml: at all"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(body.contains("bad_manifest"));
+}
+
+#[tokio::test]
+async fn render_kubediagram_is_503_when_worker_unreachable() {
+    let app = test_app(test_state_with_kubediagram_worker(
+        "kubediagram-unreachable",
+        "http://127.0.0.1:1".to_string(),
+    ));
+    let resp = app
+        .oneshot(
+            Request::post("/render/kubediagram")
+                .body(Body::from("apiVersion: v1\nkind: Pod"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(body.contains("kubediagram_worker_unreachable"));
 }
 
 #[tokio::test]

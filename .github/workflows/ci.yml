@@ -22,6 +22,11 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - name: kr0ki-mcp Python tests
+        run: |
+          cd containers/kr0ki-mcp
+          python3 test_bridge.py
+          python3 test_http_worker.py
 
   # SysML-v2-Release conformance harness (phase 1). Runs in parallel with
   # `check` and does not block it: the corpus fetch (~110 MB tarball) and the

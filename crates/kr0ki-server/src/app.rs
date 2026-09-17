@@ -34,6 +34,11 @@ pub struct AppState {
     /// (kr0ki#20), written to a shared pod volume at its startup — see
     /// `deploy/kr0ki-local.pod.yaml`. `None` disables `/capabilities` (503).
     pub capabilities_path: Option<PathBuf>,
+    /// Base URL of the `kr0ki-mcp` sidecar's internal KubeDiagrams-rendering
+    /// listener (`http_worker.py`), e.g. `http://127.0.0.1:8788` — mcp-http-
+    /// parity design, 2026-09-16. `None` disables `/render/kubediagram`
+    /// (503, not a panic).
+    pub kubediagram_worker_url: Option<String>,
 }
 
 /// If `auth_token` is Some, inject a `RequireAuth` layer that rejects requests
@@ -42,6 +47,7 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
     let r = Router::new()
         .route("/health", get(health))
         .route("/formats", get(formats))
+        .route("/mcp/tools", get(mcp_tools))
         .route("/capabilities", get(capabilities))
         .route("/api/examples", get(examples))
         .route("/playbook/api/examples.json", get(examples))
@@ -49,6 +55,7 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
         .route("/playbook/", get(playbook_index))
         .route("/playbook/*path", get(playbook_asset))
         .route("/render/:format", post(render))
+        .route("/render/kubediagram", post(render_kubediagram))
         .route("/b00t-graph/:tag", get(b00t_graph))
         .route("/cache/:key", get(cache_get))
         .merge(crate::docs::routes())
@@ -99,6 +106,19 @@ async fn health() -> Json<Health> {
 
 async fn formats() -> Json<Vec<&'static str>> {
     Json(DiagramFormat::ALL.iter().map(|f| f.kroki_slug()).collect())
+}
+
+/// `GET /mcp/tools` — the MCP/HTTP capability manifest (mcp-http-parity
+/// design, 2026-09-16). One entry per `McpTool`, each carrying both its MCP
+/// schema and its HTTP binding — `containers/kr0ki-mcp/bridge.py` fetches
+/// this once and dispatches every `tools/call` generically from it.
+async fn mcp_tools() -> Json<Vec<serde_json::Value>> {
+    Json(
+        kr0ki_core::mcp_tool::McpTool::ALL
+            .iter()
+            .map(|t| t.to_manifest_json())
+            .collect(),
+    )
 }
 
 /// `GET /capabilities` — the `kroki` container's own self-reported
@@ -321,6 +341,105 @@ async fn b00t_graph(
     match state.service.render(DiagramFormat::D2, output, &d2).await {
         Ok(r) => rendered_response(output, r),
         Err(e) => service_error_response(e),
+    }
+}
+
+/// The plan's Global Constraints mandate the 1 MiB manifest limit be
+/// enforced exactly once, here in `kr0ki-server`'s HTTP handler — not
+/// duplicated in `bridge.py` or `http_worker.py` (both of which also happen
+/// to enforce it downstream, but this is the one authoritative check).
+const MAX_MANIFEST_BYTES: usize = 1_048_576;
+
+/// `POST /render/kubediagram?output=svg|dot_json` — mcp-http-parity design,
+/// 2026-09-16. Body is a Kubernetes manifest (multi-doc YAML). Proxies to
+/// the `kr0ki-mcp` sidecar's internal `/render` listener — never through
+/// kr0ki-server's own content-addressed cache (backlog, see the design
+/// doc's §1 — kube-diagrams' output isn't itself Kroki-renderable text, so
+/// it needs its own cache-key derivation, deliberately deferred).
+async fn render_kubediagram(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    body: Bytes,
+) -> Response {
+    let Some(worker_url) = state.kubediagram_worker_url.as_ref() else {
+        return error_json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "kubediagram_worker_not_configured",
+            "KR0KI_KUBEDIAGRAM_WORKER_URL is not set on this server",
+        );
+    };
+
+    if body.is_empty() {
+        return error_json(
+            StatusCode::BAD_REQUEST,
+            "empty_manifest",
+            "kubernetes manifest body is empty",
+        );
+    }
+
+    if body.len() > MAX_MANIFEST_BYTES {
+        return error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "manifest_too_large",
+            "kubernetes manifest exceeds the 1 MiB limit",
+        );
+    }
+
+    let output = params.get("output").map(String::as_str).unwrap_or("svg");
+    if output != "svg" && output != "dot_json" {
+        return error_json(
+            StatusCode::BAD_REQUEST,
+            "invalid_output",
+            "output must be svg or dot_json",
+        );
+    }
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{worker_url}/render?output={output}"))
+        .body(body.to_vec())
+        .send()
+        .await;
+
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            let content_type = if output == "svg" {
+                "image/svg+xml"
+            } else {
+                "application/json"
+            };
+            match r.bytes().await {
+                Ok(bytes) => (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, content_type)],
+                    bytes,
+                )
+                    .into_response(),
+                Err(e) => error_json(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "kubediagram_worker_read_failed",
+                    &e.to_string(),
+                ),
+            }
+        }
+        Ok(r) if r.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            let body = r.text().await.unwrap_or_default();
+            error_json(StatusCode::UNPROCESSABLE_ENTITY, "bad_manifest", &body)
+        }
+        Ok(r) => {
+            let status = r.status();
+            let body = r.text().await.unwrap_or_default();
+            error_json(
+                StatusCode::BAD_GATEWAY,
+                "kubediagram_worker_error",
+                &format!("{status}: {body}"),
+            )
+        }
+        Err(e) => error_json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "kubediagram_worker_unreachable",
+            &e.to_string(),
+        ),
     }
 }
 
