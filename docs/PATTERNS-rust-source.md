@@ -116,22 +116,36 @@ of its own, only a box-1→2 producer (this recognizer) emitting the relations a
 Mirrors `k8s_recognizer.rs`'s own "what's ported vs. deliberately deferred" doc-comment
 convention — an intentional first increment, not silently incomplete coverage.
 
-**First slice:** module containment and struct/enum field types (§2, rows 1–2) —
-both are purely structural, resolvable from a single file's AST with no cross-file or
-type-resolution work (a field's type is a `syn::Type` printed as a path string; whether
-it resolves to another *local* item is decided by string/qualified-name matching
-against symbols the same harvest pass already collected, not a real type checker).
+**First slice (shipped):** module containment and struct/enum field types (§2, rows
+1–2) — both are purely structural, resolvable from a single file's AST with no
+cross-file or type-resolution work (a field's type is a `syn::Type` printed as a path
+string; whether it resolves to another *local* item is decided by string/qualified-name
+matching against symbols the same harvest pass already collected, not a real type
+checker).
+
+**Second slice (shipped):** non-generic, non-blanket trait `impl` blocks (§2 row 4) —
+`impl Trait for Type` with no generic parameters on the `impl` itself and a plain named
+`self_ty` is unambiguous pure syntax, no name-collision risk: `impl<T> Trait for
+Foo<T>` and blanket impls (`impl<T: Bound> Trait for Vec<T>`) are skipped rather than
+guessed at, since no edge shape has been decided for them.
+
+**Call graph (§2 row 3) — scoped, not yet shipped.** A narrow "same-module direct
+calls only" first cut was chosen over the heavier-dependency alternative, but with a
+correctness condition the original framing missed: resolving a call's callee by
+**simple name against a whole-tree table** (the same heuristic field types and trait
+impls use) is safe for *type* names, which rarely collide project-wide, but not for
+*function* names — short, common names (`new`, `parse`, `run`) collide constantly
+across modules in any real codebase, and a global lookup would assert wrong edges
+(module A's function calling module C's unrelated same-named function), not just
+under-recall. The fix: resolve a call's callee **only against functions declared in
+the same module** as the call site — Rust's own name resolution already guarantees at
+most one `fn` of a given name per module scope, so this bound eliminates the collision
+risk entirely rather than accepting it. Cost: misses every cross-module call, every
+method call (`x.foo()`), and everything needing real dispatch (trait methods, `Self::`
+paths, calls through a closure/fn-pointer variable) — reduced recall, not a
+compromise on correctness.
 
 **Deferred, tracked not silently missing:**
-- **Call graph** (§2 row 3) — needs resolving a call expression's callee to a concrete
-  local `fn`, which `syn` alone cannot do for anything beyond a bare unqualified call
-  in scope (method calls, trait dispatch, and re-exports all need more than AST
-  pattern-matching). A real implementation needs either a much narrower "same-module
-  direct calls only" first cut or a heavier dependency (`ra_ap_hir`-style resolution).
-- **Trait impls** (§2 row 4) — straightforward to detect (`syn::ItemImpl`) but needs a
-  decision on how to represent blanket / generic impls (`impl<T: Bound> Trait for
-  Vec<T>`) before committing to an edge shape; deferred pending that decision rather
-  than guessed at.
 - **Cross-crate `requires`** (§2 row 5) — needs distinguishing a workspace-local crate
   from a genuine external dependency, which means reading `Cargo.toml` workspace
   membership, not just `syn::visit`.

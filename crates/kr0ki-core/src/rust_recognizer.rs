@@ -31,14 +31,16 @@
 //! ported-vs-deferred documentation convention:
 //!
 //! **Covered:** module containment (a module `has_part` every item declared directly
-//! in it, including nested modules) and struct/enum field types that resolve, by
+//! in it, including nested modules); struct/enum field types that resolve, by
 //! simple name, to another struct/enum declared anywhere in the walked tree (also
 //! `has_part` — see [`PATTERNS-rust-source.md` §2.1] for why a field is composition,
-//! not a `requires` dependency).
+//! not a `requires` dependency); and non-generic, non-blanket trait `impl` blocks
+//! (`impl Trait for Type` → a `satisfies` edge — see
+//! [`RelationshipVisitor::push_trait_impl_edge`] for the exact scope).
 //!
 //! **Deferred** (needs more than AST pattern-matching, or an unresolved design
 //! choice — see `docs/PATTERNS-rust-source.md` §5 for each reason): the call graph,
-//! trait `impl` blocks, and cross-crate `requires` edges.
+//! blanket/generic trait `impl` blocks, and cross-crate `requires` edges.
 //!
 //! **Inherited limitation, not new here:** like `SymbolVisitor`, each file's
 //! `module_path` starts empty regardless of that file's real position in the crate
@@ -107,9 +109,13 @@ pub fn recognize_source(source: &str) -> syn::Result<(Vec<Node>, Vec<Edge>)> {
     Ok((nodes, edges))
 }
 
-/// Every `struct`/`enum` name declared anywhere in `files`, mapped from its
-/// simple (unqualified) name to its full `module::path::Name` qualified
-/// name — the field-type resolution table §2.1's module docs describe.
+/// Every `struct`/`enum`/`trait` name declared anywhere in `files`, mapped
+/// from its simple (unqualified) name to its full `module::path::Name`
+/// qualified name — the field-type resolution table §2.1's module docs
+/// describe, and (kr0ki#31 follow-up) trait-impl resolution reuses the same
+/// table: a trait or a struct/enum sharing one flat namespace here is the
+/// same accepted "whichever this pass saw last" limitation already
+/// documented for field types, not a new one.
 fn collect_local_type_names(files: &[syn::File]) -> HashMap<String, String> {
     struct Collector<'a> {
         module_path: Vec<String>,
@@ -128,6 +134,10 @@ fn collect_local_type_names(files: &[syn::File]) -> HashMap<String, String> {
         }
 
         fn visit_item_enum(&mut self, node: &syn::ItemEnum) {
+            self.record(&node.ident.to_string());
+        }
+
+        fn visit_item_trait(&mut self, node: &syn::ItemTrait) {
             self.record(&node.ident.to_string());
         }
     }
@@ -218,6 +228,11 @@ impl syn::visit::Visit<'_> for RelationshipVisitor<'_> {
         self.declare_item(&node.sig.ident.to_string(), "function");
         syn::visit::visit_item_fn(self, node);
     }
+
+    fn visit_item_impl(&mut self, node: &syn::ItemImpl) {
+        self.push_trait_impl_edge(node);
+        syn::visit::visit_item_impl(self, node);
+    }
 }
 
 impl RelationshipVisitor<'_> {
@@ -256,14 +271,18 @@ impl RelationshipVisitor<'_> {
         });
     }
 
-    fn push_has_part(&mut self, owner: &str, member: &str) {
+    fn push_edge(&mut self, from: &str, to: &str, edge_type: &str) {
         self.edges.push(Edge {
-            id: format!("{owner}_has_part_{member}"),
-            from: owner.to_string(),
-            to: member.to_string(),
-            edge_type: "has_part".to_string(),
+            id: format!("{from}_{edge_type}_{to}"),
+            from: from.to_string(),
+            to: to.to_string(),
+            edge_type: edge_type.to_string(),
             kind: None,
         });
+    }
+
+    fn push_has_part(&mut self, owner: &str, member: &str) {
+        self.push_edge(owner, member, "has_part");
     }
 
     /// A struct/enum-variant field whose type resolves (by simple name) to
@@ -282,6 +301,64 @@ impl RelationshipVisitor<'_> {
                 }
             }
         }
+    }
+
+    /// `impl Trait for Type` → a `satisfies` edge, Type → Trait
+    /// (`PATTERNS-rust-source.md` §2: "the type meets the trait's
+    /// contract"). Scoped to the unambiguous case only
+    /// (`PATTERNS-rust-source.md` §5's stated reason for deferring this):
+    /// the `impl` itself carries no generic parameters, and the
+    /// implementing type is a plain named path — `impl<T> Trait for
+    /// Foo<T>` and blanket impls like `impl<T: Bound> Trait for Vec<T>`
+    /// have no decided edge shape yet and are silently skipped, not
+    /// guessed at (mirrors `sysml_lift`'s own "no confident KerML fit"
+    /// fallback philosophy, minus a `Domain`-style escape hatch this
+    /// box-1→2 stage doesn't have). An inherent impl (`impl Type { .. }`,
+    /// no trait) contributes nothing — there is no trait to satisfy.
+    ///
+    /// Both endpoints resolve through the same whole-tree `local_types`
+    /// name table field-type resolution already uses (traits included,
+    /// per `collect_local_type_names`'s doc comment); an endpoint with no
+    /// local match falls back to its bare simple name, since a real
+    /// external type/trait (`impl std::fmt::Debug for Foo`) is still worth
+    /// recording as a node even though this module has no way to give it
+    /// a qualified path of its own.
+    fn push_trait_impl_edge(&mut self, node: &syn::ItemImpl) {
+        if !node.generics.params.is_empty() {
+            return;
+        }
+        let Some((_, trait_path, _)) = &node.trait_ else {
+            return;
+        };
+        let Some(trait_name) = trait_path.segments.last().map(|s| s.ident.to_string()) else {
+            return;
+        };
+        let syn::Type::Path(self_type_path) = node.self_ty.as_ref() else {
+            return;
+        };
+        let Some(type_name) = self_type_path
+            .path
+            .segments
+            .last()
+            .map(|s| s.ident.to_string())
+        else {
+            return;
+        };
+
+        let type_qname = self
+            .local_types
+            .get(&type_name)
+            .cloned()
+            .unwrap_or(type_name);
+        let trait_qname = self
+            .local_types
+            .get(&trait_name)
+            .cloned()
+            .unwrap_or(trait_name);
+
+        self.push_node(&type_qname, "type");
+        self.push_node(&trait_qname, "trait");
+        self.push_edge(&type_qname, &trait_qname, "satisfies");
     }
 }
 
@@ -455,5 +532,99 @@ mod tests {
         let (nodes, _) = recognize_source(src).unwrap();
         let count = nodes.iter().filter(|n| n.id == "pkg::A").count();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn trait_impl_for_a_local_type_becomes_satisfies() {
+        let src = r#"
+            trait Drive {}
+            struct Car;
+            impl Drive for Car {}
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(&edges, "Car", "Drive", "satisfies"));
+    }
+
+    #[test]
+    fn trait_impl_nodes_reuse_the_already_declared_node_not_a_duplicate() {
+        let src = r#"
+            trait Drive {}
+            struct Car;
+            impl Drive for Car {}
+        "#;
+        let (nodes, _) = recognize_source(src).unwrap();
+        let car_nodes: Vec<_> = nodes.iter().filter(|n| n.id == "Car").collect();
+        assert_eq!(car_nodes.len(), 1);
+        assert_eq!(car_nodes[0].part_type, "struct");
+        let drive_nodes: Vec<_> = nodes.iter().filter(|n| n.id == "Drive").collect();
+        assert_eq!(drive_nodes.len(), 1);
+        assert_eq!(drive_nodes[0].part_type, "trait");
+    }
+
+    #[test]
+    fn inherent_impl_with_no_trait_produces_no_satisfies_edge() {
+        let src = r#"
+            struct Car;
+            impl Car {
+                fn honk(&self) {}
+            }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(!edges.iter().any(|e| e.edge_type == "satisfies"));
+    }
+
+    #[test]
+    fn generic_impl_is_skipped_pending_a_decided_edge_shape() {
+        let src = r#"
+            trait Wrap {}
+            struct Box2<T> { inner: T }
+            impl<T> Wrap for Box2<T> {}
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(!edges.iter().any(|e| e.edge_type == "satisfies"));
+    }
+
+    #[test]
+    fn blanket_impl_over_an_external_generic_type_is_skipped() {
+        let src = r#"
+            trait Describe {}
+            impl<T: std::fmt::Debug> Describe for Vec<T> {}
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(!edges.iter().any(|e| e.edge_type == "satisfies"));
+    }
+
+    #[test]
+    fn trait_impl_for_an_external_type_falls_back_to_its_bare_simple_name() {
+        // Debug and String are neither declared in this source -- both
+        // endpoints fall back to their unqualified names rather than being
+        // dropped, per push_trait_impl_edge's own doc comment.
+        let src = "impl std::fmt::Debug for String {}";
+        let (nodes, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(&edges, "String", "Debug", "satisfies"));
+        assert!(nodes
+            .iter()
+            .any(|n| n.id == "String" && n.part_type == "type"));
+        assert!(nodes
+            .iter()
+            .any(|n| n.id == "Debug" && n.part_type == "trait"));
+    }
+
+    #[test]
+    fn trait_impl_inside_a_module_resolves_to_qualified_names() {
+        let src = r#"
+            mod shapes {
+                trait Area {}
+                struct Circle;
+                impl Area for Circle {}
+            }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(
+            &edges,
+            "shapes::Circle",
+            "shapes::Area",
+            "satisfies"
+        ));
     }
 }
