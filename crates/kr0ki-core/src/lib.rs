@@ -16,7 +16,9 @@
 //! `Vec<OntologicalEdge>` (from either `ufo_graph` or `k8s_recognizer`) into
 //! `ufo_types::sysml_model::Relation` (box 4) per `docs/PATTERNS-kubernetes.md`
 //! §4 — the step FR1/FR4 rendering for the SysML-v2/Kubernetes arms still
-//! needs, previously design-only with no code.
+//! needs, previously design-only with no code. [`sysml_render`] is FR1
+//! itself: `Vec<Relation>` (box 4, e.g. from [`sysml_lift`]) → D2 / Mermaid
+//! diagram text, ready for the existing `render`/`RenderBackend` pipeline.
 
 pub mod b00t_graph;
 pub mod cache;
@@ -29,6 +31,7 @@ pub mod mcp_tool;
 pub mod probe;
 pub mod render;
 pub mod sysml_lift;
+pub mod sysml_render;
 pub mod ufo_graph;
 
 use cache::{cache_key, model_cache_key, CacheStatus, FsCache, OutputKind};
