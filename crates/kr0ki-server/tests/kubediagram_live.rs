@@ -55,7 +55,9 @@ async fn kr0ki_renders_its_own_deployment_manifest() {
         .await
         .unwrap();
     let status = resp.status();
-    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20).await.unwrap();
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
     let text = String::from_utf8_lossy(&bytes);
     assert_eq!(status, StatusCode::OK, "response body: {text}");
     assert!(text.contains("<svg"), "expected SVG output, got: {text}");
