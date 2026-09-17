@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import StoryB00kPanel from './StoryB00kPanel.vue'
+import StoryB00k from './StoryB00k.vue'
 
 describe('StoryB00kPanel', () => {
   it('labels query data distinctly from narration', () => {
@@ -19,5 +20,13 @@ describe('StoryB00kPanel', () => {
   it('uses an image element for binary render output', () => {
     const panel = mount(StoryB00kPanel, { props: { panel: { kind: 'render', content: '', imageDataUrl: 'data:image/png;base64,AA==' } } })
     expect(panel.find('[data-testid="rendered-image"]').attributes('src')).toContain('image/png')
+  })
+
+  it('keeps the chat controls usable before the first agent event', async () => {
+    const panel = mount(StoryB00k)
+    await flushPromises()
+    expect(panel.find('input').attributes('disabled')).toBeUndefined()
+    expect(panel.find('button').attributes('disabled')).toBeDefined()
+    expect(panel.findAll('.storyb00k-panel')).toHaveLength(0)
   })
 })

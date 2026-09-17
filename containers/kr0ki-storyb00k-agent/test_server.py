@@ -37,11 +37,12 @@ class ServerTest(unittest.TestCase):
         self.assertEqual(response.getheader("Access-Control-Allow-Origin"), "http://localhost:8787")
 
     def test_options_allows_the_lan_playbook_origin(self):
-        connection = HTTPConnection("127.0.0.1", self.httpd.server_address[1], timeout=5)
-        connection.request("OPTIONS", "/run", headers={"Origin": "http://192.168.1.137:8787"})
-        response = connection.getresponse()
-        self.assertEqual(response.status, 204)
-        self.assertEqual(response.getheader("Access-Control-Allow-Origin"), "http://192.168.1.137:8787")
+        with patch.object(server, "ALLOWED_ORIGINS", frozenset({"http://192.168.1.137:8787"})):
+            connection = HTTPConnection("127.0.0.1", self.httpd.server_address[1], timeout=5)
+            connection.request("OPTIONS", "/run", headers={"Origin": "http://192.168.1.137:8787"})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 204)
+            self.assertEqual(response.getheader("Access-Control-Allow-Origin"), "http://192.168.1.137:8787")
 
     @patch("server.load_skills", return_value={})
     @patch("server.fetch_manifest", return_value=[])

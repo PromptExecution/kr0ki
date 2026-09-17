@@ -22,7 +22,7 @@ ALLOWED_ORIGINS = frozenset(
     origin.strip()
     for origin in os.environ.get(
         "KR0KI_STORYB00K_ALLOWED_ORIGINS",
-        "http://localhost:8787,http://192.168.1.137:8787",
+        "http://localhost:8787",
     ).split(",")
     if origin.strip()
 )

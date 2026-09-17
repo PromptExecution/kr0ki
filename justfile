@@ -115,12 +115,20 @@ pod-build:
 k0s-load image:
     podman save {{image}} | sudo k0s ctr images import -
 
+# Load deployment-only settings (LLM credentials, LAN origins, optional SysML
+# endpoint) from the local, gitignored .env into the local k0s Secret. Values
+# are passed directly to kubectl and are never printed by this recipe.
+pod-env:
+    test -f .env || { echo "missing .env; copy .env.example and fill in local settings" >&2; exit 1; }
+    kubectl --context Default -n kr0ki create secret generic kr0ki-local-env --from-env-file=.env --dry-run=client -o yaml | kubectl --context Default -n kr0ki apply -f -
+
 pod-up: pod-build
     just k0s-load localhost/kr0ki-server:dev
     just k0s-load localhost/kr0ki-mcp:dev
     just k0s-load localhost/kr0ki-kroki-compat:dev
     just k0s-load localhost/kr0ki-storyb00k-agent:dev
     kubectl --context Default apply -f deploy/namespace.yaml
+    just pod-env
     # This is a standalone Pod, not a Deployment: apply alone preserves old
     # containers when the tag is unchanged. Recreate after import for hot reload.
     kubectl --context Default -n kr0ki delete pod --ignore-not-found kr0ki-local
