@@ -3,7 +3,9 @@ import { ref } from 'vue'
 import { useChat } from '@synoped/ag-ui-vue'
 import StoryB00kPanel from './StoryB00kPanel.vue'
 
-const agentUrl = import.meta.env.VITE_STORYB00K_AGENT_URL || 'http://localhost:8789'
+// Preserve the browser-visible host so LAN users reach this pod's sidecar instead
+// of their own workstation's localhost.
+const agentUrl = import.meta.env.VITE_STORYB00K_AGENT_URL || `${window.location.protocol}//${window.location.hostname}:8789`
 const input = ref('')
 const chat = useChat({ url: `${agentUrl}/run`, initialState: { panels: [] } })
 

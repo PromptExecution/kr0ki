@@ -18,6 +18,14 @@ except ModuleNotFoundError:  # local source-tree tests; the image copies the mod
 KR0KI_URL = os.environ.get("KR0KI_URL", "http://127.0.0.1:8787")
 SKILLS_DIR = Path(__file__).parent / "skills"
 _drafts = {}
+ALLOWED_ORIGINS = frozenset(
+    origin.strip()
+    for origin in os.environ.get(
+        "KR0KI_STORYB00K_ALLOWED_ORIGINS",
+        "http://localhost:8787,http://192.168.1.137:8787",
+    ).split(",")
+    if origin.strip()
+)
 
 
 def load_skills():
@@ -66,7 +74,10 @@ class Handler(BaseHTTPRequestHandler):
     def _cors_headers(self):
         # The playbook is served by kr0ki on :8787 while this sidecar listens on
         # :8789, so the browser requires an explicit local-development CORS bridge.
-        self.send_header("Access-Control-Allow-Origin", "http://localhost:8787")
+        origin = self.headers.get("Origin")
+        if origin in ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
