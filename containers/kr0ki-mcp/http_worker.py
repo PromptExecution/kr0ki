@@ -53,6 +53,14 @@ class Handler(BaseHTTPRequestHandler):
             self._respond(400, json.dumps({"error": "empty manifest"}).encode(), "application/json")
             return
         if length > MAX_MANIFEST_BYTES:
+            # Drain (not just reject) the declared body before responding: an
+            # HTTP/1.1 client that has already started writing the body races
+            # an early response/connection-close against its own still-in-flight
+            # sendall() and gets a BrokenPipeError, even though the server's
+            # rejection itself was correct. Reading it off the wire in bounded
+            # chunks lets the client's write finish normally without ever
+            # materializing the oversized body as one big buffer.
+            self._drain(length)
             self._respond(
                 400,
                 json.dumps({"error": "manifest exceeds the 1 MiB limit"}).encode(),
@@ -82,6 +90,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._respond(200, artifact.read_bytes(), content_type)
             except subprocess.TimeoutExpired:
                 self._respond(504, json.dumps({"error": "kube-diagrams timed out"}).encode(), "application/json")
+
+    def _drain(self, length):
+        """Read and discard exactly `length` bytes from the request body, in
+        bounded chunks, without storing more than one chunk at a time."""
+        remaining = length
+        chunk_size = 65536
+        while remaining > 0:
+            chunk = self.rfile.read(min(chunk_size, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
 
     def _respond(self, status, body, content_type):
         self.send_response(status)
