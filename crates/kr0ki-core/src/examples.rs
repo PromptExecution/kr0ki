@@ -304,6 +304,16 @@ pub const ALL: &[PlaybookExample] = &[
         outputs: &["svg", "png"],
         route: Some("/render/k8s-topology"),
     },
+    PlaybookExample {
+        id: "rust-topology-render-backend",
+        format: "rust-topology",
+        title: "Rust code topology (native recognizer)",
+        input_kind: "Rust source",
+        description: "A render module — a Backend trait, a KrokiBackend that implements it and holds a Cache field, and a call from one free function to another — recognized, lifted to SysML v2, and rendered as D2, exercising all three PATTERNS-rust-source.md relation kinds (has_part, satisfies, flows_to) in one compact, self-contained file (single-file scope only — no cross-file resolution).",
+        source: "mod render {\n    pub struct Artifact;\n    pub struct Cache;\n\n    pub trait Backend {\n        fn render(&self) -> Artifact;\n    }\n\n    pub struct KrokiBackend {\n        pub cache: Cache,\n    }\n\n    impl Backend for KrokiBackend {\n        fn render(&self) -> Artifact {\n            fetch()\n        }\n    }\n\n    fn fetch() -> Artifact {\n        Artifact\n    }\n\n    pub fn render_service() -> Artifact {\n        fetch()\n    }\n}\n",
+        outputs: &["svg", "png"],
+        route: Some("/render/rust-topology"),
+    },
 ];
 
 #[cfg(test)]
@@ -385,6 +395,49 @@ mod tests {
         );
 
         let relations: Vec<_> = crate::sysml_lift::lift_edges(&edges)
+            .into_iter()
+            .map(|lifted| lifted.relation)
+            .collect();
+        let d2 = crate::sysml_render::to_d2(&relations);
+        assert!(
+            d2.contains("->"),
+            "expected at least one D2 edge line:\n{d2}"
+        );
+    }
+
+    #[test]
+    fn rust_topology_example_actually_exercises_the_recognizer_pipeline() {
+        let example = ALL
+            .iter()
+            .find(|e| e.id == "rust-topology-render-backend")
+            .expect("rust-topology-render-backend example exists");
+
+        let (nodes, edges) = crate::rust_recognizer::recognize_source(example.source)
+            .expect("example source is valid Rust");
+        let graph = crate::rust_recognizer::to_sysgraph(&nodes, &edges);
+        assert!(
+            graph.dangling_edges().is_empty(),
+            "every edge endpoint should resolve to a node: {:?}",
+            graph.dangling_edges()
+        );
+
+        use ufo_types::ontology::UfoRelation;
+        let relation_kinds: std::collections::HashSet<_> =
+            graph.edges.iter().map(|e| e.relation).collect();
+        assert!(
+            relation_kinds.contains(&UfoRelation::HasPart),
+            "expected at least one has_part edge (module containment or field composition)"
+        );
+        assert!(
+            relation_kinds.contains(&UfoRelation::Satisfies),
+            "expected the KrokiBackend -> Backend trait-impl edge"
+        );
+        assert!(
+            relation_kinds.contains(&UfoRelation::FlowsTo),
+            "expected the render_service -> fetch call edge"
+        );
+
+        let relations: Vec<_> = crate::sysml_lift::lift_edges(&graph.edges)
             .into_iter()
             .map(|lifted| lifted.relation)
             .collect();
