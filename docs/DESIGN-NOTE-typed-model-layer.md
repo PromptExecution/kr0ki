@@ -5,6 +5,12 @@ PRD-KR0KI-001 §6.6 sequences `PLAN-KR0KI-002` *after* §5 (D1–D6) is settled;
 exists so the conclusions of the 2026-09-05 architecture review survive until then and
 inform D1/D3/D6 rather than being re-litigated.
 **Created:** 2026-09-06 · **Owner:** PromptExecution (@elasticdotventures)
+**Changelog 2026-09-17:** §4's D1 row is stale as originally written — D1 was resolved
+2026-09-10, a week before a research pass caught the staleness (see
+`docs/EVAL-sysml-derive.md` for the resolution and `docs/DESIGN-NOTE-agentic-mbse-generation.md`
+for the fuller context). kr0ki's SysML v2 authoring path is unblocked. Left the original
+§4 table row struck through rather than deleted, so the D1-open framing this note argued
+from is still legible.
 
 ---
 
@@ -242,6 +248,6 @@ Independently corroborated by `2026-08-26-systhread-3d-explorer-design.md`:
 
 | Dep | Question | Effect on this layer |
 |---|---|---|
-| [`ledgrrr#202`](https://github.com/PromptExecution/ledgrrr/issues/202) (D1) | `sysml-derive` extend-vs-wrap-vs-re-export for `UfoStereotype`-tagged types | how a typed `Element` gets its SysML v2 text |
+| ~~[`ledgrrr#202`](https://github.com/PromptExecution/ledgrrr/issues/202) (D1)~~ | ~~`sysml-derive` extend-vs-wrap-vs-re-export for `UfoStereotype`-tagged types~~ | **RESOLVED 2026-09-10** — separation of concerns, not a single macro: `sysml-derive` stays structure-only (`#[derive(SysmlBlock)]`), `UfoStereotype → SysML v2 metadata` is emitted by `ufo_types::mbse::MbseExport` (already shipped), consumers compose both. See `docs/EVAL-sysml-derive.md`. |
 | `nem-poweragent-lab#53` follow-up (D3) | does the typed layer live in `ufo-types`, `systhread-core`, or its own crate | where these types are defined — *operator-resolved 2026-09-05: `ufo-types` (`sysml_model` + `ontology` + `view` merged)* |
 | ~~D6~~ | ~~vocabulary: "view" / "viewpoint" / "projection" / "thread" collisions~~ | **RESOLVED 2026-09-05** — [`VOCABULARY.md`](VOCABULARY.md): OMG spec terms verbatim, "projection" banned, "digital thread" always qualified; un-entangled from D1 |

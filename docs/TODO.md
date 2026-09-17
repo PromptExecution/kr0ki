@@ -264,9 +264,12 @@ tracked as they affect production readiness.
 
 ## Open decisions (not kr0ki's to make)
 
-- [ ] **D1** — `sysml-derive` extend-vs-wrap-vs-re-export for `UfoStereotype`-tagged
-  types ([`ledgrrr#202`](https://github.com/PromptExecution/ledgrrr/issues/202)). Gates
-  **only** the authoring / SysML-v2-text-emit path; the read/ingest path is unblocked.
+- [x] **D1** — `sysml-derive` extend-vs-wrap-vs-re-export for `UfoStereotype`-tagged
+  types ([`ledgrrr#202`](https://github.com/PromptExecution/ledgrrr/issues/202)).
+  **RESOLVED 2026-09-10** — separation of concerns: `sysml-derive` stays structure-only,
+  `ufo_types::mbse::MbseExport` (already shipped) emits stereotype metadata, consumers
+  compose both. See `docs/EVAL-sysml-derive.md`. The authoring / SysML-v2-text-emit path
+  is now unblocked, same as the read/ingest path.
 - [ ] **D2** — real (non-dev) dependency on `holon-viz`?
   ([`ledgrrr#203`](https://github.com/PromptExecution/ledgrrr/issues/203)). Only bites
   the `CytoscapeGraph` wrapping question, which this ingestion path does not touch.
