@@ -95,14 +95,21 @@ cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
 
 - [x] **Graph container type** — `SysGraph` (`nodes: Vec<OntologicalNode>`, `edges:
   Vec<OntologicalEdge>`), serde JSON, round-trip tested, no `SchemaVersion` field
-  (DESIGN-NOTE §2.6/§2.8). `ufo-types` PR #27, merged. **Not yet consumed by kr0ki**
-  — `ufo_graph.rs`, `k8s_recognizer.rs`, and `sysml_lift.rs` all still pass a bare
-  `Vec<OntologicalEdge>` between stages rather than a `SysGraph`. Open question for
-  whoever picks this up: is adopting the envelope actually worth a signature change
-  to three already-shipped, tested modules, or is `Vec<OntologicalEdge>` fine as the
-  pipeline's working type and `SysGraph` only needed at a serialization boundary
-  (e.g. a future `GET /model/graph` snapshot route)? Not decided — don't silently
-  pick one without flagging it here first.
+  (DESIGN-NOTE §2.6/§2.8). `ufo-types` PR #27, merged. **Now consumed by all three
+  source arms** (2026-09-17 — resolves the open question this bullet used to pose):
+  `rust_recognizer::to_sysgraph`, `KubernetesRecognizer::recognize_to_sysgraph`,
+  `ufo_graph::to_sysgraph` — each **additive** (the pre-existing edge-only functions
+  are unchanged and still the pipeline's working type internally; `sysml_lift`
+  itself still takes `&[OntologicalEdge]`, not a whole `SysGraph`, since it operates
+  per-edge and doesn't need node identity). `SysGraph` is the envelope a caller
+  reaches for when it wants nodes *with* edges together — proving a real integrity
+  invariant via `dangling_edges()` (all three arms' new tests do this), or a future
+  serialization boundary (`GET /model/graph` snapshot route) — not a breaking
+  signature change forced onto three already-shipped, tested, live-wired modules.
+  The Kubernetes and SysML-v2 arms' `ElementKind`/kind→`UfoStereotype` mappings
+  follow their own docs (`PATTERNS-kubernetes.md` §3,
+  `DESIGN-NOTE-typed-model-layer.md` §2.10 — the latter a genuinely new decision,
+  no prior precedent existed anywhere for it, confirmed before writing it).
 - [x] **`ModelSnapshot → UFO graph` builder** — `kr0ki-core/src/ufo_graph.rs`
   (box 2 of `PLAN-KR0KI-002`). Raw KerML relationship `@type` → `UfoRelation` via a
   direct table lookup (`FeatureMembership`→`HasPart`, `Specialization`→`Specializes`,
@@ -169,8 +176,19 @@ cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
   What's still missing: grouping `LiftedRelation`s by `view_kind` before calling
   `sysml_render`, so each `ViewDefinition` renders as its own diagram rather than one
   diagram with every relation mixed together.
-- [ ] **`systhread-core` isometric backend (FR3)** — call its `render.rs`; do not port
-  or re-solve the Cassowary/kasuari layout.
+- [ ] 🚩 **`systhread-core` isometric backend (FR3)** — **blocked, not merely
+  unstarted (checked 2026-09-17).** Call its `render.rs`; do not port or re-solve the
+  layout solver — but `systhread-core` isn't findable anywhere on this disk (no
+  checkout, no `Cargo.toml`/`Cargo.lock` reference in any repo searched under
+  `~/promptexecution` or `~/.b00t`), and no kr0ki doc gives its repository URL, only
+  the bare name (it's referenced as belonging to `nem-poweragent-lab`, e.g.
+  `nem-poweragent-lab#53`, `iso_ir`'s own module doc — `iso_ir::{Node, Edge}` was
+  literally promoted *from* `systhread-core` — but that promotion note doesn't carry
+  a URL either). Also: this line's own "Cassowary/kasuari" is a typo — the actual
+  crate is `kiwisolver` (`PRD-KR0KI-001-foundational.md` line 34, a Cassowary-
+  algorithm constraint solver). Cannot be started without either locating the real
+  repository or being handed it directly; do not guess at `render.rs`'s API to work
+  around this.
 - [ ] ◑ **`KubeDiagramsBackend` — leaf feature, NOT the pipeline** — substantially
   shipped, and (as of mcp-http-parity) available both ways: as an MCP tool and as
   the originally-envisioned native HTTP route (`POST /render/kubediagram`) —
