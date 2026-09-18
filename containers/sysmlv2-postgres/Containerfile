@@ -1,3 +1,0 @@
-# Local name permits k0s to run an explicitly imported image with
-# imagePullPolicy: Never. The build is performed before air-gapping.
-FROM docker.io/library/postgres:16.4

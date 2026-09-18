@@ -4,6 +4,3 @@
 [submodule "vendor/kubediagrams"]
 	path = vendor/kubediagrams
 	url = https://github.com/PromptExecution/KubeDiagrams.git
-[submodule "vendor/sysmlv2-api-services"]
-	path = vendor/sysmlv2-api-services
-	url = https://github.com/Systems-Modeling/SysML-v2-API-Services.git
