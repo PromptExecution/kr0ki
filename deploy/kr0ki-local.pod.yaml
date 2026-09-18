@@ -9,62 +9,6 @@ metadata:
 spec:
   restartPolicy: Always
   containers:
-    # The OMG/SST SysML v2 API pilot and PostgreSQL stay pod-internal. kr0ki
-    # reaches the API at 127.0.0.1:9000; neither service has a host port.
-    - name: sysmlv2-postgres
-      image: localhost/kr0ki-sysmlv2-postgres:16.4
-      imagePullPolicy: Never
-      env:
-        - name: POSTGRES_DB
-          value: sysml2
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: kr0ki-local-env
-              key: SYSMLV2_POSTGRES_PASSWORD
-        - name: POSTGRES_USER
-          value: postgres
-      ports:
-        - containerPort: 5432
-      readinessProbe:
-        tcpSocket:
-          port: 5432
-        initialDelaySeconds: 2
-        periodSeconds: 2
-        timeoutSeconds: 2
-        failureThreshold: 30
-      resources:
-        limits:
-          cpu: "1"
-          memory: 1Gi
-      volumeMounts:
-        - name: sysmlv2-postgres-data
-          mountPath: /var/lib/postgresql/data
-      securityContext:
-        allowPrivilegeEscalation: false
-        capabilities:
-          drop: ["ALL"]
-    - name: sysmlv2-api
-      image: localhost/kr0ki-sysmlv2-api:2026-04
-      imagePullPolicy: Never
-      ports:
-        - containerPort: 9000
-      readinessProbe:
-        httpGet:
-          path: /
-          port: 9000
-        initialDelaySeconds: 5
-        periodSeconds: 3
-        timeoutSeconds: 2
-        failureThreshold: 40
-      resources:
-        limits:
-          cpu: "2"
-          memory: 2Gi
-      securityContext:
-        allowPrivilegeEscalation: false
-        capabilities:
-          drop: ["ALL"]
     - name: kroki
       image: localhost/kr0ki-kroki-compat:dev
       imagePullPolicy: Never
@@ -123,8 +67,6 @@ spec:
         # shared network namespace exactly like KR0KI_BACKEND_URL is.
         - name: KR0KI_KUBEDIAGRAM_WORKER_URL
           value: http://127.0.0.1:8788
-        - name: KR0KI_SYSMLV2_BASE_URL
-          value: http://127.0.0.1:9000
       ports:
         - containerPort: 8787
           hostPort: 8787
@@ -215,6 +157,4 @@ spec:
     - name: kubediagram-tmp
       emptyDir: {}
     - name: kr0ki-capabilities
-      emptyDir: {}
-    - name: sysmlv2-postgres-data
       emptyDir: {}
