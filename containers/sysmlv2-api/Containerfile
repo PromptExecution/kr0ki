@@ -1,0 +1,15 @@
+# Official OMG/SST SysML v2 REST API pilot, pinned by the gitlink at
+# vendor/sysmlv2-api-services (release 2026-04). Build this image while
+# connected, then export/import the resulting OCI image for air-gapped use.
+# The pilot targets Java 11 bytecode; this pinned JDK 17 builder is compatible
+# with that target and is an extant, multi-arch sbtscala tag.
+FROM docker.io/sbtscala/scala-sbt:eclipse-temurin-jammy-17.0.10_7_1.10.4_2.13.15 AS build
+WORKDIR /src
+COPY vendor/sysmlv2-api-services/ ./
+RUN sbt -batch stage
+
+FROM docker.io/eclipse-temurin:17-jre-jammy
+WORKDIR /opt/sysmlv2-api
+COPY --from=build /src/target/universal/stage/ ./
+EXPOSE 9000
+ENTRYPOINT ["/opt/sysmlv2-api/bin/sysml-v2-api-services"]

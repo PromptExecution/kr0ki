@@ -112,6 +112,8 @@ pod-build:
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-mcp:dev -f containers/kr0ki-mcp/Containerfile .
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-kroki-compat:dev -f containers/kroki-compat/Containerfile .
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-storyb00k-agent:dev -f containers/kr0ki-storyb00k-agent/Containerfile .
+    podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-sysmlv2-postgres:16.4 -f containers/sysmlv2-postgres/Containerfile .
+    podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-sysmlv2-api:2026-04 -f containers/sysmlv2-api/Containerfile .
 
 k0s-load image:
     podman save {{image}} | sudo k0s ctr images import -
@@ -128,6 +130,8 @@ pod-up: pod-build
     just k0s-load localhost/kr0ki-mcp:dev
     just k0s-load localhost/kr0ki-kroki-compat:dev
     just k0s-load localhost/kr0ki-storyb00k-agent:dev
+    just k0s-load localhost/kr0ki-sysmlv2-postgres:16.4
+    just k0s-load localhost/kr0ki-sysmlv2-api:2026-04
     kubectl --context Default apply -f deploy/namespace.yaml
     just pod-env
     # This is a standalone Pod, not a Deployment: apply alone preserves old

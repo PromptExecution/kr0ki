@@ -56,6 +56,21 @@ fork, not a mutable Docker Hub image. Its command and supported output types fol
 the upstream project documentation; the fork is the controlled home for future
 `-b00t` extensions.
 
+## Air-gapped SysML v2 model service
+
+`just pod-up` also builds and imports two internal-only images: PostgreSQL and
+the official OMG/SST SysML v2 API pilot, pinned as the
+`vendor/sysmlv2-api-services` submodule at release `2026-04`. They share the
+`kr0ki-local` Pod network namespace with kr0ki, so `KR0KI_SYSMLV2_BASE_URL` is
+always `http://127.0.0.1:9000`; ports 5432 and 9000 are not host-exposed.
+
+Before disconnecting the environment, build the images once, export them with
+`podman save`, and import them into the target k0s container runtime with
+`just k0s-load`. The SysML API image compiles the pinned source during its
+connected build; the deployed image has no runtime dependency on GitHub,
+Docker Hub, or an LLM. Set `SYSMLV2_POSTGRES_PASSWORD` in the gitignored
+`.env` before `just pod-up`.
+
 <!-- b00t:map v1
 summary: container-only local MCP bridges for kr0ki and sandboxed KubeDiagrams
 tags: kr0ki, mcp, codex, podman, kubediagrams, security
