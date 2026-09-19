@@ -51,6 +51,10 @@ watch(useCaseFilters, (filters) => {
   if (!filters.includes(activeUseCase.value)) activeUseCase.value = 'All'
 })
 
+function countFor(tag) {
+  return (catalog.value?.types || []).filter((t) => t.useCases.includes(tag)).length
+}
+
 function agentHandoff(card) {
   // Plan 005 §1.3: pre-populate the Agent composer with a prompt that names
   // the type explicitly. Never auto-sent.
@@ -141,14 +145,19 @@ async function testAll() {
 
     <!-- Intent filter (Plan 005): defaults to All, auto-resets to All -->
     <nav v-if="useCaseFilters.length > 1" class="gallery-filters" aria-label="Filter by use case">
+      <span class="filter-label">I want to show</span>
       <button
         v-for="tag in useCaseFilters"
         :key="tag"
         class="gallery-filter"
         :class="{ active: activeUseCase === tag }"
+        :aria-pressed="activeUseCase === tag"
         @click="activeUseCase = tag"
-      >{{ tag }}</button>
+      >{{ tag }}<span v-if="tag !== 'All'" class="count">{{ countFor(tag) }}</span></button>
     </nav>
+    <p v-if="catalog && !typeCards.length" class="empty" style="padding: 0 1.5rem;">
+      Nothing matches that filter yet.
+    </p>
 
     <!-- Type cards: browse by intent, deep-linkable by typeId -->
     <div v-if="typeCards.length" class="gallery-grid">
