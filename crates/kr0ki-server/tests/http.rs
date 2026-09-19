@@ -354,6 +354,42 @@ async fn examples_catalog_covers_every_advertised_format() {
 }
 
 #[tokio::test]
+async fn catalog_serves_taxonomy_for_gallery_and_discovery() {
+    let app = test_app(test_state("examples"));
+    let resp = app
+        .oneshot(Request::get("/api/catalog").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    let catalog: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let types = catalog["types"].as_array().unwrap();
+    assert!(
+        types.len() >= 20,
+        "taxonomy must expand PlantUML top-level types"
+    );
+    // Distinct addressible names.
+    let mut ids: Vec<&str> = types.iter().filter_map(|t| t["id"].as_str()).collect();
+    ids.sort_unstable();
+    let len = ids.len();
+    ids.dedup();
+    assert_eq!(ids.len(), len);
+    // Filter vocabulary is non-empty and every type's tags come from it.
+    let use_cases = catalog["useCases"].as_array().unwrap();
+    assert!(use_cases.iter().any(|t| t == "process flow"));
+    for t in types {
+        for tag in t["useCases"].as_array().unwrap() {
+            assert!(use_cases.contains(tag), "tag {tag} outside vocabulary");
+        }
+        assert!(t["samplePrompt"].as_str().unwrap().len() > 20);
+    }
+    assert!(catalog["discoveryGuide"]
+        .as_str()
+        .unwrap()
+        .contains("sequence"));
+}
+
+#[tokio::test]
 async fn playbook_serves_built_vue_assets() {
     let directory = std::env::temp_dir().join(format!("kr0ki-playbook-{}", std::process::id()));
     tokio::fs::create_dir_all(directory.join("assets"))

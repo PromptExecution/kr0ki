@@ -1,10 +1,11 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
   examples: { type: Array, required: true },
+  agentUrl: { type: String, default: '' },
 })
-const emit = defineEmits(['open-in-editor'])
+const emit = defineEmits(['open-in-editor', 'agent-handoff'])
 
 const rendererUrl = ref(
   window.location.port === '8787'
@@ -12,6 +13,55 @@ const rendererUrl = ref(
     : new URLSearchParams(window.location.search).get('renderer') || '',
 )
 
+// ---- Plan 005: intent-first catalog ----------------------------------------
+// Loaded from /api/catalog (Rust-owned taxonomy). The filter defaults to
+// "All" and auto-resets to "All" whenever a selection stops matching.
+const catalog = ref(null)
+const activeUseCase = ref('All')
+
+onMounted(async () => {
+  try {
+    const base = rendererUrl.value.trim() || window.location.origin
+    const res = await fetch(`${base.replace(/\/$/, '')}/api/catalog`)
+    if (res.ok) catalog.value = await res.json()
+  } catch (err) {
+    console.warn('[gallery] catalog unavailable:', err?.message)
+  }
+})
+
+const useCaseFilters = computed(() => ['All', ...(catalog.value?.useCases || [])])
+
+// Type cards from the taxonomy; each links to its fixture (match by syntax)
+// so the card can render a thumbnail through the existing test flow.
+const typeCards = computed(() => {
+  const types = catalog.value?.types || []
+  return types
+    .filter((t) => activeUseCase.value === 'All' || t.useCases.includes(activeUseCase.value))
+    .map((t) => ({
+      ...t,
+      // First fixture whose format matches the type's syntax — used for the
+      // Edit deep link. Types without a fixture render Agent-only.
+      example: props.examples.find((e) => e.format === t.syntax),
+    }))
+})
+
+// Auto-select "All" when the active filter somehow stops matching (e.g.
+// catalog reload) — the filter never dead-ends.
+watch(useCaseFilters, (filters) => {
+  if (!filters.includes(activeUseCase.value)) activeUseCase.value = 'All'
+})
+
+function agentHandoff(card) {
+  // Plan 005 §1.3: pre-populate the Agent composer with a prompt that names
+  // the type explicitly. Never auto-sent.
+  emit('agent-handoff', {
+    typeId: card.id,
+    syntax: card.syntax,
+    prompt: card.samplePrompt,
+  })
+}
+
+// ---- Existing test flow -----------------------------------------------------
 // Per-example-id maps: status is 'idle' | 'testing' | 'pass' | 'fail'.
 const status = ref({})
 const artifactUrls = ref({})
@@ -87,6 +137,49 @@ async function testAll() {
       <p v-if="summary.tested > 0" class="gallery-summary">
         {{ summary.passed }}/{{ summary.tested }} of {{ summary.total }} passed
       </p>
+    </div>
+
+    <!-- Intent filter (Plan 005): defaults to All, auto-resets to All -->
+    <nav v-if="useCaseFilters.length > 1" class="gallery-filters" aria-label="Filter by use case">
+      <button
+        v-for="tag in useCaseFilters"
+        :key="tag"
+        class="gallery-filter"
+        :class="{ active: activeUseCase === tag }"
+        @click="activeUseCase = tag"
+      >{{ tag }}</button>
+    </nav>
+
+    <!-- Type cards: browse by intent, deep-linkable by typeId -->
+    <div v-if="typeCards.length" class="gallery-grid">
+      <article v-for="card in typeCards" :key="card.id" class="gallery-card" :data-type-id="card.id">
+        <header>
+          <p class="eyebrow">{{ card.name }} · {{ card.syntax }}</p>
+          <h3>{{ card.blurb }}</h3>
+        </header>
+        <p class="card-description">{{ card.useCases.join(' · ') }}</p>
+        <div class="card-preview">
+          <img
+            v-if="card.example && artifactUrls[card.example.id]"
+            :src="artifactUrls[card.example.id]"
+            :alt="`${card.name} rendered sample`"
+          />
+          <p v-else class="card-empty">Hit Test below to render a sample</p>
+        </div>
+        <footer>
+          <button
+            v-if="card.example"
+            type="button"
+            class="secondary"
+            :disabled="status[card.example.id] === 'testing'"
+            data-testid="card-test"
+            @click="testOne(card.example)"
+          >Test</button>
+          <button type="button" class="secondary" data-testid="card-edit" @click="emit('open-in-editor', card.example)">Edit</button>
+          <button type="button" class="agent" data-testid="card-agent" :title="`Open the Agent with a ${card.name} prompt pre-filled`" @click="agentHandoff(card)">Agent</button>
+        </footer>
+        <p v-if="card.example && errors[card.example.id]" class="card-error">{{ errors[card.example.id] }}</p>
+      </article>
     </div>
 
     <div class="gallery-grid">

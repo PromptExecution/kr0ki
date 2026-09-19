@@ -28,7 +28,17 @@ if (!globalThis.crypto?.randomUUID) {
   })
   console.warn('[storyb00k] crypto.randomUUID unavailable (insecure context) — installed prototype fallback')
 }
-const input = ref('')
+const props = defineProps({
+  // Gallery → Agent handoff: a sample prompt (names the diagram type) the
+  // composer starts with. The user edits/sends it — never auto-sent.
+  prefill: { type: String, default: '' },
+})
+
+const input = ref(props.prefill)
+// Fresh handoffs replace a still-untouched composer; a half-typed draft wins.
+watch(() => props.prefill, (next) => {
+  if (next && (!input.value.trim() || input.value === props.prefill)) input.value = next
+})
 const autoScroll = ref(true)
 const transcriptEl = ref(null)
 const chat = useChat({

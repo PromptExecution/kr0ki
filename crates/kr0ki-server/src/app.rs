@@ -75,6 +75,7 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
         .route("/capabilities", get(capabilities))
         .route("/api/examples", get(examples))
         .route("/playbook/api/examples.json", get(examples))
+        .route("/api/catalog", get(catalog))
         .route("/playbook", get(playbook_index))
         .route("/playbook/", get(playbook_index))
         .route("/playbook/*path", get(playbook_asset))
@@ -480,6 +481,25 @@ async fn capabilities(State(state): State<AppState>) -> Response {
 /// mdb00k static export, and the Vue/Vite playb00k.
 async fn examples() -> Json<&'static [kr0ki_core::examples::PlaybookExample]> {
     Json(kr0ki_core::examples::ALL)
+}
+
+/// `GET /api/catalog` — the intent-first diagram-type taxonomy (Plan 005):
+/// distinct addressible typeIds, use-case tags for the gallery filter, and
+/// per-type sample prompts for the Agent handoff button.
+async fn catalog() -> Json<serde_json::Value> {
+    use kr0ki_core::catalog;
+    Json(serde_json::json!({
+        "useCases": catalog::used_use_cases(),
+        "types": catalog::TYPES.iter().map(|t| serde_json::json!({
+            "id": t.id,
+            "syntax": t.syntax,
+            "name": t.name,
+            "useCases": t.use_cases,
+            "blurb": t.blurb,
+            "samplePrompt": t.sample_prompt,
+        })).collect::<Vec<_>>(),
+        "discoveryGuide": catalog::discovery_guide(),
+    }))
 }
 
 async fn playbook_index(State(state): State<AppState>) -> Response {

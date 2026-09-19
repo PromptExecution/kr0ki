@@ -14,6 +14,16 @@ const editedSource = ref('')
 const editedRoute = ref(null)
 let editedSourcePending = false
 
+// Gallery → Agent handoff (Plan 005 §1.3): prefill the Agent composer with a
+// prompt naming the diagram type, then flip to the Agent view. Never auto-sent.
+const agentUrl = `${window.location.protocol}//${window.location.hostname}:8789`
+const agentPrefill = ref('')
+
+function agentHandoff({ prompt }) {
+  agentPrefill.value = prompt
+  viewMode.value = 'storyb00k'
+}
+
 // `api/examples.json` is deliberately relative: it resolves beneath
 // /playbook/ in the live service and beneath /kr0ki/playbook/ on Pages.
 const catalogUrl = new URL('api/examples.json', window.location.href)
@@ -137,8 +147,14 @@ onMounted(async () => {
       </header>
 
       <p v-if="loadError" class="error">{{ loadError }}</p>
-      <Gallery v-else-if="viewMode === 'gallery'" :examples="examples" @open-in-editor="openInEditor" />
-      <StoryB00k v-else-if="viewMode === 'storyb00k'" @edit-in-editor="editInEditor" />
+      <Gallery
+        v-else-if="viewMode === 'gallery'"
+        :examples="examples"
+        :agent-url="agentUrl"
+        @open-in-editor="openInEditor"
+        @agent-handoff="agentHandoff"
+      />
+      <StoryB00k v-else-if="viewMode === 'storyb00k'" :prefill="agentPrefill" @edit-in-editor="editInEditor" />
       <RendererPanel
         v-else-if="selectedExample"
         :example="selectedExample"

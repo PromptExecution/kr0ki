@@ -292,6 +292,62 @@
       "priority": 3,
       "tags": [],
       "created_at": "2026-09-19T05:53:52Z"
+    },
+    {
+      "id": 36,
+      "title": "kr0ki: PR #35 rebased onto merged main (commits aed6788/249837b re-applied as d226f95 chain), MERGEABLE; gates green 38py+15vitest+check",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T07:07:56Z"
+    },
+    {
+      "id": 37,
+      "title": "kr0ki commit fc48d01 on PR #35: fix 'No active tool call found' — ask_user+propose_draft_change now emit full TOOL_CALL lifecycle before interrupts; 6/6 zod-union valid; live verified",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T07:26:05Z"
+    },
+    {
+      "id": 38,
+      "title": "kr0ki commit 9c93e1c on PR #35: storyb00k UX — autoResumeInterrupts off (run-in-progress collision), inline question UI (no gate click), dark-theme inputs/bubbles; deployed",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T07:51:58Z"
+    },
+    {
+      "id": 39,
+      "title": "kr0ki commit on PR #35: nav tab storyb00k->Agent (internal codename out of UI), editor hero paragraph trimmed to one line; deployed",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T07:58:33Z"
+    },
+    {
+      "id": 40,
+      "title": "kr0ki commit on PR #35: answer flow uses chat.resume() (fixes 'Thread has N pending interrupt(s) not addressed by resume'); sidebar copy trimmed; deployed bundle index-Di7ix3cM.js",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T08:19:19Z"
+    },
+    {
+      "id": 41,
+      "title": "kr0ki: PROJECT MEMORY fix for repeat questions (commit on PR #35); live test shows follow-up questions only for genuinely new info; deployed cb11f5f25217",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T08:49:46Z"
+    },
+    {
+      "id": 42,
+      "title": "kr0ki: PLAN-KR0KI-005 written (gallery catalog & type-discovery agent) — intent-first UX, discover question series, catalog.rs + /api/catalog, per-type skills",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T08:53:16Z"
     }
   ],
   "version": "1"

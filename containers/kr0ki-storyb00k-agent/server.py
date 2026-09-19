@@ -18,6 +18,7 @@ import json
 import os
 import sys
 import time
+import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -94,6 +95,48 @@ ask_user_tool = {
                     "description": "2–6 concise candidate answers.",
                 },
                 "allowFreeText": {"type": "boolean", "description": "Whether the user may answer in their own words. Default true."},
+            },
+        },
+    },
+}
+
+# Type-discovery tool (Plan 005 §2.2): when the user has NOT named a diagram
+# syntax, the agent discovers the right TYPE by intent before rendering.
+recommend_diagram_type_tool = {
+    "type": "function",
+    "function": {
+        "name": "recommend_diagram_type",
+        "description": (
+            "Recommend diagram type(s) for the user's goal. Call this with "
+            "mode='confirm' AFTER the discovery questions are answered, offering "
+            "exactly one primary and (optionally) one alternative type with a "
+            "one-line rationale. The user can also pick 'show me both' to see "
+            "sample renders of both types side by side."
+        ),
+        "parameters": {
+            "type": "object",
+            "required": ["mode", "recommendations"],
+            "properties": {
+                "mode": {"type": "string", "enum": ["confirm"], "description": "Always 'confirm': commit to recommendations after discovery."},
+                "recommendations": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "items": {
+                        "type": "object",
+                        "required": ["typeId", "rationale"],
+                        "properties": {
+                            "typeId": {"type": "string", "description": "Catalog type id (e.g. 'sequence', 'flowchart')"},
+                            "rationale": {"type": "string", "description": "One line: why this type fits the intent."},
+                        },
+                    },
+                },
+                "question": {"type": "string", "description": "The confirm question, e.g. 'Go with a sequence diagram?'"},
+                "options": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Choices built from the recommended type names plus 'show me both' when two types are offered.",
+                },
             },
         },
     },
@@ -352,15 +395,21 @@ class Handler(BaseHTTPRequestHandler):
             if draft is None and not is_answer:
                 return self._json(404, {"error": "draft_session_not_found"})
             if is_answer and question is not None:
-                # Planning refinement answer: record it in the project QA
-                # history, hand it back to the caller (the UI immediately
-                # re-runs with the answer appended as a user message,
-                # continuing the planning loop).
+                # Planning refinement / type-confirm answer: record it in the
+                # project QA history, hand it back to the caller (the UI
+                # resumes the run with the answer recorded client-side).
                 answer = str(payload.get("answer") or "").strip()[:2000]
                 if not answer:
                     return self._json(400, {"error": "answer_required"})
                 _pending_questions.pop(thread_id, None)
                 project_store.add_qa(thread_id, question.get("question", ""), answer)
+                if question.get("kind") == "type-confirm":
+                    # The confirmed recommendation locks the diagram type
+                    # (Plan 005 §2.3) — discover mode is done after this.
+                    project = project_store.get_project(thread_id)
+                    if project is not None:
+                        project["lockedType"] = answer.strip().lower().replace(" ", "-")[:60]
+                        project_store.save_project(thread_id, project)
                 return self._json(200, {"status": "ok", "answered": question.get("id"), "question": question.get("question"), "answer": answer})
             try:
                 (draft["graph"].apply if payload.get("approved") else draft["graph"].decline)(payload["interruptId"])
@@ -404,6 +453,7 @@ class Handler(BaseHTTPRequestHandler):
         tools = [{"type": "function", "function": {"name": tool["name"], "description": tool["description"], "parameters": tool["inputSchema"]}} for tool in manifest]
         tools.append(local_draft_tool())
         tools.append(ask_user_tool)
+        tools.append(recommend_diagram_type_tool)
         project = project_store.get_project(thread_id) or {}
         # Requirement memory: answered questions and any locked-in summary ride
         # in the system prompt. The client replays the same messages on resume
@@ -414,6 +464,11 @@ class Handler(BaseHTTPRequestHandler):
             memory_lines.append(f"Locked in requirements (do not re-litigate): {project['requirements']}")
         for qa in project.get("qa", []):
             memory_lines.append(f"Already answered — Q: {qa['question']} A: {qa['answer']}")
+        # Plan 005 §2: two question modes. If the user hasn't named a syntax and
+        # no type is locked, discovery comes FIRST — intent → type, max 3
+        # questions, then recommend via the tool (never ask "which syntax?").
+        if project.get("lockedType"):
+            memory_lines.append(f"Type chosen: {project['lockedType']} — do not switch without asking.")
         qa_memory = ""
         if memory_lines:
             qa_memory = (
@@ -421,7 +476,40 @@ class Handler(BaseHTTPRequestHandler):
                 "the same or an equivalent question again — treat each answer as a "
                 "hard requirement):\n" + "\n".join(f"- {line}" for line in memory_lines)
             )
-        messages = [{"role": "system", "content": SYSTEM_PREAMBLE + qa_memory + "\n\n" + "\n\n".join(load_skills().values())}]
+        discovery_mode = not project.get("lockedType")
+        try:
+            guide = urllib.request.urlopen(f"{KR0KI_URL}/api/catalog", timeout=5).read().decode("utf-8")
+            catalog_guide = json.loads(guide).get("discoveryGuide", "")
+        except Exception:  # noqa: BLE001 — catalog hiccups must not kill the run
+            catalog_guide = ""
+        mode_rules = (
+            "\n\nQUESTION MODES — pick exactly one per run:\n"
+            "- DISCOVER MODE (active now): the user has NOT named a diagram syntax. "
+            "Ask what they want to CONVEY, not which syntax: audience/purpose first, "
+            "then which intent shape fits (use the vocabulary below), optionally "
+            "fidelity. Max 3 questions. Then you MUST call recommend_diagram_type with one "
+            "primary + one alternative type id and one-line rationales — locking in "
+            "without that tool call is a contract violation; the user confirms via "
+            "its interrupt or picks 'show me both' (render both samples). NEVER ask "
+            "'which syntax/format do you want?'\n"
+            "- REFINE MODE: the type is already locked — refine participants, "
+            "scope, and level of detail only.\n"
+            + (f"\nTYPE VOCABULARY:\n{catalog_guide}\n" if catalog_guide else "")
+            if discovery_mode else
+            "\n\nQUESTION MODES — REFINE MODE (type is locked): refine participants, "
+            "scope, and level of detail only."
+        )
+        qa_memory += mode_rules
+        # Plan 005 §3: per-type skill loaded ONLY when the type is locked —
+        # replaces the generic skill dump so context stays small and the syntax
+        # guidance matches the chosen diagram.
+        locked_type = (project.get("lockedType") or "").strip().lower()
+        type_skill_path = SKILLS_DIR / "types" / f"{locked_type}.md"
+        if locked_type and type_skill_path.is_file():
+            skills_text = type_skill_path.read_text()
+        else:
+            skills_text = "\n\n".join(load_skills().values())
+        messages = [{"role": "system", "content": SYSTEM_PREAMBLE + qa_memory + "\n\n" + skills_text}]
         messages += messages_from_payload(payload)
         # Also inject the answers as an explicit tool-result conversation turn so
         # the model sees them in the message flow, not only the system prompt.
@@ -488,6 +576,46 @@ class Handler(BaseHTTPRequestHandler):
                     arguments = {}
                 tool_call_id = call.get("id", name)
                 parent_message_id = f"msg-tool-{tool_call_id}"
+                if name == "recommend_diagram_type":
+                    # Plan 005 §2.2: the agent commits to 1–2 type recommendations.
+                    # The confirm answer locks the type into the project.
+                    recs = arguments.get("recommendations") or []
+                    rec_id = f"rec-{uuid.uuid4().hex[:12]}"
+                    stream.try_write({"type": "TOOL_CALL_START", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "toolCallName": name, "parentMessageId": parent_message_id})
+                    stream.try_write({"type": "TOOL_CALL_ARGS", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "delta": call["function"]["arguments"] or "{}"})
+                    stream.try_write({"type": "TOOL_CALL_END", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id})
+                    stream.try_write({
+                        "type": "TOOL_CALL_RESULT", "threadId": thread_id, "runId": stream.run_id,
+                        "messageId": parent_message_id, "toolCallId": tool_call_id,
+                        "content": f"Recommended: {', '.join(r.get('typeId', '?') for r in recs) or 'none'}", "role": "tool",
+                    })
+                    _pending_questions[thread_id] = {
+                        "id": rec_id,
+                        "question": arguments.get("question", "Go with the recommended type?"),
+                        "options": arguments.get("options") or [r.get("typeId") for r in recs],
+                        "allowFreeText": True,
+                        "toolCallId": tool_call_id,
+                        "kind": "type-confirm",
+                        "recommendations": recs,
+                        "ts": time.time(),
+                    }
+                    run_log.event("plan.recommend", {"id": rec_id, "recommendations": recs})
+                    stream.try_write(lifecycle_event("RUN_FINISHED", thread_id, stream.run_id, outcome={
+                        "type": "interrupt",
+                        "interrupts": [{
+                            "id": rec_id,
+                            "reason": arguments.get("question", "Go with the recommended type?"),
+                            "responseSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "answer": {"type": "string"},
+                                    "options": {"type": "array", "items": {"type": "string"}, "default": arguments.get("options") or [r.get("typeId") for r in recs]},
+                                },
+                                "required": ["answer"],
+                            },
+                        }],
+                    }))
+                    return
                 if name == "ask_user":
                     # Planning refinement: surface the question as an interrupt.
                     # The client answers via /respond-to-interrupt; the answer

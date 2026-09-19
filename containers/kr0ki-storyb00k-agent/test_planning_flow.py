@@ -153,6 +153,94 @@ class PlanningFlowTest(unittest.TestCase):
         self.assertTrue(any('(answer to your question "Which diagram type?")' in t and "d2" in t for t in user_turns),
                         user_turns)
 
+    def test_discover_mode_recommends_and_locks_type(self):
+        """No syntax named → agent runs discovery, recommends via the tool,
+        and the confirm answer locks the type in the project."""
+        base = f"http://127.0.0.1:{self.port}"
+        # Round 1: discovery question (mock ask_user).
+        self.client.chat_completion.side_effect = None
+        self.client.chat_completion.return_value = {
+            "model": "t",
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "c-disc",
+                        "function": {
+                            "name": "ask_user",
+                            "arguments": json.dumps({
+                                "question": "Who is this diagram for?",
+                                "options": ["developers", "managers", "mixed"],
+                            }),
+                        },
+                    }],
+                },
+            }],
+            "usage": {},
+        }
+        raw = _post_stream(f"{base}/run", {
+            "threadId": "plan-disc", "runId": "r1",
+            "messages": [{"role": "user", "content": "I want to show how our release process works"}],
+        })
+        frames = [json.loads(l[5:]) for l in raw.splitlines() if l.startswith("data: {")]
+        interrupt = next(f for f in frames if f["type"] == "RUN_FINISHED")["outcome"]["interrupts"][0]
+        _post(f"{base}/respond-to-interrupt", {
+            "threadId": "plan-disc", "interruptId": interrupt["id"], "answer": "mixed",
+        })
+        # Round 2: the agent recommends a type via recommend_diagram_type.
+        self.client.chat_completion.return_value = {
+            "model": "t",
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "c-rec",
+                        "function": {
+                            "name": "recommend_diagram_type",
+                            "arguments": json.dumps({
+                                "mode": "confirm",
+                                "recommendations": [
+                                    {"typeId": "activity", "rationale": "process flow with swimlanes"},
+                                    {"typeId": "flowchart", "rationale": "simpler branch view"},
+                                ],
+                                "question": "Go with an activity diagram?",
+                                "options": ["activity", "flowchart", "show me both"],
+                            }),
+                        },
+                    }],
+                },
+            }],
+            "usage": {},
+        }
+        raw = _post_stream(f"{base}/run", {
+            "threadId": "plan-disc", "runId": "r2",
+            "messages": [{"role": "user", "content": "I want to show how our release process works"}],
+        })
+        frames = [json.loads(l[5:]) for l in raw.splitlines() if l.startswith("data: {")]
+        rec = next(f for f in frames if f["type"] == "RUN_FINISHED")["outcome"]["interrupts"][0]
+        # Options ride the responseSchema default (zod-stripped otherwise).
+        self.assertEqual(rec["responseSchema"]["properties"]["options"]["default"], ["activity", "flowchart", "show me both"])
+        # Confirm → type locked into the project.
+        _post(f"{base}/respond-to-interrupt", {
+            "threadId": "plan-disc", "interruptId": rec["id"], "answer": "activity",
+        })
+        project = server.project_store.get_project("plan-disc")
+        self.assertEqual(project["lockedType"], "activity")
+        # Round 3: system prompt carries the locked type → refine mode.
+        captured = {}
+
+        def capture(messages, tools):
+            captured["system"] = messages[0]["content"]
+            return {"model": "t", "choices": [{"message": {"content": "Locked in: activity diagram of the release process."}}], "usage": {}}
+
+        self.client.chat_completion.side_effect = capture
+        _post_stream(f"{base}/run", {
+            "threadId": "plan-disc", "runId": "r3",
+            "messages": [{"role": "user", "content": "I want to show how our release process works"}],
+        })
+        self.assertIn("REFINE MODE", captured["system"])
+        self.assertIn("Type chosen: activity", captured["system"])
+
     def test_answer_requires_pending_question(self):
         req = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/respond-to-interrupt",
