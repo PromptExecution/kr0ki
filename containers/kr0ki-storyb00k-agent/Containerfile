@@ -14,6 +14,7 @@ COPY containers/kr0ki-storyb00k-agent/llm_client.py ./llm_client.py
 COPY containers/kr0ki-storyb00k-agent/draft_graph.py ./draft_graph.py
 COPY containers/kr0ki-storyb00k-agent/session_log.py ./session_log.py
 COPY containers/kr0ki-storyb00k-agent/chart_store.py ./chart_store.py
+COPY containers/kr0ki-storyb00k-agent/project_store.py ./project_store.py
 COPY containers/kr0ki-storyb00k-agent/skills/ ./skills/
 COPY containers/kr0ki-mcp/manifest_dispatch.py ./manifest_dispatch.py
 

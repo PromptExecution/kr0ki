@@ -60,6 +60,52 @@ const toolActivity = computed(() => Array.from(toolCallTrackers.value?.values() 
   failed: t.state === 'output-error' || t.state === 'output-denied',
   output: t.output,
 })))
+// ---- Project: the conceptual unit of work within a session ----
+// The agent tracks goal/Q&A/prompts server-side (project_store.py); the UI
+// mirrors it so the user can see (and edit) what was asked and answered.
+const project = ref(null)
+const projectError = ref('')
+const editingTitle = ref(false)
+const editedTitle = ref('')
+const showPromptLog = ref(false)
+const promptLog = computed(() => project.value?.prompts || [])
+const thinkingLog = computed(() => project.value?.thinking || [])
+
+async function loadProject() {
+  try {
+    const res = await fetch(`${agentUrl}/projects/${threadId.value}`)
+    if (res.status === 404) { project.value = null; return }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    project.value = await res.json()
+  } catch (err) {
+    projectError.value = err.message
+  }
+}
+
+watch(threadId, () => { project.value = null; loadProject() })
+loadProject()
+
+async function renameProject() {
+  const title = editedTitle.value.trim()
+  editingTitle.value = false
+  if (!title) return
+  try {
+    const res = await fetch(`${agentUrl}/projects/rename`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId: threadId.value, title }),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    if (project.value) project.value.title = title
+  } catch (err) {
+    projectError.value = `rename failed: ${err.message}`
+  }
+}
+
+// Refresh the project mirror after each run completes (new prompts/Q&A/thinking).
+watch(status, (next, prev) => {
+  if (prev !== 'ready' && next === 'ready') loadProject()
+})
+
 const statusLabel = computed(() => ({
   ready: 'Ready',
   submitted: 'Thinking…',
@@ -187,6 +233,50 @@ async function answerInterrupt(interrupt, approved) {
   chat.respondToInterrupt(interrupt.id, { approved })
 }
 
+// Planning questions (ask_user interrupts): pick an option or type free text,
+// then continue the run with the answer appended as a user message.
+const answeringQuestion = ref(null) // interrupt currently being answered
+const questionChoice = ref('')
+const questionFreeText = ref('')
+
+function isQuestionInterrupt(interrupt) {
+  return typeof interrupt.id === 'string' && interrupt.id.startsWith('ask-')
+}
+
+// zod strips unknown keys from interrupt objects, so the options ride in the
+// responseSchema's `options.default` (defaults survive parsing).
+function optionsFor(interrupt) {
+  return interrupt.responseSchema?.properties?.options?.default || []
+}
+
+function startAnswer(interrupt) {
+  answeringQuestion.value = interrupt
+  questionChoice.value = ''
+  questionFreeText.value = ''
+}
+
+async function submitAnswer() {
+  const interrupt = answeringQuestion.value
+  if (!interrupt) return
+  const answer = questionFreeText.value.trim() || questionChoice.value
+  if (!answer) return
+  answeringQuestion.value = null
+  try {
+    const res = await fetch(`${agentUrl}/respond-to-interrupt`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId: threadId.value, interruptId: interrupt.id, answer }),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    chat.respondToInterrupt(interrupt.id, { answer })
+    // Continue the planning loop: re-run with the answer in the conversation.
+    await chat.send(answer)
+    loadProject()
+  } catch (err) {
+    console.error('[storyb00k] answer failed:', err?.message ?? err)
+    projectError.value = `answer failed: ${err.message}`
+  }
+}
+
 function decideDraft(draft, approved) {
   // Mirror the interrupt flow for drafts surfaced in state (e.g. after reconnect).
   return fetch(`${agentUrl}/respond-to-interrupt`, {
@@ -238,6 +328,40 @@ function formatTokens(u) {
         <span class="storyb00k__status" :data-status="status">{{ statusLabel }}</span>
         <span v-if="formatTokens(usage[usage.length - 1])" class="storyb00k__usage">{{ formatTokens(usage[usage.length - 1]) }}</span>
       </header>
+
+      <!-- Project banner: the conceptual unit of work in this session -->
+      <div v-if="project" class="storyb00k__project" data-testid="project-banner">
+        <div class="storyb00k__project-title">
+          <template v-if="editingTitle">
+            <input v-model="editedTitle" @keydown.enter="renameProject" @blur="renameProject" data-testid="project-title-input" />
+          </template>
+          <template v-else>
+            <strong>{{ project.title }}</strong>
+            <button class="storyb00k__msg-edit" title="Rename project" @click="editedTitle = project.title; editingTitle = true">✏️</button>
+          </template>
+          <span v-if="project.locked" class="storyb00k__locked" title="Requirements locked in">🔒 locked</span>
+        </div>
+        <p v-if="project.goal" class="storyb00k__project-goal">{{ project.goal }}</p>
+        <p v-if="project.requirements" class="storyb00k__project-reqs"><strong>Locked in:</strong> {{ project.requirements }}</p>
+        <p v-if="project.qa.length" class="storyb00k__project-qa" :title="project.qa.map(q => `Q: ${q.question}\nA: ${q.answer}`).join('\n')">
+          {{ project.qa.length }} refinement answer{{ project.qa.length === 1 ? '' : 's' }}
+        </p>
+        <button class="storyb00k__logtoggle" @click="showPromptLog = !showPromptLog">
+          {{ showPromptLog ? '▾' : '▸' }} Full prompt &amp; thinking log ({{ promptLog.length + thinkingLog.length }})
+        </button>
+        <div v-if="showPromptLog" class="storyb00k__log" data-testid="prompt-log">
+          <p v-if="!promptLog.length && !thinkingLog.length" class="storyb00k__empty">Nothing logged yet.</p>
+          <div v-for="(entry, i) in promptLog" :key="`p${i}`" class="storyb00k__log-entry" :data-role="entry.role">
+            <span class="storyb00k__log-role">{{ entry.role }}<template v-if="entry.run"> · {{ entry.run.slice(0, 8) }}</template></span>
+            <pre>{{ entry.text }}</pre>
+          </div>
+          <div v-for="(entry, i) in thinkingLog" :key="`t${i}`" class="storyb00k__log-entry storyb00k__log-entry--thinking">
+            <span class="storyb00k__log-role">thinking<template v-if="entry.run"> · {{ entry.run.slice(0, 8) }}</template></span>
+            <pre>{{ entry.text }}</pre>
+          </div>
+        </div>
+        <p v-if="projectError" class="storyb00k__error">{{ projectError }}</p>
+      </div>
       <p class="storyb00k__lede">Read the live model, assemble evidence panels, and narrate without changing the authoritative model.</p>
 
       <div ref="transcriptEl" class="storyb00k__messages" @scroll="onTranscriptScroll">
@@ -258,9 +382,14 @@ function formatTokens(u) {
             </div>
           </template>
           <template v-else>
-            <span v-for="(part, index) in item.parts" :key="index" class="storyb00k__part">
-              {{ part.type === 'text' ? part.text : `[${part.type}]` }}
-            </span>
+            <template v-for="(part, index) in item.parts" :key="index">
+              <span v-if="part.type === 'text'" class="storyb00k__part">{{ part.text }}</span>
+              <details v-else-if="part.type === 'reasoning'" class="storyb00k__thinking" :open="part.streaming">
+                <summary>💭 thinking{{ part.streaming ? '…' : '' }}</summary>
+                <pre class="storyb00k__thinking-text">{{ part.text }}</pre>
+              </details>
+              <span v-else class="storyb00k__part">[{{ part.type }}]</span>
+            </template>
             <button
               v-if="item.role === 'user' && !busy"
               class="storyb00k__msg-edit"
@@ -277,9 +406,31 @@ function formatTokens(u) {
         </div>
 
         <div v-for="interrupt in interrupts" :key="interrupt.id" class="storyb00k__interrupt">
-          <p>{{ interrupt.reason || interrupt.message }}</p>
-          <button @click="answerInterrupt(interrupt, true)">Approve draft</button>
-          <button @click="answerInterrupt(interrupt, false)">Decline</button>
+          <template v-if="isQuestionInterrupt(interrupt)">
+            <p class="storyb00k__question">{{ interrupt.reason || interrupt.message }}</p>
+            <template v-if="answeringQuestion?.id === interrupt.id">
+              <div class="storyb00k__choices">
+                <label v-for="(option, oi) in optionsFor(interrupt)" :key="oi" class="storyb00k__choice">
+                  <input type="radio" :name="`q-${interrupt.id}`" :value="option" v-model="questionChoice" />
+                  {{ option }}
+                </label>
+              </div>
+              <input
+                v-if="interrupt.allowFreeText !== false"
+                v-model="questionFreeText"
+                class="storyb00k__freetext"
+                placeholder="…or answer in your own words"
+                @keydown.enter="submitAnswer"
+              />
+              <button :disabled="!questionChoice && !questionFreeText.trim()" data-testid="submit-answer" @click="submitAnswer">Answer</button>
+            </template>
+            <button v-else data-testid="answer-question" @click="startAnswer(interrupt)">Answer question</button>
+          </template>
+          <template v-else>
+            <p>{{ interrupt.reason || interrupt.message }}</p>
+            <button @click="answerInterrupt(interrupt, true)">Approve draft</button>
+            <button @click="answerInterrupt(interrupt, false)">Decline</button>
+          </template>
         </div>
 
         <div v-for="draft in drafts.filter(d => d.status === 'pending')" :key="draft.id" class="storyb00k__interrupt">
@@ -384,5 +535,25 @@ function formatTokens(u) {
 .storyb00k__revtoggle { cursor: pointer; }
 .storyb00k__rev-active { opacity: .65; max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .storyb00k__savestate { opacity: .7; font-size: .75rem; }
+.storyb00k__project { border: 1px solid #e2e8f0; border-radius: .5rem; padding: .5rem .75rem; display: grid; gap: .25rem; background: #f8fafc; }
+.storyb00k__project-title { display: flex; align-items: baseline; gap: .4rem; }
+.storyb00k__project-title input { font: inherit; font-weight: 700; }
+.storyb00k__locked { font-size: .7rem; background: #dcfce7; padding: .05rem .4rem; border-radius: 999px; }
+.storyb00k__project-goal { margin: 0; font-size: .85rem; opacity: .8; }
+.storyb00k__project-reqs { margin: 0; font-size: .8rem; background: #fef9c3; border-radius: .3rem; padding: .25rem .4rem; }
+.storyb00k__project-qa { margin: 0; font-size: .75rem; opacity: .6; }
+.storyb00k__logtoggle { font-size: .75rem; text-align: left; padding: 0; background: none; border: 0; cursor: pointer; opacity: .7; }
+.storyb00k__log { max-height: 14rem; overflow-y: auto; display: grid; gap: .4rem; font-size: .75rem; }
+.storyb00k__log-entry { border-left: 2px solid #cbd5e1; padding-left: .5rem; }
+.storyb00k__log-entry--thinking { border-left-color: #c084fc; }
+.storyb00k__log-role { font-family: ui-monospace, monospace; opacity: .55; font-size: .68rem; text-transform: uppercase; }
+.storyb00k__log-entry pre { margin: .1rem 0 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
+.storyb00k__thinking { font-size: .78rem; opacity: .8; margin: .15rem 0; }
+.storyb00k__thinking summary { cursor: pointer; opacity: .7; }
+.storyb00k__thinking-text { margin: .2rem 0 0; white-space: pre-wrap; word-break: break-word; background: #faf5ff; border-radius: .3rem; padding: .35rem .5rem; max-height: 10rem; overflow-y: auto; }
+.storyb00k__question { font-weight: 600; }
+.storyb00k__choices { display: grid; gap: .2rem; width: 100%; }
+.storyb00k__choice { display: flex; gap: .4rem; align-items: baseline; cursor: pointer; }
+.storyb00k__freetext { flex: 1 1 12rem; font: inherit; padding: .25rem .4rem; }
 @media (max-width: 760px) { .storyb00k { grid-template-columns: 1fr; } }
 </style>
