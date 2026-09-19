@@ -41,11 +41,17 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install -q -r requirements.txt
           .venv/bin/python3 -m unittest discover -p 'test_*.py' -v
-      - name: playbook (Vue/Vite) tests + build
+      # `pnpm run build` is deliberately not run here: it would need the
+      # vendored @assistant-ui/vue package's dist/ built, which requires
+      # installing the entire elasticdotventures/assistant-ui monorepo
+      # (2,347 packages, ~2GB) for one small package -- not yet worth the
+      # CI cost (PR #37 review). The one test file that needs that dist/
+      # is excluded here via playbook/vite.config.js's CI-conditional
+      # exclude; it still runs for local developers who've built it.
+      - name: playbook (Vue) tests
         run: |
           pnpm --dir playbook install --frozen-lockfile
           pnpm --dir playbook test
-          pnpm --dir playbook run build
 
   # SysML-v2-Release conformance harness (phase 1). Runs in parallel with
   # `check` and does not block it: the corpus fetch (~110 MB tarball) and the
