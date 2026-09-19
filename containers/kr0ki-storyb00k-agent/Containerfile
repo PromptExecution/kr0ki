@@ -1,14 +1,23 @@
 FROM docker.io/library/python:3.13-alpine
 
+# jj: chart revision snapshots (chart_store.py). Identity is baked in because
+# the container runs as uid 65532 with no home config.
+RUN apk add --no-cache jujutsu \
+    && mkdir -p /opt/jj-config \
+    && printf 'user.name = "kr0ki-storyb00k-agent"\nuser.email = "agent@kr0ki.local"\n' > /opt/jj-config/config.toml
+
 WORKDIR /opt/kr0ki-storyb00k-agent
 COPY containers/kr0ki-storyb00k-agent/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY containers/kr0ki-storyb00k-agent/server.py ./server.py
 COPY containers/kr0ki-storyb00k-agent/llm_client.py ./llm_client.py
 COPY containers/kr0ki-storyb00k-agent/draft_graph.py ./draft_graph.py
+COPY containers/kr0ki-storyb00k-agent/session_log.py ./session_log.py
+COPY containers/kr0ki-storyb00k-agent/chart_store.py ./chart_store.py
 COPY containers/kr0ki-storyb00k-agent/skills/ ./skills/
 COPY containers/kr0ki-mcp/manifest_dispatch.py ./manifest_dispatch.py
 
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV JJ_CONFIG=/opt/jj-config/config.toml
 USER 65532:65532
 ENTRYPOINT ["python3", "/opt/kr0ki-storyb00k-agent/server.py"]

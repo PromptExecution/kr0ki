@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://promptexecution.dev/schemas/plan-004/revision.json",
+  "title": "Revision",
+  "description": "Plan 004 §2 — one attempted procedural state. canonical_input is validated diagram-as-code or a typed model snapshot, never a rendered artifact. artifact_hash is server-derived; a client-supplied value is never accepted as proof of correctness.",
+  "type": "object",
+  "required": ["id", "workspace_id", "branch_id", "parent_ids", "status", "author", "intent", "input_kind", "canonical_input", "input_hash", "renderer_recipe", "created_at"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^rev_[A-Za-z0-9_-]+$" },
+    "workspace_id": { "type": "string", "pattern": "^ws_[A-Za-z0-9_-]+$" },
+    "branch_id": { "type": "string", "pattern": "^branch_[A-Za-z0-9_-]+$" },
+    "parent_ids": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^rev_[A-Za-z0-9_-]+$" },
+      "description": "Empty for the initial revision; DAG lineage. Phase 0/1 expose linear only."
+    },
+    "status": { "enum": ["proposed", "accepted", "rejected", "merged"] },
+    "author": { "$ref": "#/$defs/actor" },
+    "intent": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "input_kind": { "enum": ["diagram_source", "procedural_model"] },
+    "canonical_input": { "type": "string", "maxLength": 262144 },
+    "input_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA-256 hex of canonical_input, computed server-side."
+    },
+    "renderer_recipe": { "type": "string", "minLength": 1 },
+    "artifact_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "actor": {
+      "type": "object",
+      "required": ["kind", "subject"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["human", "agent", "dev_session"] },
+        "subject": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

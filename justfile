@@ -21,7 +21,7 @@ test-live-png backend="https://kroki.io":
     KR0KI_TEST_BACKEND={{backend}} cargo test -p kr0ki-core --test live_png -- --ignored --nocapture
 
 # Exercise every test-backed playb00k example through the deployed HTTP service.
-test-playbook kr0ki_url="http://192.168.1.137:8787":
+test-playbook kr0ki_url="http://127.0.0.1:8787":
     KR0KI_PLAYBOOK_URL={{kr0ki_url}} cargo test -p kr0ki-server --test playbook_live -- --ignored --nocapture
 
 # SysML-v2-Release conformance harness (phase 1): fetch the pinned corpus, then
@@ -49,8 +49,13 @@ render-template kroki="https://kroki.io":
 run bind="0.0.0.0:8787" backend="https://kroki.io":
     KR0KI_BIND={{bind}} KR0KI_BACKEND_URL={{backend}} cargo run -p kr0ki-server
 
-# Open LAN-reachable docs in the default browser (server must be running).
-docs-open docs_url="http://192.168.1.137:8787/docs":
+# Print a LAN-reachable service URL. The host is explicit because automatic
+# interface selection is ambiguous on multihomed hosts.
+lan-url host port="8787":
+    printf 'http://%s:%s\n' "{{host}}" "{{port}}"
+
+# Open docs in the default browser. `docs_url` may be a LAN URL from `just lan-url`.
+docs-open docs_url="http://127.0.0.1:8787/docs":
     xdg-open {{docs_url}} || open {{docs_url}} || echo "open {{docs_url}}"
 
 # Generate the static GitHub Pages-compatible mdb00k/playb00k bundle.
@@ -58,7 +63,7 @@ static-docs output="site":
     cargo run -p kr0ki-core --bin mdb00k -- {{output}}
 
 # Live end-to-end playb00k proof against the LAN-reachable k0s service.
-playbook-e2e kr0ki_url="http://192.168.1.137:8787":
+playbook-e2e kr0ki_url="http://127.0.0.1:8787":
     bash scripts/playbook-e2e.sh {{kr0ki_url}}
 
 # Fast local dev loop (no k0s): our own pinned kroki-compat image via plain podman,
@@ -85,7 +90,7 @@ dev-kroki-down:
 # server; kroki-compat keeps running for the next `just dev` (stop it with
 # `just dev-kroki-down`). Defaults to a fresh `playbook/dist`; pass `npm run build`
 # output elsewhere if needed.
-dev bind="127.0.0.1:8788" playbook_dir="playbook/dist":
+dev bind="0.0.0.0:8787" playbook_dir="playbook/dist":
     curl -fsS http://127.0.0.1:{{dev_kroki_port}}/health >/dev/null 2>&1 || just dev-kroki-up
     KR0KI_BIND={{bind}} KR0KI_BACKEND_URL=http://127.0.0.1:{{dev_kroki_port}} KR0KI_PLAYBOOK_DIR={{playbook_dir}} cargo run -p kr0ki-server
 

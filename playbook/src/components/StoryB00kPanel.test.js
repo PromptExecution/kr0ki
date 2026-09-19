@@ -25,8 +25,28 @@ describe('StoryB00kPanel', () => {
   it('keeps the chat controls usable before the first agent event', async () => {
     const panel = mount(StoryB00k)
     await flushPromises()
-    expect(panel.find('input').attributes('disabled')).toBeUndefined()
-    expect(panel.find('button').attributes('disabled')).toBeDefined()
+    // The composer is a textarea now; typing is always allowed, and Send is
+    // gated on non-empty input rather than on run status alone.
+    expect(panel.find('textarea').attributes('disabled')).toBeUndefined()
+    const send = panel.findAll('button').find(b => b.text() === 'Send')
+    expect(send.attributes('disabled')).toBeDefined()
     expect(panel.findAll('.storyb00k-panel')).toHaveLength(0)
+  })
+
+  it('offers EDIT on a render panel that carries source+format up to the app', async () => {
+    const StoryB00kPanel = (await import('./StoryB00kPanel.vue')).default
+    const wrapper = mount(StoryB00kPanel, {
+      props: { panel: { kind: 'render', content: '<svg/>', source: { text: 'a -> b', format: 'd2' } } },
+    })
+    const edit = wrapper.find('[data-testid="edit-in-editor"]')
+    expect(edit.exists()).toBe(true)
+    await edit.trigger('click')
+    expect(wrapper.emitted('edit')).toEqual([[{ source: 'a -> b', format: 'd2' }]])
+  })
+
+  it('renders no EDIT button when the panel has no source', async () => {
+    const StoryB00kPanel = (await import('./StoryB00kPanel.vue')).default
+    const wrapper = mount(StoryB00kPanel, { props: { panel: { kind: 'render', content: '<svg/>' } } })
+    expect(wrapper.find('[data-testid="edit-in-editor"]').exists()).toBe(false)
   })
 })

@@ -24,7 +24,10 @@
 //!   KR0KI_SYSMLV2_TOKEN         optional bearer token for that model server.
 
 mod app;
+mod dev_session;
 mod docs;
+mod phase0_fixture;
+pub mod workspace_types;
 
 use std::sync::Arc;
 
@@ -57,6 +60,11 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .map(std::path::PathBuf::from);
     let kubediagram_worker_url = std::env::var("KR0KI_KUBEDIAGRAM_WORKER_URL").ok();
+    // Deep /health probes the storyb00k agent and the LLM endpoint it uses.
+    // The LLM check enumerates models only — never an inference request.
+    let storyb00k_agent_url = std::env::var("KR0KI_STORYB00K_AGENT_URL").ok();
+    let llm_api_url = std::env::var("OPENAI_API_URL").ok();
+    let llm_api_key = std::env::var("OPENAI_API_KEY").ok();
     let sysmlv2_client = std::env::var("KR0KI_SYSMLV2_BASE_URL")
         .ok()
         .filter(|base_url| !base_url.trim().is_empty())
@@ -105,6 +113,12 @@ async fn main() -> anyhow::Result<()> {
         kubediagram_worker_url,
         sysmlv2_client,
         model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
+        storyb00k_agent_url,
+        llm_api_url,
+        llm_api_key,
+        started_at: std::time::Instant::now(),
+        boot_wall_clock: std::time::SystemTime::now(),
+        auth_token: auth_token.clone(),
     };
 
     let listener = tokio::net::TcpListener::bind(&bind)

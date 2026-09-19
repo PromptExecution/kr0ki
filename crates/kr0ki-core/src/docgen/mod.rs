@@ -220,7 +220,8 @@ mod tests {
         assert!(html.contains("Rendered Rust flow"));
         assert!(html.contains("KerML representation"));
         assert!(html.contains("SysML v2 representation"));
-        assert!(html.contains("http://192.168.1.137:8787/docs"));
+        assert!(html.contains("id=\"live-origin\""));
+        assert!(!html.contains("192.168.1.137"));
         let examples =
             std::fs::read_to_string(directory.join("playbook/api/examples.json")).unwrap();
         assert!(examples.contains("d2-rust-flow"));

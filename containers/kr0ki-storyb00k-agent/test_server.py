@@ -63,7 +63,12 @@ class ServerTest(unittest.TestCase):
         client_factory.return_value.chat_completion.return_value = {"choices": [{"message": {"tool_calls": [{"function": {"name": "propose_draft_change", "arguments": json.dumps({"subject": "elem-1", "predicate": "name", "object": "Engine v2"})}}]}}]}
         response = self.request("/run", json.dumps({"threadId": "t1", "runId": "r1", "messages": []}))
         event = response.read().decode()
-        proposal_id = json.loads(event.split("data: ")[2])["interrupt"]["interrupts"][0]["id"]
+        interrupt_frame = next(
+            json.loads(chunk)
+            for chunk in event.split("data: ")[1:]
+            if chunk.strip() and json.loads(chunk).get("outcome", {}).get("type") == "interrupt"
+        )
+        proposal_id = interrupt_frame["outcome"]["interrupts"][0]["id"]
         response = self.request("/respond-to-interrupt", json.dumps({"threadId": "t1", "interruptId": proposal_id, "approved": True}))
         self.assertEqual(response.status, 200)
-        self.assertIn("Engine v2", server._drafts["t1"].as_turtle())
+        self.assertIn("Engine v2", server._drafts["t1"]["graph"].as_turtle())

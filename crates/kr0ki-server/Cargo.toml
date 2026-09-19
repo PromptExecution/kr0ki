@@ -26,6 +26,8 @@ reqwest = { workspace = true }
 # POST /render/k8s-topology parses a multi-doc YAML manifest bundle into
 # the JSON k8s_recognizer::KubernetesRecognizer::recognize expects.
 serde_yaml = "0.9"
+sha2 = { workspace = true }
+hmac = "0.12"
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["json"] }

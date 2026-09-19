@@ -8,7 +8,7 @@ use axum::{
     body::Bytes,
     extract::{Path, State},
     http::{header, StatusCode},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -18,9 +18,14 @@ use kr0ki_core::{
     render::{HttpKrokiBackend, RenderError},
     RenderService, Rendered, ServiceError,
 };
-use serde::Serialize;
 
 pub type Service = RenderService<HttpKrokiBackend>;
+
+// Declared here (not in main.rs) so every build context that includes app.rs
+// — the bin crate and the integration-test binaries — resolves this module
+// relative to src/, where health.rs lives.
+#[path = "health.rs"]
+pub mod health;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -45,12 +50,25 @@ pub struct AppState {
     /// Disposable RDF triples materialized from model-query results. This is a
     /// derived cache, never an authoritative model store.
     pub model_graph: Arc<kr0ki_core::graph_store::GraphStore>,
+    /// AG-UI storyb00k sidecar base URL (deep /health probe). `None` skips it.
+    pub storyb00k_agent_url: Option<String>,
+    /// OpenAI-compatible LLM endpoint for the storyb00k agent. The /health LLM
+    /// check only enumerates models (GET /models) — never an inference call.
+    pub llm_api_url: Option<String>,
+    pub llm_api_key: Option<String>,
+    /// Process boot instant (uptime) and wall-clock boot time (RFC3339 reporting).
+    pub started_at: std::time::Instant,
+    pub boot_wall_clock: std::time::SystemTime,
+    /// Caller-auth token presence for /health reporting (material never echoed).
+    pub auth_token: Option<String>,
 }
 
 /// If `auth_token` is Some, inject a `RequireAuth` layer that rejects requests
 /// missing `Authorization: Bearer <token>`.
 pub fn router(state: AppState, auth_token: Option<String>) -> Router {
     let r = Router::new()
+        .route("/", get(root))
+        .route("/welcome", get(welcome))
         .route("/health", get(health))
         .route("/formats", get(formats))
         .route("/mcp/tools", get(mcp_tools))
@@ -122,19 +140,75 @@ async fn require_bearer(
     }
 }
 
-#[derive(Serialize)]
-struct Health {
-    status: &'static str,
-    service: &'static str,
-    version: &'static str,
+async fn health(State(state): State<AppState>) -> Json<health::HealthReport> {
+    Json(health::collect(&state).await)
 }
 
-async fn health() -> Json<Health> {
-    Json(Health {
-        status: "ok",
-        service: "kr0ki",
-        version: env!("CARGO_PKG_VERSION"),
-    })
+async fn root() -> Redirect {
+    Redirect::temporary("/welcome")
+}
+
+async fn welcome() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome to kr0ki</title>
+<style>
+:root { color-scheme: light dark; }
+body { font-family: system-ui, sans-serif; line-height: 1.5; max-width: 56rem; margin: 3rem auto; padding: 0 1rem; }
+h1 { margin-bottom: .25rem; }
+.lede { font-size: 1.2rem; color: #666; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1rem; margin: 2rem 0; }
+article { border: 1px solid #8886; border-radius: .6rem; padding: 1rem; }
+code { background: #8882; border-radius: .25rem; padding: .1rem .3rem; }
+a { color: #5271ff; }
+</style>
+</head>
+<body>
+<main>
+<h1>Welcome to kr0ki</h1>
+<p class="lede">A small, cache-aware HTTP service that turns validated diagram models into portable artifacts.</p>
+<div class="grid">
+<article><h2>Render diagrams</h2><p>POST source to <code>/render/{format}</code> for standalone Kroki formats such as D2, GraphViz, and PlantUML.</p></article>
+<article><h2>Reuse artifacts</h2><p>Content-addressed caching returns repeat renders efficiently; retrieve known artifacts at <code>/cache/{key}</code>.</p></article>
+<article><h2>Explore the API</h2><p>Read the live <a href="/docs">documentation</a>, discover formats at <a href="/formats"><code>/formats</code></a>, or inspect MCP-compatible bindings at <a href="/mcp/tools"><code>/mcp/tools</code></a>.</p></article>
+<article><h2>Try the playbook</h2><p>When bundled, the interactive <a href="/playbook/">playbook</a> provides test-backed diagram examples and previews.</p></article>
+</div>
+<p>For automation, check <a href="/health"><code>/health</code></a>. If this deployment uses caller authentication, include its configured bearer token for every route except health.</p>
+<div id="health-badge" aria-live="polite" style="margin-top:1.5rem;font-size:.95rem;border:1px solid #8886;border-radius:.6rem;padding:.75rem 1rem;">Validating backend health…</div>
+<script>
+(function () {
+  var el = document.getElementById('health-badge');
+  fetch('/health').then(function (r) { return r.json(); }).then(function (h) {
+    var parts = ['<strong>' + (h.status === 'ok' ? '\\u2705 healthy' : '\\u26a0 degraded') + '</strong>',
+      'kr0ki v' + h.version,
+      'uptime ' + Math.floor(h.uptime_secs / 60) + 'm ' + (h.uptime_secs % 60) + 's'];
+    if (h.checks.llm.configured) {
+      parts.push(h.checks.llm.ok ? 'LLM ok (' + h.checks.llm.model_count + ' model(s))' : 'LLM unreachable');
+    } else {
+      parts.push('LLM not configured');
+    }
+    if (!h.checks.kroki_backend.ok) { parts.push('render backend DOWN'); }
+    if (h.status !== 'ok') {
+      var failed = [];
+      if (!h.checks.kroki_backend.ok) failed.push('kroki backend');
+      if (h.checks.stores && !h.checks.stores.cache_dir.writable) failed.push('cache dir');
+      parts.push('failing: ' + failed.join(', '));
+    }
+    el.innerHTML = parts.join(' &middot; ');
+  }).catch(function (e) {
+    el.innerHTML = '<strong>\\u274c backend unreachable</strong> &middot; ' + String(e);
+  });
+})();
+</script>
+</main>
+</body>
+</html>"#,
+    )
 }
 
 async fn formats() -> Json<Vec<&'static str>> {

@@ -148,6 +148,19 @@ impl GraphStore {
             .collect()
     }
 
+    /// Number of currently materialized triples (health/observability surfacing).
+    pub fn len(&self) -> usize {
+        self.triples
+            .lock()
+            .expect("graph_store mutex poisoned")
+            .len()
+    }
+
+    /// Provided only to satisfy the len/is_empty convention.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn check_shapes(&self) -> Vec<ShapeViolation> {
         let triples = self.triples.lock().expect("graph_store mutex poisoned");
         let typed: BTreeSet<String> = triples

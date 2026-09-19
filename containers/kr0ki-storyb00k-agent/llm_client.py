@@ -17,9 +17,10 @@ class ConfigError(Exception):
 
 
 class OpenAICompatibleClient:
-    def __init__(self, api_key, base_url):
+    def __init__(self, api_key, base_url, model="default"):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+        self.model = model
 
     @classmethod
     def from_env(cls):
@@ -27,10 +28,26 @@ class OpenAICompatibleClient:
         base_url = os.environ.get("OPENAI_API_URL")
         if not api_key or not base_url:
             raise ConfigError("OPENAI_API_KEY and OPENAI_API_URL must both be set")
-        return cls(api_key, base_url)
+        return cls(api_key, base_url, model=cls.discover_model(base_url, api_key))
 
-    def chat_completion(self, messages, tools):
-        payload = {"model": "default", "messages": messages}
+    @staticmethod
+    def discover_model(base_url, api_key):
+        """Use the first model the endpoint advertises; fall back to 'default'.
+
+        Cheap metadata call (GET /models) — never an inference request.
+        """
+        try:
+            _, body = http_call(
+                "GET", f"{base_url.rstrip('/')}/models", None,
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            data = json.loads(body).get("data") or []
+            return data[0]["id"] if data else "default"
+        except Exception:
+            return "default"
+
+    def chat_completion(self, messages, tools, timeout_hint=None):
+        payload = {"model": self.model, "messages": messages}
         if tools:
             payload["tools"] = tools
         _, body = http_call(

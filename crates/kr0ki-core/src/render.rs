@@ -24,6 +24,12 @@ pub trait RenderBackend {
         output: OutputKind,
         source: &str,
     ) -> Result<Vec<u8>, RenderError>;
+
+    /// Endpoint description for health/observability reporting. `None` for
+    /// backends without a single HTTP endpoint (e.g. in-process test doubles).
+    fn describe_endpoint(&self) -> Option<&str> {
+        None
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -67,6 +73,10 @@ impl HttpKrokiBackend {
 }
 
 impl RenderBackend for HttpKrokiBackend {
+    fn describe_endpoint(&self) -> Option<&str> {
+        Some(&self.base_url)
+    }
+
     async fn render(
         &self,
         format: DiagramFormat,

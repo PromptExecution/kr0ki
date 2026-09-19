@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://promptexecution.dev/schemas/plan-004/workspace-snapshot.json",
+  "title": "WorkspaceSnapshot",
+  "description": "Plan 004 §2.2 — redacted browser projection carried by AG-UI STATE_SNAPSHOT. Project roots, credentials, raw tool results, and hidden policy fields must never appear here.",
+  "type": "object",
+  "required": ["workspace", "branches", "activeRevision", "revisionGraph", "selection", "pendingApproval"],
+  "additionalProperties": false,
+  "properties": {
+    "workspace": {
+      "type": "object",
+      "required": ["id", "project", "capabilities"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^ws_[A-Za-z0-9_-]+$" },
+        "project": {
+          "type": "object",
+          "required": ["id", "name"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" }
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "enum": ["diagram.read", "diagram.propose", "diagram.accept", "workspace.admin"] }
+        }
+      }
+    },
+    "branches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "headRevisionId"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^branch_[A-Za-z0-9_-]+$" },
+          "name": { "type": "string" },
+          "headRevisionId": { "type": ["string", "null"], "pattern": "^rev_[A-Za-z0-9_-]+$" }
+        }
+      }
+    },
+    "activeRevision": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["id", "status", "inputKind", "source", "artifact"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "pattern": "^rev_[A-Za-z0-9_-]+$" },
+            "status": { "enum": ["proposed", "accepted", "rejected"] },
+            "inputKind": { "enum": ["diagram_source", "procedural_model"] },
+            "source": { "type": "string" },
+            "artifact": {
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "object",
+                  "required": ["url", "hash"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "url": { "type": "string" },
+                    "hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "revisionGraph": {
+      "type": "object",
+      "required": ["nodes", "edges"],
+      "additionalProperties": false,
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "status", "authorKind"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "status": { "enum": ["proposed", "accepted", "rejected", "merged"] },
+              "authorKind": { "enum": ["human", "agent", "dev_session"] }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["from", "to"],
+            "additionalProperties": false,
+            "properties": {
+              "from": { "type": "string" },
+              "to": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "entityId": { "type": ["string", "null"] },
+        "revisionId": { "type": ["string", "null"] }
+      }
+    },
+    "pendingApproval": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["revisionId", "intent", "proposedBy"],
+          "additionalProperties": false,
+          "properties": {
+            "revisionId": { "type": "string", "pattern": "^rev_[A-Za-z0-9_-]+$" },
+            "intent": { "type": "string" },
+            "proposedBy": {
+              "type": "object",
+              "required": ["kind", "subject"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "enum": ["human", "agent", "dev_session"] },
+                "subject": { "type": "string" }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

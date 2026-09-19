@@ -131,6 +131,14 @@ spec:
       env:
         - name: KR0KI_URL
           value: http://127.0.0.1:8787
+        # Server-side session transcripts (JSONL) — one file per thread. See
+        # containers/kr0ki-storyb00k-agent/session_log.py and /debug/sessions.
+        - name: KR0KI_DEBUG_LOG_DIR
+          value: /var/lib/kr0ki/storyb00k-debug
+        # Chart revision persistence (jj-snapshotted). See
+        # containers/kr0ki-storyb00k-agent/chart_store.py and /charts.
+        - name: KR0KI_CHARTS_DIR
+          value: /var/lib/kr0ki/charts
       ports:
         - containerPort: 8789
           hostPort: 8789
@@ -146,6 +154,11 @@ spec:
         limits:
           cpu: "250m"
           memory: 128Mi
+      volumeMounts:
+        - name: storyb00k-debug
+          mountPath: /var/lib/kr0ki/storyb00k-debug
+        - name: storyb00k-charts
+          mountPath: /var/lib/kr0ki/charts
       securityContext:
         allowPrivilegeEscalation: false
         capabilities:
@@ -155,6 +168,10 @@ spec:
     - name: kr0ki-cache
       emptyDir: {}
     - name: kubediagram-tmp
+      emptyDir: {}
+    - name: storyb00k-debug
+      emptyDir: {}
+    - name: storyb00k-charts
       emptyDir: {}
     - name: kr0ki-capabilities
       emptyDir: {}

@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://promptexecution.dev/schemas/plan-004/approval.json",
+  "title": "ApprovalCommand",
+  "description": "Plan 004 invariant 5 — the required human promotion decision. Agent actors MUST be denied at the policy layer; this schema is shape only, not authorization.",
+  "oneOf": [
+    { "$ref": "#/$defs/accept" },
+    { "$ref": "#/$defs/reject" }
+  ],
+  "$defs": {
+    "base": {
+      "type": "object",
+      "required": ["revision_id", "approver", "reason"],
+      "properties": {
+        "revision_id": { "type": "string", "pattern": "^rev_[A-Za-z0-9_-]+$" },
+        "approver": {
+          "type": "object",
+          "required": ["kind", "subject"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "enum": ["human", "agent", "dev_session"] },
+            "subject": { "type": "string" }
+          }
+        },
+        "reason": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "accept": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/base" }],
+      "required": ["decision", "expected_head_revision_id"],
+      "additionalProperties": false,
+      "properties": {
+        "revision_id": { "type": "string", "pattern": "^rev_[A-Za-z0-9_-]+$" },
+        "approver": {
+          "type": "object",
+          "required": ["kind", "subject"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "enum": ["human", "agent", "dev_session"] },
+            "subject": { "type": "string" }
+          }
+        },
+        "reason": { "type": "string", "maxLength": 2000 },
+        "decision": { "const": "accept" },
+        "expected_head_revision_id": {
+          "type": "string",
+          "pattern": "^rev_[A-Za-z0-9_-]+$",
+          "description": "Compare-and-set: promote only if branch head still equals this."
+        }
+      }
+    },
+    "reject": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/base" }],
+      "required": ["decision"],
+      "additionalProperties": false,
+      "properties": {
+        "revision_id": { "type": "string", "pattern": "^rev_[A-Za-z0-9_-]+$" },
+        "approver": {
+          "type": "object",
+          "required": ["kind", "subject"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "enum": ["human", "agent", "dev_session"] },
+            "subject": { "type": "string" }
+          }
+        },
+        "reason": { "type": "string", "maxLength": 2000 },
+        "decision": { "const": "reject" }
+      }
+    }
+  }
+}

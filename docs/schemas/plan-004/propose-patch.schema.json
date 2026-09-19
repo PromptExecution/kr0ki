@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://promptexecution.dev/schemas/plan-004/propose-patch.json",
+  "title": "ProposePatchCommand",
+  "description": "Plan 004 §4 — the ONLY agent write primitive in the MVP. The sidecar's propose_draft_change tool arguments must validate against this. A stale expected_revision_id is a typed Conflict, never a silent overwrite.",
+  "type": "object",
+  "required": ["workspace_id", "expected_revision_id", "input_kind", "canonical_input", "intent", "idempotency_key"],
+  "additionalProperties": false,
+  "properties": {
+    "workspace_id": { "type": "string", "pattern": "^ws_[A-Za-z0-9_-]+$" },
+    "expected_revision_id": {
+      "type": "string",
+      "pattern": "^rev_[A-Za-z0-9_-]+$",
+      "description": "Compare-and-set head guard. Mismatch -> 409 Conflict."
+    },
+    "input_kind": {
+      "enum": ["diagram_source"],
+      "description": "Phase 0/1 lane. procedural_model reserved until its compiler contract is defined upstream."
+    },
+    "canonical_input": {
+      "type": "string",
+      "maxLength": 262144,
+      "description": "Full canonical replacement source (not a partial patch) for the diagram_source lane, e.g. D2 text."
+    },
+    "intent": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "idempotency_key": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "actor": {
+      "type": "object",
+      "required": ["kind", "subject"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["human", "agent", "dev_session"] },
+        "subject": { "type": "string" }
+      }
+    }
+  }
+}
