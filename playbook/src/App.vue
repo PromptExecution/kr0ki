@@ -14,6 +14,16 @@ const editedSource = ref('')
 const editedRoute = ref(null)
 let editedSourcePending = false
 
+// Gallery → Agent handoff (Plan 005 §1.3): prefill the Agent composer with a
+// prompt naming the diagram type, then flip to the Agent view. Never auto-sent.
+const agentUrl = `${window.location.protocol}//${window.location.hostname}:8789`
+const agentPrefill = ref('')
+
+function agentHandoff({ prompt }) {
+  agentPrefill.value = prompt
+  viewMode.value = 'storyb00k'
+}
+
 // `api/examples.json` is deliberately relative: it resolves beneath
 // /playbook/ in the live service and beneath /kr0ki/playbook/ on Pages.
 const catalogUrl = new URL('api/examples.json', window.location.href)
@@ -83,7 +93,7 @@ onMounted(async () => {
   <main class="shell">
     <aside class="sidebar">
       <a class="brand" href="../">kr0ki <span>playb00k</span></a>
-      <p class="sidebar-copy">Test-backed examples from the same catalog used by Rust tests and mdb00k — or clear the source and render your own diagram in any format below.</p>
+      <p class="sidebar-copy">Example fixtures for every supported format — or clear the source and render your own.</p>
       <nav class="view-tabs" aria-label="Playbook view">
         <button class="view-tab" :class="{ active: viewMode === 'gallery' }" @click="viewMode = 'gallery'">
           Gallery
@@ -92,7 +102,7 @@ onMounted(async () => {
           Editor
         </button>
         <button class="view-tab" :class="{ active: viewMode === 'storyb00k' }" @click="viewMode = 'storyb00k'">
-          storyb00k
+          Agent
         </button>
       </nav>
       <nav v-if="viewMode === 'editor'" aria-label="Supported diagram formats">
@@ -125,20 +135,26 @@ onMounted(async () => {
     <section class="content">
       <header class="hero">
         <p class="eyebrow">IAC / CODE → PROCEDURAL DIAGRAM → KROKI → SVG / PNG</p>
-        <h1>Evaluate kr0ki with executable examples — or your own diagrams.</h1>
+        <h1>Diagram-as-code, rendered.</h1>
         <p v-if="viewMode === 'gallery'">
           Every format's fixture in one grid. Point it at a running kr0ki service and hit
           "Test all" to render and cache-verify the full catalog — the same contract
           <code>just test-playbook</code> checks, from the browser.
         </p>
         <p v-else-if="viewMode === 'editor'">
-          Choose a supported input format, inspect its fixture, render it through kr0ki, and review cache-backed output. Every fixture's source is editable in place: paste or upload your own hand-authored diagram-as-code and render it the same way, independent of whether it came from a generator. D2 code flows are executable today; the typed SysML v2 path remains upstream of this renderer.
+          Pick a format, paste or upload your own diagram-as-code, and render it.
         </p>
       </header>
 
       <p v-if="loadError" class="error">{{ loadError }}</p>
-      <Gallery v-else-if="viewMode === 'gallery'" :examples="examples" @open-in-editor="openInEditor" />
-      <StoryB00k v-else-if="viewMode === 'storyb00k'" @edit-in-editor="editInEditor" />
+      <Gallery
+        v-else-if="viewMode === 'gallery'"
+        :examples="examples"
+        :agent-url="agentUrl"
+        @open-in-editor="openInEditor"
+        @agent-handoff="agentHandoff"
+      />
+      <StoryB00k v-else-if="viewMode === 'storyb00k'" :prefill="agentPrefill" @edit-in-editor="editInEditor" />
       <RendererPanel
         v-else-if="selectedExample"
         :example="selectedExample"
