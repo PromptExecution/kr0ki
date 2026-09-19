@@ -68,14 +68,26 @@ keeps ReqIF/Flexo mechanics outside `kr0ki-core` rendering semantics.
 
 ## Verification performed
 
+**Updated 2026-09-19 (post-M1, post-PR-#36-review):** the semantic model moved to
+`ufo_types::mbse::requirements`; the promotion/impact/behaviour/coverage tests moved
+with it and now run in that crate, not this one. The line below originally read
+"5 passed" for `cargo test -p kr0ki-core requirements` — that count was the semantic
+tests plus the D2 adapter test, all still local to kr0ki-core at the time this doc was
+written. Once M1 landed, only the D2 adapter test remained local; this doc's own claim
+went stale in the same PR that made it true. Corrected numbers below, plus the
+consumer-level contract suite PR #36 review asked for.
+
 ```text
-cargo test -p kr0ki-core requirements                         # 5 passed
+(in the ufo-types repo) cargo test mbse::requirements                          # 4 passed (the moved semantic tests; not runnable from kr0ki's workspace — ufo-types is a git dependency, not a workspace member)
+cargo test -p kr0ki-core --test requirements_contract                           # 5 passed (kr0ki_core::requirements re-export + requirements_render::to_d2, exercised through kr0ki-core's public API only)
+cargo test -p kr0ki-core requirements                                           # 2 passed (requirements_render's own D2-adapter tests, incl. adversarial-title coverage)
 cargo test -p kr0ki-server --test http requirements_view_returns_typed_induced_graph_not_renderer_source  # passed
-cargo clippy -p kr0ki-core -p kr0ki-server -- -D warnings     # clean
+cargo clippy -p kr0ki-core -p kr0ki-server -- -D warnings                       # clean
 ```
 
 Tests cover promotion isolation, bounded impact/cycles, behaviour recommendation plus
-human selection, coverage gaps, deterministic D2 emission, typed HTTP response, and
+human selection, coverage gaps, deterministic D2 emission (including adversarial ReqIF
+titles containing D2 structural characters — PR #36 review), typed HTTP response, and
 the confirmation gate. They do not exercise a live Kroki backend, Flexo, ReqIF, or
 StrictDoc.
 

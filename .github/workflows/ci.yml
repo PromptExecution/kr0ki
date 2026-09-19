@@ -19,6 +19,14 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: playbook/pnpm-lock.yaml
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
@@ -27,6 +35,17 @@ jobs:
           cd containers/kr0ki-mcp
           python3 test_bridge.py
           python3 test_http_worker.py
+      - name: kr0ki-storyb00k-agent Python tests
+        run: |
+          cd containers/kr0ki-storyb00k-agent
+          python3 -m venv .venv
+          .venv/bin/pip install -q -r requirements.txt
+          .venv/bin/python3 -m unittest discover -p 'test_*.py' -v
+      - name: playbook (Vue/Vite) tests + build
+        run: |
+          pnpm --dir playbook install --frozen-lockfile
+          pnpm --dir playbook test
+          pnpm --dir playbook run build
 
   # SysML-v2-Release conformance harness (phase 1). Runs in parallel with
   # `check` and does not block it: the corpus fetch (~110 MB tarball) and the
