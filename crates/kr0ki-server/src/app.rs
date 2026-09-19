@@ -63,6 +63,10 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
         .route("/render/:format", post(render))
         .route("/render/kubediagram", post(render_kubediagram))
         .route("/render/k8s-topology", post(render_k8s_topology))
+        .route(
+            "/render/sysmlv2/projects/:project_id/commits/:commit_id",
+            post(render_sysmlv2_snapshot),
+        )
         .route("/model/projects", get(list_model_projects))
         .route(
             "/model/projects/:project_id/commits",
@@ -213,6 +217,50 @@ async fn get_model_snapshot(
             Json(snapshot).into_response()
         }
         Err(error) => client_error_response(error),
+    }
+}
+
+/// Render a content-addressed SysML v2 snapshot from the configured model
+/// server. A compiler may produce the model upstream; kr0ki never ingests or
+/// interprets the compiler's source language.
+async fn render_sysmlv2_snapshot(
+    State(state): State<AppState>,
+    Path((project_id, commit_id)): Path<(String, String)>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let client = match require_sysmlv2_client(&state) {
+        Ok(client) => client,
+        Err(response) => return *response,
+    };
+    let snapshot = match client.snapshot(&project_id, &commit_id).await {
+        Ok(snapshot) => snapshot,
+        Err(error) => return client_error_response(error),
+    };
+    let edges = kr0ki_core::ufo_graph::build_ufo_graph(&snapshot);
+    let relations: Vec<_> = kr0ki_core::sysml_lift::lift_edges(&edges)
+        .into_iter()
+        .map(|lifted| lifted.relation)
+        .collect();
+    let d2 = kr0ki_core::sysml_render::to_d2(&relations);
+    let output = params
+        .get("output")
+        .and_then(|value| OutputKind::from_param(value))
+        .unwrap_or(OutputKind::Svg);
+
+    match state
+        .service
+        .render_model(
+            "sysmlv2-snapshot",
+            DiagramFormat::D2,
+            output,
+            &d2,
+            &snapshot.content_hash,
+            "sysmlv2-ufo-graph-v1",
+        )
+        .await
+    {
+        Ok(rendered) => rendered_response(output, rendered),
+        Err(error) => service_error_response(error),
     }
 }
 

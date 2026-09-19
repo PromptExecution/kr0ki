@@ -56,6 +56,23 @@ fork, not a mutable Docker Hub image. Its command and supported output types fol
 the upstream project documentation; the fork is the controlled home for future
 `-b00t` extensions.
 
+## Provider-neutral model and state services
+
+The default `just pod-up` footprint contains only kr0ki and its renderer/MCP
+companions. It does not start PostgreSQL, a model server, or a contract
+registry. This keeps the local UX testable without choosing a database provider
+or creating state that disappears with a Pod.
+
+To render a model snapshot, set `KR0KI_SYSMLV2_BASE_URL` (and, if required,
+`KR0KI_SYSMLV2_TOKEN`) in the local `.env` to any Systems Modeling API server.
+The server may use a local, air-gapped, or Hive-managed PostgreSQL deployment;
+kr0ki only calls its HTTP model API.
+
+Ledgrrr is the planned owner of state-machine contract definitions and their
+registry. The integration boundary is a named contract lookup, not a kr0ki
+database schema or PostgreSQL extension. See
+[`DESIGN-NOTE-ledgrrr-state-contract-registry.md`](DESIGN-NOTE-ledgrrr-state-contract-registry.md).
+
 <!-- b00t:map v1
 summary: container-only local MCP bridges for kr0ki and sandboxed KubeDiagrams
 tags: kr0ki, mcp, codex, podman, kubediagrams, security

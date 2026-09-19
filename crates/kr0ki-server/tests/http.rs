@@ -75,7 +75,7 @@ async fn formats_lists_supported_slugs_only() {
 }
 
 #[tokio::test]
-async fn mcp_tools_lists_all_eleven_tools_with_bindings() {
+async fn mcp_tools_lists_all_twelve_tools_with_bindings() {
     let app = test_app(test_state("mcp-tools"));
     let resp = app
         .oneshot(Request::get("/mcp/tools").body(Body::empty()).unwrap())
@@ -84,12 +84,13 @@ async fn mcp_tools_lists_all_eleven_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 11);
+    assert_eq!(tools.len(), 12);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
     assert!(names.contains(&"render_kubernetes_manifest"));
     assert!(names.contains(&"render_kubernetes_topology"));
+    assert!(names.contains(&"render_sysmlv2_snapshot"));
     assert!(names.contains(&"query_model_graph"));
 
     let render = tools
@@ -108,12 +109,78 @@ async fn mcp_tools_lists_all_eleven_tools_with_bindings() {
 async fn model_routes_return_503_when_no_client_is_configured() {
     let app = test_app(test_state("model-unconfigured"));
     let response = app
+        .clone()
         .oneshot(Request::get("/model/projects").body(Body::empty()).unwrap())
         .await
         .unwrap();
     let (status, body) = body_string(response).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert!(body.contains("sysmlv2_client_not_configured"));
+
+    let response = app
+        .oneshot(
+            Request::post("/render/sysmlv2/projects/proj-1/commits/c1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert!(body.contains("sysmlv2_client_not_configured"));
+}
+
+#[tokio::test]
+async fn render_sysmlv2_snapshot_uses_the_model_api_not_source_language_input() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path(
+            "/projects/proj-1/commits/c1/elements",
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {"@id": "assembly", "@type": "PartDefinition", "name": "Assembly"},
+                {"@id": "engine", "@type": "PartUsage", "name": "Engine"},
+                {"@id": "owns-engine", "@type": "FeatureMembership",
+                 "owner": {"@id": "assembly"}, "member": {"@id": "engine"}}
+            ])),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path(
+            "/projects/proj-1/commits/c1/roots",
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!(["assembly"])),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/d2/svg"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_string("<svg/>"))
+        .mount(&server)
+        .await;
+
+    let mut state = test_state_with_sysmlv2_client("render-sysmlv2", server.uri());
+    state.service = Arc::new(RenderService::new(
+        HttpKrokiBackend::new(server.uri()),
+        FsCache::new(std::env::temp_dir().join(format!(
+            "kr0ki-http-test-{}-render-sysmlv2-backend",
+            std::process::id()
+        ))),
+    ));
+    let response = test_app(state)
+        .oneshot(
+            Request::post("/render/sysmlv2/projects/proj-1/commits/c1?output=svg")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, "<svg/>");
 }
 
 fn test_state_with_sysmlv2_client(tag: &str, base_url: String) -> AppState {

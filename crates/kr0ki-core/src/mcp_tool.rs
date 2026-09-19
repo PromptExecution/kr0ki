@@ -16,6 +16,7 @@ pub enum McpTool {
     ListFormats,
     RenderKubeDiagram,
     RenderK8sTopology,
+    RenderSysmlV2Snapshot,
     ListModelProjects,
     ListModelCommits,
     GetModelSnapshot,
@@ -31,6 +32,7 @@ impl McpTool {
         Self::ListFormats,
         Self::RenderKubeDiagram,
         Self::RenderK8sTopology,
+        Self::RenderSysmlV2Snapshot,
         Self::ListModelProjects,
         Self::ListModelCommits,
         Self::GetModelSnapshot,
@@ -46,6 +48,7 @@ impl McpTool {
             Self::ListFormats => "list_formats",
             Self::RenderKubeDiagram => "render_kubernetes_manifest",
             Self::RenderK8sTopology => "render_kubernetes_topology",
+            Self::RenderSysmlV2Snapshot => "render_sysmlv2_snapshot",
             Self::ListModelProjects => "list_model_projects",
             Self::ListModelCommits => "list_model_commits",
             Self::GetModelSnapshot => "get_model_snapshot",
@@ -69,6 +72,9 @@ impl McpTool {
                 "Render Kubernetes manifest YAML through kr0ki's own recognizer -> UFO graph -> \
                  SysML v2 relation -> D2 pipeline (docs/PATTERNS-kubernetes.md), not the vendored \
                  KubeDiagrams tool."
+            }
+            Self::RenderSysmlV2Snapshot => {
+                "Render a validated SysML v2 project commit from the configured model server."
             }
             Self::ListModelProjects => "List SysML v2 projects on the configured model server.",
             Self::ListModelCommits => "List commits (immutable model snapshots) for a project.",
@@ -111,6 +117,15 @@ impl McpTool {
                 "required": ["manifest"],
                 "properties": {
                     "manifest": {"type": "string", "description": "Kubernetes multi-doc YAML manifest bundle."},
+                    "output": {"type": "string", "enum": ["svg", "png"], "default": "svg"}
+                }
+            }),
+            Self::RenderSysmlV2Snapshot => serde_json::json!({
+                "type": "object",
+                "required": ["project_id", "commit_id"],
+                "properties": {
+                    "project_id": {"type": "string", "description": "SysML v2 project id."},
+                    "commit_id": {"type": "string", "description": "Immutable SysML v2 commit id."},
                     "output": {"type": "string", "enum": ["svg", "png"], "default": "svg"}
                 }
             }),
@@ -194,6 +209,15 @@ impl McpTool {
                         name: "output",
                         placement: ArgPlacement::Query,
                     },
+                ],
+            },
+            Self::RenderSysmlV2Snapshot => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/render/sysmlv2/projects/{project_id}/commits/{commit_id}",
+                args: &[
+                    ArgBinding { name: "project_id", placement: ArgPlacement::Path },
+                    ArgBinding { name: "commit_id", placement: ArgPlacement::Path },
+                    ArgBinding { name: "output", placement: ArgPlacement::Query },
                 ],
             },
             Self::ListModelProjects => HttpBinding { method: HttpMethod::Get, path_template: "/model/projects", args: &[] },
@@ -298,13 +322,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_eleven_tools_have_unique_names() {
+    fn all_twelve_tools_have_unique_names() {
         let mut names: Vec<&str> = McpTool::ALL.iter().map(|t| t.name()).collect();
         let before = names.len();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), before, "duplicate McpTool name in ALL");
-        assert_eq!(McpTool::ALL.len(), 11);
+        assert_eq!(McpTool::ALL.len(), 12);
+    }
+
+    #[test]
+    fn render_sysmlv2_snapshot_binds_only_model_identity_and_output() {
+        let binding = McpTool::RenderSysmlV2Snapshot.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(
+            binding.path_template,
+            "/render/sysmlv2/projects/{project_id}/commits/{commit_id}"
+        );
+        assert_eq!(binding.args.len(), 3);
+        assert!(binding
+            .args
+            .iter()
+            .any(|arg| arg.name == "project_id" && matches!(arg.placement, ArgPlacement::Path)));
+        assert!(binding
+            .args
+            .iter()
+            .any(|arg| arg.name == "commit_id" && matches!(arg.placement, ArgPlacement::Path)));
+        assert!(binding
+            .args
+            .iter()
+            .any(|arg| arg.name == "output" && matches!(arg.placement, ArgPlacement::Query)));
+        assert!(binding
+            .args
+            .iter()
+            .all(|arg| !matches!(arg.placement, ArgPlacement::Body)));
     }
 
     #[test]
