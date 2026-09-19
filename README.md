@@ -1,6 +1,7 @@
 # kr0ki
 
-**The b00tyverse cut-node between [Kroki](https://kroki.io) and b00t/systhread.**
+**The b00tyverse cut-node between [Kroki](https://kroki.io) and b00t/systhread —
+now with an AI-narrated StoryB00k chat over the live model.**
 
 kr0ki is the rendering + CDN-cached-artifact service layer for SysML/KerML diagrams in
 the b00t ecosystem. It is deliberately *one node in the graph* — the boundary where an
@@ -13,6 +14,54 @@ wraps an existing multi-format renderer ([`kroki-mcp`](vendor/kroki-mcp), vendor
 and an existing isometric renderer (`systhread-core`'s `layout.rs`/`render.rs`),
 and adds the one thing neither has: a caching, cross-referencing service surface.
 
+## Capabilities (current)
+
+- **Render loop** — raw Kroki-family diagram text → SVG/PNG through 27+ formats,
+  content-addressed caching (`X-Kr0ki-Cache`/`X-Kr0ki-Key`), deterministic bytes.
+- **Kubernetes arm** — `POST /render/k8s-topology` parses multi-doc manifests into a
+  UFO-typed semantic graph and renders live topology diagrams; `/render/kubediagram`
+  proxies the vendored KubeDiagrams worker.
+- **b00t-graph arm** — `GET /b00t-graph/{tag}` renders committed `_b00t_` Turtle
+  artifacts via holon-viz.
+- **SysML v2 client** — server-agnostic OMG *Systems Modeling API* REST client
+  (`kr0ki-sysmlv2-client`); `/model/*` routes light up when `KR0KI_SYSMLV2_BASE_URL`
+  is configured, materializing a disposable RDF graph for querying.
+- **Playb00k** — Vue 3 interactive harness at `/playbook/`: gallery of every format's
+  test-backed fixtures, per-format editor with render + cache verification, Histoire
+  stories, and `just test-playbook`/`just playbook-e2e` executable documentation.
+- **StoryB00k chat** — AG-UI SSE sidecar (`:8789`) with an OpenAI-compatible LLM:
+  narrates the live model, calls kr0ki tools (render, query, model reads) in a
+  multi-round loop, and proposes **disposable draft changes gated behind explicit
+  user approval** — the authoritative model is never mutated by the agent.
+  Rendered diagrams carry an **EDIT** button that flips the playb00k editor
+  preloaded with that diagram's source. Server-side session observability:
+  `GET /debug/sessions[/{threadId}]`, per-thread JSONL transcripts, structured
+  `kubectl logs` lines.
+- **Deep health** — `/health` reports compiled version, uptime, dependency probes
+  (kroki, kubediagram worker, storyb00k agent), LLM endpoint check (model count
+  only — no billable request), store status, and auth posture. The welcome page
+  validates backend reachability on load.
+- **Self-documenting** — `/docs` harvests kr0ki's own Rust source at runtime
+  (`/docs/api.json`, `/docs/api.tomllm`, `/docs/api.rustdoc`).
+
+## License
+
+kr0ki itself is **MIT** ([`LICENSE`](LICENSE)), applied workspace-wide via
+`license.workspace = true` in every crate and `license` in `playbook/package.json`.
+
+Vendored/depended-on components keep their own licenses:
+
+| Component | License | Notes |
+|---|---|---|
+| [`vendor/kroki-mcp`](vendor/kroki-mcp) | MIT | b00tyverse fork of `utain/kroki-mcp`; the kr0ki-mcp sidecar's KubeDiagrams listener |
+| [`vendor/assistant-ui`](vendor/assistant-ui) | MIT | fork tracking our upstream PR; `@assistant-ui/vue` source for the playb00k |
+| [`vendor/kubediagrams`](vendor/kubediagrams) | Apache-2.0 | oracle + prior art for the k8s recognizer |
+| `ufo-types` (crates.io/git dep) | MIT | the UFO semantic-graph vocabulary |
+| Kroki (upstream project) | MIT-ish per-component | consumed as a container; kr0ki ships its own pinned `kroki-compat` image |
+
+MIT-compatible throughout; the Apache-2.0 vendored component is noted here per its
+NOTICE requirements. No GPL/AGPL components are vendored.
+
 > Status: **foundational**. The decision-independent render loop (P0 — FR2 + FR5) is
 > [built and merged](#p0--the-render-loop-built-2026-09-05). The SysML-model path
 > (FR1/FR3/FR4) has started: its **client** — a generic OMG *Systems Modeling API*
@@ -22,6 +71,17 @@ and adds the one thing neither has: a caching, cross-referencing service surface
 > then [`docs/PLAN-KR0KI-002.md`](docs/PLAN-KR0KI-002.md) for the model path and
 > [`docs/DESIGN-NOTE-typed-model-layer.md`](docs/DESIGN-NOTE-typed-model-layer.md) for
 > the reviewed (not yet approved) shape of the deferred typed layer.
+
+## Roadmap
+
+- **Catalog / discovery of charts & systems** (next): browse and search every
+  rendered artifact the service has produced — by format, source, model entity,
+  or tag — turning the content-addressed cache into a discoverable chart catalog.
+- **EDIT loop tightening**: diffs from StoryB00k draft approvals rendered next to
+  the authoritative version.
+- **Plan 004** ([`docs/PLAN-KR0KI-004-revisioned-procedural-workspace.md`](docs/PLAN-KR0KI-004-revisioned-procedural-workspace.md)):
+  revisioned procedural workspace — durable revision service, branches, promotion
+  (Phase 0 contracts already in `crates/kr0ki-server`).
 
 ## Orientation for agents
 
@@ -135,7 +195,7 @@ entire SysML-model path.
 
 | Route | Method | Query | Body | Response |
 |---|---|---|---|---|
-| `/health` | GET | — | — | `{"status":"ok","service":"kr0ki","version":"..."}` |
+| `/health` | GET | — | — | **deep report**: `{status, service, version, started_at, uptime_secs, checks:{kroki_backend, kubediagram_worker, storyb00k_agent, llm(configured, ok, model_count, latency), stores{cache_dir, capabilities_file, graph_store_triples}, caller_auth}}` — always 200; `status: ok\|degraded` |
 | `/formats` | GET | — | — | `["plantuml","c4plantuml","graphviz","d2",...]` |
 | `/render/{format}` | POST | `?output=svg\|png` | raw diagram text | rendered bytes + `Content-Type` + `X-Kr0ki-Cache` + `X-Kr0ki-Key` |
 | `/render/kubediagram` | POST | `?output=svg\|dot_json` | Kubernetes manifest (multi-doc YAML, ≤1 MiB) | proxied `kube-diagrams` output; not cached (mcp-http-parity) |
@@ -149,6 +209,21 @@ entire SysML-model path.
 | `/docs/api.rustdoc` | GET | — | — | rustdoc-style export |
 | `/playbook/` | GET | — | — | Vue/Vite interactive example harness |
 | `/api/examples` | GET | — | — | live test-backed example catalog |
+
+**StoryB00k sidecar** (port `:8789`, same host; CORS-gated to the playbook origins):
+
+| Route | Method | Body | Response |
+|---|---|---|---|
+| `/health` | GET | — | `{status, service, llm_configured, active_threads, max_tool_rounds}` |
+| `/run` | POST | AG-UI `RunAgentInput` | SSE event stream (AG-UI protocol): narration, tool calls, state deltas, usage; interrupts for draft proposals |
+| `/respond-to-interrupt` | POST | `{threadId, interruptId, approved}` | applies/declines a pending draft proposal |
+| `/threads/{id}` | GET | — | pending proposals + draft graph as Turtle |
+| `/debug/sessions` | GET | — | per-thread session summaries (runs, events, errors) |
+| `/debug/sessions/{threadId}` | GET | — | **full ordered session log**: AG-UI frames emitted, LLM rounds with usage/model, tool calls with latency/ok, errors with tracebacks |
+
+The sidecar also writes one JSONL transcript per thread under `KR0KI_DEBUG_LOG_DIR`
+(mounted at `/var/lib/kr0ki/storyb00k-debug` in the pod) — greppable, restart-survivable
+within the pod's lifetime.
 
 Auth: set `KR0KI_AUTH_TOKEN` env var to require `Authorization: Bearer <token>` on all
 routes except `/health`.
@@ -185,6 +260,25 @@ runtime dependency of the Rust service.
 Run `just test-playbook` to submit every documented fixture through the deployed
 HTTP surface twice. It verifies output signatures, deterministic artifact bytes,
 and cache hits for every format/output combination that the UI advertises.
+
+### StoryB00k — AI narration over the live model
+
+The **storyb00k** view in the playb00k is an AG-UI chat backed by the
+`kr0ki-storyb00k-agent` sidecar (`:8789`) and any OpenAI-compatible LLM
+(`OPENAI_API_URL`/`OPENAI_API_KEY` from the machine-local `.env`):
+
+- **Reads, never writes**: the agent calls kr0ki tools (`list_formats`,
+  `render_diagram`, `query_model_elements`, …) through a multi-round loop and
+  narrates what it finds. Model changes are only ever **disposable draft
+  proposals** that the user must approve/decline in the chat.
+- **Rendered charts carry an EDIT button** — one click flips to the playb00k
+  editor with that diagram's source preloaded in the matching format, ready to
+  tweak and re-render.
+- **Observable**: every run is recorded server-side (see `/debug/sessions`
+  above); the browser console logs the full AG-UI event stream and every
+  send/finish/error (`debug: {events, lifecycle}`).
+- Robustness: streaming text events, tool-error feedback to the LLM, output
+  truncation guards, per-thread TTL, graceful client-disconnect handling.
 
 ### StoryB00k local settings
 

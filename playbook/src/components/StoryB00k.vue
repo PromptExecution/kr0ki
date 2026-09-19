@@ -98,6 +98,15 @@ function stopRun() {
   chat.stop()
 }
 
+const emit = defineEmits(['edit-in-editor'])
+
+// EDIT on a rendered panel: hand the diagram source + format up to App.vue,
+// which flips to the editor view with the source preloaded.
+function editPanelSource({ source, format }) {
+  console.info('[storyb00k] edit in editor →', format, `${source.length} chars`)
+  emit('edit-in-editor', { source, format })
+}
+
 function clearThread() {
   console.info('[storyb00k] clearing thread', threadId.value)
   chat.clear()
@@ -190,7 +199,12 @@ function formatTokens(u) {
         <span>{{ panels.length }} panel{{ panels.length === 1 ? '' : 's' }}</span>
         <button v-if="panels.length" class="storyb00k__clear-panels" @click="chat.state = { panels: [], drafts: [] }">Clear panels</button>
       </header>
-      <StoryB00kPanel v-for="(panel, index) in panels" :key="index" :panel="panel" />
+      <StoryB00kPanel
+        v-for="(panel, index) in panels"
+        :key="index"
+        :panel="panel"
+        @edit="editPanelSource"
+      />
       <p v-if="!panels.length" class="storyb00k__empty">Rendered diagrams and model data appear here as the agent works.</p>
     </section>
   </div>

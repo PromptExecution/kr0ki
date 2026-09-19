@@ -9,6 +9,9 @@ const selectedFormat = ref('d2')
 const selectedId = ref('')
 const loadError = ref('')
 const viewMode = ref('gallery')
+// Source handed over from StoryB00k's EDIT button (agent-rendered diagram).
+const editedSource = ref('')
+let editedSourcePending = false
 
 // `api/examples.json` is deliberately relative: it resolves beneath
 // /playbook/ in the live service and beneath /kr0ki/playbook/ on Pages.
@@ -33,11 +36,31 @@ function openInEditor(example) {
   selectedId.value = example.id
 }
 
+// EDIT from a StoryB00k render panel: preload the agent-produced source into
+// the editor. Prefer a matching-format example as the host (keeps format
+// dropdown/outputs consistent); fall back to the first example of that format.
+function editInEditor({ source, format }) {
+  const formatId = format || 'd2'
+  const host = examples.value.find((example) => example.format === formatId)
+    || examples.value.find((example) => example.format === 'd2')
+  if (!host) return
+  viewMode.value = 'editor'
+  selectedFormat.value = host.format
+  selectedId.value = host.id
+  editedSource.value = source
+  editedSourcePending = true
+}
+
 watch(selectedFormat, () => {
   if (!formatExamples.value.some((example) => example.id === selectedId.value)) {
     selectedId.value = formatExamples.value[0]?.id || ''
   }
 })
+
+function onSelectExample(id) {
+  selectedId.value = id
+  editedSourcePending = false // a fresh example picks resets the override
+}
 
 onMounted(async () => {
   try {
@@ -110,12 +133,13 @@ onMounted(async () => {
 
       <p v-if="loadError" class="error">{{ loadError }}</p>
       <Gallery v-else-if="viewMode === 'gallery'" :examples="examples" @open-in-editor="openInEditor" />
-      <StoryB00k v-else-if="viewMode === 'storyb00k'" />
+      <StoryB00k v-else-if="viewMode === 'storyb00k'" @edit-in-editor="editInEditor" />
       <RendererPanel
         v-else-if="selectedExample"
         :example="selectedExample"
         :examples="formatExamples"
-        @select-example="selectedId = $event"
+        :override-source="editedSourcePending ? editedSource : undefined"
+        @select-example="onSelectExample"
       />
       <p v-else class="loading">Loading test-backed examples…</p>
     </section>

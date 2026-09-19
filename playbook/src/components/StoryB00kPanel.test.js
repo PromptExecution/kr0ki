@@ -32,4 +32,21 @@ describe('StoryB00kPanel', () => {
     expect(send.attributes('disabled')).toBeDefined()
     expect(panel.findAll('.storyb00k-panel')).toHaveLength(0)
   })
+
+  it('offers EDIT on a render panel that carries source+format up to the app', async () => {
+    const StoryB00kPanel = (await import('./StoryB00kPanel.vue')).default
+    const wrapper = mount(StoryB00kPanel, {
+      props: { panel: { kind: 'render', content: '<svg/>', source: { text: 'a -> b', format: 'd2' } } },
+    })
+    const edit = wrapper.find('[data-testid="edit-in-editor"]')
+    expect(edit.exists()).toBe(true)
+    await edit.trigger('click')
+    expect(wrapper.emitted('edit')).toEqual([[{ source: 'a -> b', format: 'd2' }]])
+  })
+
+  it('renders no EDIT button when the panel has no source', async () => {
+    const StoryB00kPanel = (await import('./StoryB00kPanel.vue')).default
+    const wrapper = mount(StoryB00kPanel, { props: { panel: { kind: 'render', content: '<svg/>' } } })
+    expect(wrapper.find('[data-testid="edit-in-editor"]').exists()).toBe(false)
+  })
 })
