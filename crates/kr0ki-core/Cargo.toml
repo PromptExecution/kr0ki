@@ -27,7 +27,7 @@ kr0ki-sysmlv2-client = { path = "../kr0ki-sysmlv2-client" }
 # CHANGELOG guidance ("pin an exact version or a git tag"). `ontology` /
 # `sysml_model` / `view` are default (not feature-gated) — no extra features
 # needed here.
-ufo-types = { git = "https://github.com/PromptExecution/ufo-types", tag = "v0.14.0" }
+ufo-types = { git = "https://github.com/PromptExecution/ufo-types", tag = "v0.15.0" }
 # kr0ki#13 — box 5 (b00t-graph Turtle -> D2 route): the typed TypeRelationshipGraph /
 # CytoscapeGraph the D2 emitter targets. No tagged release exists yet (checked
 # 2026-09-16); pinned by git rev per this issue's own operator decision, to be

@@ -143,6 +143,60 @@ async fn mcp_tools_lists_all_twelve_tools_with_bindings() {
         .contains(&serde_json::json!("format")));
 }
 
+fn requirement_view_payload(kind: &str, confirmed_behaviour: Option<&str>) -> String {
+    serde_json::json!({
+        "graph": {
+            "baseline": {"id": "BL-1", "revision": "commit-1"},
+            "requirements": [
+                {"id": "r1", "title": "Top", "text": "", "baseline": {"id": "BL-1", "revision": "commit-1"}, "provenance": {"source_uri": "reqif://fixture"}, "attributes": {}},
+                {"id": "r2", "title": "Child", "text": "", "baseline": {"id": "BL-1", "revision": "commit-1"}, "provenance": {"source_uri": "reqif://fixture"}, "attributes": {}}
+            ],
+            "evidence": [],
+            "relations": [{"id": "contains", "source": "r1", "target": "r2", "kind": "contains", "authority": {"status": "asserted"}, "provenance": {"source_uri": "reqif://fixture"}}]
+        },
+        "request": {"kind": kind, "scope": "authoritative", "direction": "downstream", "confirmed_behaviour": confirmed_behaviour}
+    }).to_string()
+}
+
+#[tokio::test]
+async fn requirements_view_returns_typed_induced_graph_not_renderer_source() {
+    let payload = requirement_view_payload("decomposition", None);
+    let response = test_app(test_state("requirements-view"))
+        .oneshot(
+            Request::post("/requirements/views")
+                .header("content-type", "application/json")
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("\"relations\":[{"));
+    assert!(body.contains("\"kind\":\"contains\""));
+    assert!(
+        !body.contains(" -> "),
+        "view response must not contain D2 source"
+    );
+}
+
+#[tokio::test]
+async fn behaviour_render_requires_human_confirmation() {
+    let payload = requirement_view_payload("behaviour", None);
+    let response = test_app(test_state("requirements-behaviour-confirmation"))
+        .oneshot(
+            Request::post("/render/requirements-view")
+                .header("content-type", "application/json")
+                .body(Body::from(payload))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(body.contains("behaviour_confirmation_required"));
+}
+
 #[tokio::test]
 async fn model_routes_return_503_when_no_client_is_configured() {
     let app = test_app(test_state("model-unconfigured"));
@@ -338,19 +392,62 @@ async fn examples_catalog_covers_every_advertised_format() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let examples: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    // Format-routed examples (route: null) are 1:1 with DiagramFormat; a
-    // custom-route example (e.g. k8s-topology) adds to the catalog without
-    // being one of them -- see kr0ki_core::examples::PlaybookExample::route.
-    let format_routed = examples
+    // Every standalone renderer needs a fixture. Some renderers deliberately
+    // have several fixtures because a catalog type must show its own syntax.
+    let format_routed: std::collections::BTreeSet<_> = examples
         .iter()
         .filter(|example| example["route"].is_null())
-        .count();
-    assert_eq!(format_routed, kr0ki_core::format::DiagramFormat::ALL.len());
+        .map(|example| example["format"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        format_routed.len(),
+        kr0ki_core::format::DiagramFormat::ALL.len()
+    );
     assert!(examples.iter().all(|example| example["source"].is_string()));
     assert!(examples.iter().any(|example| example["format"] == "d2"));
     assert!(examples
         .iter()
         .any(|example| example["route"] == "/render/k8s-topology"));
+}
+
+#[tokio::test]
+async fn catalog_serves_taxonomy_for_gallery_and_discovery() {
+    let app = test_app(test_state("examples"));
+    let resp = app
+        .oneshot(Request::get("/api/catalog").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    let catalog: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let types = catalog["types"].as_array().unwrap();
+    assert!(
+        types.len() >= 20,
+        "taxonomy must expand PlantUML top-level types"
+    );
+    // Distinct addressible names.
+    let mut ids: Vec<&str> = types.iter().filter_map(|t| t["id"].as_str()).collect();
+    ids.sort_unstable();
+    let len = ids.len();
+    ids.dedup();
+    assert_eq!(ids.len(), len);
+    // Filter vocabulary is non-empty and every type's tags come from it.
+    let use_cases = catalog["useCases"].as_array().unwrap();
+    assert!(use_cases.iter().any(|t| t == "process flow"));
+    for t in types {
+        for tag in t["useCases"].as_array().unwrap() {
+            assert!(use_cases.contains(tag), "tag {tag} outside vocabulary");
+        }
+        assert!(t["samplePrompt"].as_str().unwrap().len() > 20);
+        let example_id = t["exampleId"].as_str().unwrap();
+        assert!(kr0ki_core::examples::ALL
+            .iter()
+            .any(|example| example.id == example_id));
+    }
+    assert!(catalog["discoveryGuide"]
+        .as_str()
+        .unwrap()
+        .contains("sequence"));
 }
 
 #[tokio::test]

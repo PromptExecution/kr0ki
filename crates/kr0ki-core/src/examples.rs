@@ -32,7 +32,8 @@ pub struct PlaybookExample {
     pub route: Option<&'static str>,
 }
 
-/// The full catalog: one example per [`crate::format::DiagramFormat::ALL`] entry.
+/// The full catalog: at least one example per [`crate::format::DiagramFormat`] entry,
+/// plus type-specific fixtures where several catalog types share a renderer.
 pub const ALL: &[PlaybookExample] = &[
     PlaybookExample {
         id: "plantuml-request",
@@ -41,6 +42,106 @@ pub const ALL: &[PlaybookExample] = &[
         input_kind: "procedural code",
         description: "A request crosses kr0ki and its artifact cache.",
         source: "@startuml\nactor Operator\nrectangle kr0ki\ndatabase Cache\nOperator -> kr0ki : render source\nkr0ki -> Cache : read/write artifact\n@enduml\n",
+        outputs: &["svg", "png"],
+        route: None,
+    },
+    PlaybookExample {
+        id: "plantuml-activity",
+        format: "plantuml",
+        title: "Release activity flow",
+        input_kind: "PlantUML activity diagram",
+        description: "Release decisions and hand-offs, including an approval branch.",
+        source: "@startuml\nstart\n:Build release;\nif (Approved?) then (yes)\n  :Deploy;\nelse (no)\n  :Revise;\nendif\nstop\n@enduml\n",
+        outputs: &["svg", "png"],
+        route: None,
+    },
+    PlaybookExample {
+        id: "plantuml-use-case",
+        format: "plantuml",
+        title: "Release use cases",
+        input_kind: "PlantUML use case diagram",
+        description: "An operator starts releases and an approver authorizes them.",
+        source: "@startuml\nleft to right direction\nactor Operator\nactor Approver\nrectangle ReleaseService {\n  usecase \"Start release\" as Start\n  usecase \"Approve release\" as Approve\n}\nOperator --> Start\nApprover --> Approve\n@enduml\n",
+        outputs: &["svg", "png"],
+        route: None,
+    },
+    PlaybookExample {
+        id: "plantuml-state",
+        format: "plantuml",
+        title: "Release state machine",
+        input_kind: "PlantUML state diagram",
+        description: "A release moves from draft through approval to deployment.",
+        source: "@startuml\n[*] --> Draft\nDraft --> PendingApproval\nPendingApproval --> Approved\nPendingApproval --> Draft : revise\nApproved --> Deployed\nDeployed --> [*]\n@enduml\n",
+        outputs: &["svg", "png"],
+        route: None,
+    },
+    PlaybookExample {
+        id: "plantuml-sequence",
+        format: "plantuml",
+        title: "Release approval sequence",
+        input_kind: "PlantUML sequence diagram",
+        description: "The operator, service, and approver exchange messages in time order.",
+        source: "@startuml\nactor Operator\nparticipant ReleaseService\nparticipant Approver\nOperator -> ReleaseService : submit release\nReleaseService -> Approver : request approval\nApprover --> ReleaseService : approve\nReleaseService --> Operator : deployed\n@enduml\n",
+        outputs: &["svg", "png"],
+        route: None,
+    },
+    PlaybookExample {
+        id: "plantuml-component",
+        format: "plantuml",
+        title: "Release components",
+        input_kind: "PlantUML component diagram",
+        description: "The release API delegates deployment and notification responsibilities.",
+        source: "@startuml\n[Release API] --> [Deployment worker]\n[Release API] --> [Notification service]\n[Deployment worker] --> [Cluster]\n@enduml\n",
+        outputs: &["svg", "png"],
+        route: None,
+    },
+    PlaybookExample {
+        id: "plantuml-class",
+        format: "plantuml",
+        title: "Release domain classes",
+        input_kind: "PlantUML class diagram",
+        description: "A release has artifacts and an approval decision.",
+        source: "@startuml\nclass Release {\n  version\n  status\n}\nclass Artifact {\n  digest\n}\nclass Approval {\n  approvedBy\n}\nRelease \"1\" o-- \"*\" Artifact\nRelease \"1\" --> \"1\" Approval\n@enduml\n",
+        outputs: &["svg", "png"],
+        route: None,
+    },
+    PlaybookExample {
+        id: "plantuml-erd",
+        format: "plantuml",
+        title: "Release data relationships",
+        input_kind: "PlantUML entity relationship diagram",
+        description: "Release records reference their artifacts and approval records.",
+        source: "@startuml\nentity release {\n  * id : uuid\n  version : text\n}\nentity artifact {\n  * digest : text\n}\nentity approval {\n  * approver : text\n}\nrelease ||--o{ artifact\nrelease ||--|| approval\n@enduml\n",
+        outputs: &["svg", "png"],
+        route: None,
+    },
+    PlaybookExample {
+        id: "plantuml-timing",
+        format: "plantuml",
+        title: "Release timing",
+        input_kind: "PlantUML timing diagram",
+        description: "Approval and deployment states share a time axis.",
+        source: "@startuml\nrobust \"approval\" as A\nrobust \"deployment\" as D\n@0\nA is Pending\nD is Idle\n@5\nA is Approved\n@10\nD is Deploying\n@15\nD is Live\n@enduml\n",
+        outputs: &["svg", "png"],
+        route: None,
+    },
+    PlaybookExample {
+        id: "plantuml-gantt",
+        format: "plantuml",
+        title: "Release Gantt plan",
+        input_kind: "PlantUML Gantt chart",
+        description: "Build, approval, and deployment scheduled as dependent tasks.",
+        source: "@startgantt\nProject starts 2026-01-01\n[Build] lasts 2 days\n[Approve] starts at [Build]'s end and lasts 1 day\n[Deploy] starts at [Approve]'s end and lasts 1 day\n@endgantt\n",
+        outputs: &["svg", "png"],
+        route: None,
+    },
+    PlaybookExample {
+        id: "plantuml-deployment",
+        format: "plantuml",
+        title: "Release deployment",
+        input_kind: "PlantUML deployment diagram",
+        description: "A release artifact runs on the deployment worker in the cluster.",
+        source: "@startuml\nnode Cluster {\n  node \"Deployment worker\" {\n    artifact \"release image\"\n  }\n}\ncloud Registry\nRegistry --> \"release image\"\n@enduml\n",
         outputs: &["svg", "png"],
         route: None,
     },
@@ -312,22 +413,22 @@ mod tests {
     use crate::format::DiagramFormat;
 
     #[test]
-    fn covers_every_diagram_format_exactly_once() {
+    fn covers_every_diagram_format() {
         for &format in DiagramFormat::ALL {
-            let matches: Vec<_> = ALL
+            let count = ALL
                 .iter()
                 .filter(|example| example.format == format.kroki_slug())
-                .collect();
-            assert_eq!(
-                matches.len(),
-                1,
-                "expected exactly one example for {}, found {}",
-                format.kroki_slug(),
-                matches.len()
+                .count();
+            assert!(
+                count >= 1,
+                "expected an example for {}, found none",
+                format.kroki_slug()
             );
         }
-        let format_routed = ALL.iter().filter(|e| e.route.is_none()).count();
-        assert_eq!(format_routed, DiagramFormat::ALL.len());
+        let mut ids: Vec<_> = ALL.iter().map(|example| example.id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), ALL.len(), "fixture ids must be unique");
     }
 
     #[test]

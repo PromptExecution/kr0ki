@@ -284,6 +284,155 @@
       "priority": 3,
       "tags": [],
       "created_at": "2026-09-19T03:50:39Z"
+    },
+    {
+      "id": 35,
+      "title": "kr0ki commit aed6788 on PR #34: EDIT regression fixed (format/route lost from agent renders); revisionGraph.js prompt/edit/fork DAG + vue-flow panel (time travel/fork per node); editable prompts with regenerate; chart_store.py jj-snapshotted chart persistence (/charts/* endpoints, KR0KI_CHARTS_DIR volume, jujutsu in image); live round-trip verified save/list/load/history/restore against pod; gates 26py+15vitest+19cargo+check",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T05:53:52Z"
+    },
+    {
+      "id": 36,
+      "title": "kr0ki: PR #35 rebased onto merged main (commits aed6788/249837b re-applied as d226f95 chain), MERGEABLE; gates green 38py+15vitest+check",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T07:07:56Z"
+    },
+    {
+      "id": 37,
+      "title": "kr0ki commit fc48d01 on PR #35: fix 'No active tool call found' — ask_user+propose_draft_change now emit full TOOL_CALL lifecycle before interrupts; 6/6 zod-union valid; live verified",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T07:26:05Z"
+    },
+    {
+      "id": 38,
+      "title": "kr0ki commit 9c93e1c on PR #35: storyb00k UX — autoResumeInterrupts off (run-in-progress collision), inline question UI (no gate click), dark-theme inputs/bubbles; deployed",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T07:51:58Z"
+    },
+    {
+      "id": 39,
+      "title": "kr0ki commit on PR #35: nav tab storyb00k->Agent (internal codename out of UI), editor hero paragraph trimmed to one line; deployed",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T07:58:33Z"
+    },
+    {
+      "id": 40,
+      "title": "kr0ki commit on PR #35: answer flow uses chat.resume() (fixes 'Thread has N pending interrupt(s) not addressed by resume'); sidebar copy trimmed; deployed bundle index-Di7ix3cM.js",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T08:19:19Z"
+    },
+    {
+      "id": 41,
+      "title": "kr0ki: PROJECT MEMORY fix for repeat questions (commit on PR #35); live test shows follow-up questions only for genuinely new info; deployed cb11f5f25217",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T08:49:46Z"
+    },
+    {
+      "id": 42,
+      "title": "kr0ki: PLAN-KR0KI-005 written (gallery catalog & type-discovery agent) — intent-first UX, discover question series, catalog.rs + /api/catalog, per-type skills",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T08:53:16Z"
+    },
+    {
+      "id": 43,
+      "title": "kr0ki commit dcc0103 on PR #35: Plan 005 implemented — catalog.rs (24 types, /api/catalog), gallery filter+Agent handoff, discover mode with recommend_diagram_type + type lock-in, per-type skills; live E2E accepted; 40py+15vitest+19cargo",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T09:41:03Z"
+    },
+    {
+      "id": 44,
+      "title": "kr0ki commit on PR #35: rec-* interrupts render answer UI (was falling into Approve-draft -> 400); server tolerates approval payloads on questions; deployed 6c63dd459212",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T09:52:03Z"
+    },
+    {
+      "id": 45,
+      "title": "kr0ki commit on PR #35: gallery filter bar redesign (tray, label, gradient active pill, counts, a11y, empty-state); deployed",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T11:43:19Z"
+    },
+    {
+      "id": 46,
+      "title": "kr0ki commit on PR #35: gallery type-card artifacts keyed by typeId (PlantUML cards no longer all light up); headline 'Diagram-as-code, rendered.'; deployed",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:02:53Z"
+    },
+    {
+      "id": 47,
+      "title": "kr0ki commit on PR #35: fast-track Diagram-now button (skips questions after 2 answers, best-judgement render) + dashboard generation spinner; live verified no-ask render; deployed 3812b5a6366b",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:39:12Z"
+    },
+    {
+      "id": 48,
+      "title": "kr0ki review: make locked diagram type prompt refine-only",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:56:26Z",
+      "updated_at": "2026-09-19T13:06:55Z"
+    },
+    {
+      "id": 49,
+      "title": "kr0ki review: render recommendation pair for show-me-both selection",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:56:26Z",
+      "updated_at": "2026-09-19T13:06:55Z"
+    },
+    {
+      "id": 50,
+      "title": "kr0ki review: forward gallery selected type into StoryB00k agent request",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:56:26Z",
+      "updated_at": "2026-09-19T13:06:55Z"
+    },
+    {
+      "id": 51,
+      "title": "kr0ki review: bind gallery type cards to type-specific sample fixtures",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:56:26Z",
+      "updated_at": "2026-09-19T13:06:55Z"
+    },
+    {
+      "id": 52,
+      "title": "kr0ki review: honor catalog type query deep links in gallery",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:56:26Z",
+      "updated_at": "2026-09-19T13:06:55Z"
     }
   ],
   "version": "1"

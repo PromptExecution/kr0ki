@@ -6,8 +6,43 @@ in [`PLAN-KR0KI-002.md`](PLAN-KR0KI-002.md); the typed-layer shape in
 [`DESIGN-NOTE-typed-model-layer.md`](DESIGN-NOTE-typed-model-layer.md). This file just
 tracks *what is left to do*, ordered by the five-box pipeline.
 
-_Last updated: 2026-09-15; corrected 2026-09-17 — boxes 2/3 and the ledgrrr
+_Last updated: 2026-09-19; corrected 2026-09-17 — boxes 2/3 and the ledgrrr
 cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
+
+## ReqIF / Flexo requirements viewpoints — new tracked stream
+
+Read [`HANDOFF-2026-09-19-reqif-flexo.md`](HANDOFF-2026-09-19-reqif-flexo.md) before
+starting this stream. kr0ki's stateless view slice is on
+`feature/flexo-reqif-implementation` (`f9039be`); it is not a requirements store.
+
+- [x] **Normalized requirements graph + five viewpoints** — integration seam in
+  `kr0ki-core::{requirements,requirements_render}` (now re-exporting the upstream
+  model, see next item) and HTTP view/render routes. Preserves baseline/provenance/
+  evidence and gates inferred/proposed edges behind explicit promotion.
+- [x] **Upstream `ufo-types::mbse::requirements`** — moved/released as `ufo-types`
+  v0.15.0 (`PromptExecution/ufo-types#28`). `kr0ki-core` re-exports
+  `ufo_types::mbse::requirements` as `kr0ki_core::requirements` rather than owning a
+  copy — zero drift, zero duplication. View results stay typed; no renderer source
+  in the semantic contract (rendering stays in `kr0ki-core::requirements_render`).
+- [ ] **StrictDoc ReqIF / ReqIFz adapter** — use the Apache-2.0 Python `reqif` package
+  (parser, unparser, validation, schema validation, progress callbacks) through a
+  sidecar HTTP/MCP boundary. Do not write XML parsing in Rust. Cover malformed input,
+  attachments, large-file progress, and round trips against upstream fixtures.
+- [ ] **`reqif-opa-mcp` refactor** — retain its artifact → document graph → candidate
+  → OPA → ReqIF pipeline; replace its private requirement DTO/relation/provenance and
+  validation types with the upstream `ufo-types` contract.
+- [ ] **Flexo baseline adapter** — import validated ReqIF into versioned RDF, retain
+  original artifact and deterministic export per Flexo commit, then materialize the
+  same normalized graph. Prove commit ↔ graph ↔ export equivalence in contract tests.
+- [ ] **Playb00k requirements workspace** — after M2/M3 contracts exist: import and
+  validate, select baseline, browse hierarchy/provenance, run all five viewpoints,
+  distinguish asserted/inferred/proposed edges, explicitly promote, and open cached
+  artifacts. Keep Vue independent of the API schema so Flexo Web Modeler can reuse it.
+- [ ] **MCP requirements tools** — add accepted view/render contracts to
+  `McpTool::ALL`, bridge manifest tests, and API docs; do not hard-code a second
+  dispatcher.
+- [ ] **GraalVM LLVM/Rust spike** — only after HTTP/MCP integration works. Record
+  target/library constraints and keep it optional for first release.
 
 ---
 

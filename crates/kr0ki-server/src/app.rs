@@ -75,10 +75,13 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
         .route("/capabilities", get(capabilities))
         .route("/api/examples", get(examples))
         .route("/playbook/api/examples.json", get(examples))
+        .route("/api/catalog", get(catalog))
         .route("/playbook", get(playbook_index))
         .route("/playbook/", get(playbook_index))
         .route("/playbook/*path", get(playbook_asset))
+        .route("/requirements/views", post(requirements_view))
         .route("/render/:format", post(render))
+        .route("/render/requirements-view", post(render_requirements_view))
         .route("/render/kubediagram", post(render_kubediagram))
         .route("/render/k8s-topology", post(render_k8s_topology))
         .route(
@@ -213,6 +216,28 @@ a { color: #5271ff; }
 
 async fn formats() -> Json<Vec<&'static str>> {
     Json(DiagramFormat::ALL.iter().map(|f| f.kroki_slug()).collect())
+}
+
+/// Backend-neutral input shared by the Playb00k HTTP surface, an MCP adapter,
+/// and a future Flexo Web Modeler client. A Flexo/ReqIF adapter owns loading
+/// the baseline; kr0ki receives the normalized graph only.
+#[derive(Debug, serde::Deserialize)]
+struct RequirementsViewInput {
+    graph: kr0ki_core::requirements::RequirementGraph,
+    request: kr0ki_core::requirements::ViewRequest,
+}
+
+/// `POST /requirements/views` — return an induced typed graph, not diagram
+/// source. This is the stable view contract for requirements clients.
+async fn requirements_view(Json(input): Json<RequirementsViewInput>) -> Response {
+    match input.graph.view(&input.request) {
+        Ok(view) => Json(view).into_response(),
+        Err(error) => error_json(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_requirement_view",
+            &error.to_string(),
+        ),
+    }
 }
 
 /// `GET /mcp/tools` — the MCP/HTTP capability manifest (mcp-http-parity
@@ -482,6 +507,26 @@ async fn examples() -> Json<&'static [kr0ki_core::examples::PlaybookExample]> {
     Json(kr0ki_core::examples::ALL)
 }
 
+/// `GET /api/catalog` — the intent-first diagram-type taxonomy (Plan 005):
+/// distinct addressible typeIds, use-case tags for the gallery filter, and
+/// per-type sample prompts for the Agent handoff button.
+async fn catalog() -> Json<serde_json::Value> {
+    use kr0ki_core::catalog;
+    Json(serde_json::json!({
+        "useCases": catalog::used_use_cases(),
+        "types": catalog::TYPES.iter().map(|t| serde_json::json!({
+            "id": t.id,
+            "syntax": t.syntax,
+            "exampleId": t.example_id,
+            "name": t.name,
+            "useCases": t.use_cases,
+            "blurb": t.blurb,
+            "samplePrompt": t.sample_prompt,
+        })).collect::<Vec<_>>(),
+        "discoveryGuide": catalog::discovery_guide(),
+    }))
+}
+
 async fn playbook_index(State(state): State<AppState>) -> Response {
     playbook_file(&state.playbook_dir, "index.html").await
 }
@@ -583,6 +628,46 @@ async fn render(
     match state.service.render(format, output, source).await {
         Ok(r) => rendered_response(output, r),
         Err(e) => service_error_response(e),
+    }
+}
+
+/// `POST /render/requirements-view?output=svg|png` — the semantic graph
+/// boundary for ReqIF/Flexo requirements. It first induces a typed view and
+/// only then lowers that view to D2 for the existing cache-aware renderer.
+/// A behaviour view must carry the user's explicit confirmation before it can
+/// become an artifact; recommendations alone are intentionally non-rendering.
+async fn render_requirements_view(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    Json(input): Json<RequirementsViewInput>,
+) -> Response {
+    if input.request.kind == kr0ki_core::requirements::ViewKind::Behaviour
+        && input.request.confirmed_behaviour.is_none()
+    {
+        return error_json(
+            StatusCode::CONFLICT,
+            "behaviour_confirmation_required",
+            "confirm the recommended behaviour view before rendering it",
+        );
+    }
+    let view = match input.graph.view(&input.request) {
+        Ok(view) => view,
+        Err(error) => {
+            return error_json(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "invalid_requirement_view",
+                &error.to_string(),
+            )
+        }
+    };
+    let output = params
+        .get("output")
+        .and_then(|v| OutputKind::from_param(v))
+        .unwrap_or(OutputKind::Svg);
+    let d2 = kr0ki_core::requirements_render::to_d2(&view);
+    match state.service.render(DiagramFormat::D2, output, &d2).await {
+        Ok(rendered) => rendered_response(output, rendered),
+        Err(error) => service_error_response(error),
     }
 }
 
