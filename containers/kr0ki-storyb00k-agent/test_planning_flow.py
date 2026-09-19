@@ -43,6 +43,14 @@ class PlanningFlowTest(unittest.TestCase):
         server._pending_questions.clear()
         server._drafts.clear()
 
+        # This suite runs the real HTTP server end-to-end but must not depend
+        # on a live kr0ki-server being reachable at KR0KI_URL: fetch_manifest()
+        # is the one real network call _run() makes before it ever reaches the
+        # (also mocked) LLM. Same pattern test_server.py already uses.
+        self.manifest = patch("server.fetch_manifest", return_value=[])
+        self.manifest.start()
+        self.addCleanup(self.manifest.stop)
+
         # Mock LLM: first call asks the user a multiple-choice question.
         self.llm = patch("llm_client.OpenAICompatibleClient")
         mock_cls = self.llm.start()
