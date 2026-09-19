@@ -442,10 +442,7 @@ mod tests {
             semantic_type: None,
         });
         let d2 = D2Emitter::emit(&graph.to_cytoscape());
-        assert_eq!(
-            d2,
-            "\"n1\": \"normal requirement { {shape: circle}\"\n"
-        );
+        assert_eq!(d2, "\"n1\": \"normal requirement { {shape: circle}\"\n");
         assert_eq!(
             d2.lines().count(),
             1,
