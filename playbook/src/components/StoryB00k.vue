@@ -1,7 +1,12 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useChat } from '@synoped/ag-ui-vue'
 import StoryB00kPanel from './StoryB00kPanel.vue'
+import RevisionFlow from './RevisionFlow.vue'
+import {
+  createRevisionGraph, activeNode, addPromptNode, addEditNode,
+  checkoutNode, forkFrom, serialize as serializeGraph,
+} from '../lib/revisionGraph.js'
 
 // Preserve the browser-visible host so LAN users reach this pod's sidecar instead
 // of their own workstation's localhost.
@@ -61,6 +66,103 @@ const statusLabel = computed(() => ({
   streaming: 'Working…',
   error: 'Error',
 }[status.value] || status.value))
+
+// ---- Revision graph: every prompt/render is a node; time travel + forks ----
+const revisionGraph = reactive(createRevisionGraph({ source: '', format: 'd2', label: 'Session start' }))
+const showRevisions = ref(false)
+const editingMessageId = ref(null)
+const editedPrompt = ref('')
+const activeRevision = computed(() => activeNode(revisionGraph))
+const saveState = ref('')
+
+// Watch panel renders: when the agent produces a new diagram, record it as a
+// prompt node (the prompt that produced it) on top of the active revision.
+watch(panels, (list) => {
+  const latest = [...list].reverse().find((p) => p.kind === 'render' && p.source?.text)
+  if (!latest) return
+  if (revisionGraph.nodes.some((n) => n.source === latest.source.text && n.kind !== 'root')) return
+  addPromptNode(revisionGraph, {
+    prompt: latest.promptUsed || latest.toolName || 'agent render',
+    source: latest.source.text,
+    format: latest.source.format || 'd2',
+    route: latest.source.route || null,
+    notes: '',
+  })
+  saveState.value = ''
+}, { deep: true })
+
+async function persistChart(description) {
+  try {
+    const res = await fetch(`${agentUrl}/charts/save`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        threadId: threadId.value,
+        graph: JSON.parse(serializeGraph(revisionGraph)),
+        source: activeRevision.value.source,
+        format: activeRevision.value.format,
+        description,
+      }),
+    })
+    const data = await res.json()
+    saveState.value = data.jj ? `saved + jj snapshot ✓` : data.path ? `saved ✓ (plain file)` : `save failed: ${data.error || 'unknown'}`
+  } catch (err) {
+    saveState.value = `save failed: ${err.message}`
+  }
+}
+
+function checkoutRevision(nodeId) {
+  checkoutNode(revisionGraph, nodeId)
+  console.info('[storyb00k] time travel →', nodeId)
+  // Push the restored state into the live panel stream so the dashboard shows it.
+  const node = activeNode(revisionGraph)
+  if (node.source) {
+    chat.state.value = { panels: [{ kind: 'render', toolName: 'time-travel', content: '', source: { text: node.source, format: node.format, route: node.route } }], drafts: drafts.value }
+  }
+}
+
+function forkRevision(nodeId) {
+  const node = forkFrom(revisionGraph, nodeId, 'fork')
+  console.info('[storyb00k] forked from', nodeId, '→', node.id)
+  persistChart(`fork from ${nodeId}`)
+}
+
+function startEditPrompt(item) {
+  if (item.role !== 'user') return
+  editingMessageId.value = item.id
+  editedPrompt.value = item.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')
+}
+
+function cancelEditPrompt() {
+  editingMessageId.value = null
+  editedPrompt.value = ''
+}
+
+// Regenerate: re-run an edited prompt from the ACTIVE revision's diagram state.
+// The new node's source starts as the active state; the agent's next render
+// (watched above) becomes the mutation on top.
+async function regeneratePrompt(item, editedText) {
+  const text = (editedText ?? editedPrompt.value).trim()
+  if (!text || busy.value) return
+  console.info('[storyb00k] regenerate from revision', activeRevision.value.id, '→', text)
+  addPromptNode(revisionGraph, {
+    prompt: text,
+    source: activeRevision.value.source,
+    format: activeRevision.value.format,
+    route: activeRevision.value.route,
+    notes: 'regenerating…',
+  })
+  editingMessageId.value = null
+  editedPrompt.value = ''
+  input.value = ''
+  // Editing + resending means the user wants the agent to see the correction:
+  // send as a fresh run — the agent's own tools render from the authoritative
+  // model, and the watch above attaches its output to this revision node.
+  try {
+    await chat.send(text)
+  } catch (err) {
+    console.error('[storyb00k] regenerate failed:', err?.message ?? err)
+  }
+}
 
 async function sendMessage() {
   const text = input.value.trim()
@@ -146,9 +248,26 @@ function formatTokens(u) {
         </p>
         <article v-for="item in items" :key="item.id" class="storyb00k__message" :data-role="item.role">
           <strong>{{ item.role }}:</strong>
-          <span v-for="(part, index) in item.parts" :key="index" class="storyb00k__part">
-            {{ part.type === 'text' ? part.text : `[${part.type}]` }}
-          </span>
+          <template v-if="editingMessageId === item.id">
+            <div class="storyb00k__edit-box">
+              <textarea v-model="editedPrompt" rows="2" data-testid="prompt-editor" />
+              <div class="storyb00k__edit-actions">
+                <button :disabled="busy" data-testid="regenerate" @click="regeneratePrompt(item)">↻ Regenerate</button>
+                <button class="storyb00k__btn-secondary" @click="cancelEditPrompt">Cancel</button>
+              </div>
+            </div>
+          </template>
+          <template v-else>
+            <span v-for="(part, index) in item.parts" :key="index" class="storyb00k__part">
+              {{ part.type === 'text' ? part.text : `[${part.type}]` }}
+            </span>
+            <button
+              v-if="item.role === 'user' && !busy"
+              class="storyb00k__msg-edit"
+              title="Edit this prompt and regenerate the diagram from the current revision"
+              @click="startEditPrompt(item)"
+            >✏️</button>
+          </template>
         </article>
 
         <div v-for="tool in toolActivity" :key="tool.id" class="storyb00k__step" data-testid="tool-step">
@@ -206,6 +325,25 @@ function formatTokens(u) {
         @edit="editPanelSource"
       />
       <p v-if="!panels.length" class="storyb00k__empty">Rendered diagrams and model data appear here as the agent works.</p>
+
+      <div class="storyb00k__revbar">
+        <button class="storyb00k__revtoggle" data-testid="toggle-revisions" @click="showRevisions = !showRevisions">
+          {{ showRevisions ? '▾' : '▸' }} Revisions ({{ revisionGraph.nodes.length }})
+        </button>
+        <span class="storyb00k__rev-active" :title="activeRevision.prompt || activeRevision.label">
+          active: {{ activeRevision.label }}
+        </span>
+        <button :disabled="!activeRevision.source" data-testid="save-chart" title="Serialize the revision graph + active diagram to the local filesystem (jj snapshot)" @click="persistChart(`save ${activeRevision.label}`)">
+          💾 Save
+        </button>
+        <span v-if="saveState" class="storyb00k__savestate">{{ saveState }}</span>
+      </div>
+      <RevisionFlow
+        v-if="showRevisions"
+        :graph="revisionGraph"
+        @checkout="checkoutRevision"
+        @fork="forkRevision"
+      />
     </section>
   </div>
 </template>
@@ -236,5 +374,15 @@ function formatTokens(u) {
 .storyb00k__clear-panels { font-size: .75rem; }
 .storyb00k__dash-header { display: flex; align-items: baseline; gap: .5rem; }
 .storyb00k__dash-header h3 { margin: 0; }
+.storyb00k__msg-edit { font-size: .7rem; border: 0; background: transparent; cursor: pointer; opacity: .5; }
+.storyb00k__msg-edit:hover { opacity: 1; }
+.storyb00k__edit-box { display: grid; gap: .3rem; width: 100%; margin-top: .25rem; }
+.storyb00k__edit-box textarea { font: inherit; padding: .35rem; }
+.storyb00k__edit-actions { display: flex; gap: .4rem; }
+.storyb00k__btn-secondary { opacity: .75; }
+.storyb00k__revbar { display: flex; align-items: center; gap: .6rem; font-size: .8rem; flex-wrap: wrap; }
+.storyb00k__revtoggle { cursor: pointer; }
+.storyb00k__rev-active { opacity: .65; max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.storyb00k__savestate { opacity: .7; font-size: .75rem; }
 @media (max-width: 760px) { .storyb00k { grid-template-columns: 1fr; } }
 </style>

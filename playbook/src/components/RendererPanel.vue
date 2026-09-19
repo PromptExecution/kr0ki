@@ -5,8 +5,10 @@ const props = defineProps({
   example: { type: Object, required: true },
   examples: { type: Array, required: true },
   // Preloaded source handed over from StoryB00k's EDIT button. Applied once,
-  // then the user owns the textarea.
+  // then the user owns the textarea. overrideRoute carries a custom endpoint
+  // (e.g. /render/k8s-topology) when the source isn't a plain /render/{format}.
   overrideSource: { type: String, default: undefined },
+  overrideRoute: { type: String, default: undefined },
 })
 const emit = defineEmits(['select-example'])
 
@@ -78,7 +80,9 @@ const renderEndpoint = computed(() => {
   if (!rendererUrl.value.trim()) return ''
   // See Gallery.vue's endpointFor: a custom-route example (e.g.
   // POST /render/k8s-topology) isn't reachable via /render/{format}.
-  const path = props.example.route || `/render/${props.example.format}`
+  // An EDIT override may carry its own route (agent k8s renders hosted on a
+  // different-format example must still hit their own endpoint).
+  const path = props.overrideRoute || props.example.route || `/render/${props.example.format}`
   return `${rendererUrl.value.trim().replace(/\/$/, '')}${path}?output=${output.value}`
 })
 

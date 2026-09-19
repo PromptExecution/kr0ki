@@ -268,6 +268,22 @@
       "priority": 3,
       "tags": [],
       "created_at": "2026-09-19T02:21:09Z"
+    },
+    {
+      "id": 33,
+      "title": "kr0ki: StoryB00k MVP committed + PR opened. Branch task/22-storyb00k-mvp @ c7f69b0 pushed to origin (45 files, +3413/-108); PR https://github.com/PromptExecution/kr0ki/pull/34 (OPEN, MERGEABLE, base main). Leak scan clean: no secret patterns in tree/diff, .env gitignored, committed key strings are placeholders. Gates green at commit time.",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T03:11:01Z"
+    },
+    {
+      "id": 34,
+      "title": "kr0ki: release prep on PR #34 (commit 94bcec5): README capabilities+license+routes+roadmap (chart catalog/discovery next); MIT workspace-wide (playbook package.json license added; vendored licenses documented: kroki-mcp MIT, assistant-ui MIT, kubediagrams Apache-2.0); EDIT button on StoryB00k renders -> editor preloaded (8/8 vitest). Live pod redeployed with EDIT bundle.",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T03:50:39Z"
     }
   ],
   "version": "1"

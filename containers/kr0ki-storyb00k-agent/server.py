@@ -24,6 +24,7 @@ from pathlib import Path
 
 import llm_client
 from draft_graph import DraftGraph
+import chart_store
 import session_log
 try:
     from manifest_dispatch import apply_binding, fetch_manifest, find_tool, http_call
@@ -100,12 +101,26 @@ def truncate(text, limit=MAX_OUTPUT_CHARS):
 
 def panel_from_tool_result(name, arguments, content_type, result):
     """Preserve binary render output rather than corrupting PNG bytes as UTF-8."""
+    # Tool-name → editor format/route mapping: the k8s tools take a `manifest`
+    # arg and have no `format` argument, so without this the EDIT button would
+    # host their YAML on a D2 example and the editor would POST it to
+    # /render/d2 → 400. Route-aware so RendererPanel targets the right endpoint.
+    tool_format = {
+        "render_kubernetes_topology": ("k8s-topology", "/render/k8s-topology"),
+        "render_kubernetes_manifest": ("k8s-topology", "/render/k8s-topology"),
+        "render_kubediagram": ("kubediagram", "/render/kubediagram"),
+    }.get(name)
+    if tool_format:
+        panel_format, panel_route = tool_format
+    else:
+        panel_format, panel_route = arguments.get("format"), None
     panel = {
         "kind": "render" if name.startswith("render_") else "query-result",
         "toolName": name,
         "source": {
             "text": arguments.get("source") or arguments.get("manifest"),
-            "format": arguments.get("format"),
+            "format": panel_format,
+            "route": panel_route,
         } if name.startswith("render_") else None,
     }
     if content_type.startswith("image/") and content_type != "image/svg+xml":
@@ -207,6 +222,17 @@ class Handler(BaseHTTPRequestHandler):
             })
         elif self.path == "/debug/sessions":
             self._json(200, {"sessions": session_log.list_sessions()})
+        elif self.path == "/charts":
+            self._json(200, {"charts": chart_store.list_charts()})
+        elif self.path.startswith("/charts/history/"):
+            thread_id = self.path[len("/charts/history/"):] or "default"
+            self._json(200, {"thread": thread_id, "log": chart_store.history(thread_id)})
+        elif self.path.startswith("/charts/"):
+            thread_id = self.path[len("/charts/"):] or "default"
+            graph = chart_store.load_chart(thread_id)
+            if graph is None:
+                return self._json(404, {"error": "chart_not_found"})
+            self._json(200, graph)
         elif self.path.startswith("/debug/sessions/"):
             thread_id = self.path[len("/debug/sessions/"):] or "default"
             snapshot = session_log.get_session_full(thread_id)
@@ -233,6 +259,24 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length)) if length else {}
         except (ValueError, json.JSONDecodeError):
             return self._json(400, {"error": "invalid_json"})
+        if self.path == "/charts/save":
+            try:
+                result = chart_store.save_chart(
+                    payload.get("threadId", "default"),
+                    payload.get("graph"),
+                    payload.get("source", ""),
+                    payload.get("format", "d2"),
+                    description=payload.get("description"),
+                )
+            except ValueError as error:
+                return self._json(400, {"error": str(error)})
+            return self._json(200, result)
+        if self.path == "/charts/restore":
+            thread_id = payload.get("threadId", "default")
+            commit_id = payload.get("commitId", "")
+            if not commit_id:
+                return self._json(400, {"error": "commitId required"})
+            return self._json(200, chart_store.restore(thread_id, commit_id))
         if self.path == "/respond-to-interrupt":
             draft = _drafts.get(payload.get("threadId", "default"))
             if draft is None:

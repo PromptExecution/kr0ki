@@ -135,6 +135,10 @@ spec:
         # containers/kr0ki-storyb00k-agent/session_log.py and /debug/sessions.
         - name: KR0KI_DEBUG_LOG_DIR
           value: /var/lib/kr0ki/storyb00k-debug
+        # Chart revision persistence (jj-snapshotted). See
+        # containers/kr0ki-storyb00k-agent/chart_store.py and /charts.
+        - name: KR0KI_CHARTS_DIR
+          value: /var/lib/kr0ki/charts
       ports:
         - containerPort: 8789
           hostPort: 8789
@@ -153,6 +157,8 @@ spec:
       volumeMounts:
         - name: storyb00k-debug
           mountPath: /var/lib/kr0ki/storyb00k-debug
+        - name: storyb00k-charts
+          mountPath: /var/lib/kr0ki/charts
       securityContext:
         allowPrivilegeEscalation: false
         capabilities:
@@ -164,6 +170,8 @@ spec:
     - name: kubediagram-tmp
       emptyDir: {}
     - name: storyb00k-debug
+      emptyDir: {}
+    - name: storyb00k-charts
       emptyDir: {}
     - name: kr0ki-capabilities
       emptyDir: {}

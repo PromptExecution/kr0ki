@@ -11,6 +11,7 @@ const loadError = ref('')
 const viewMode = ref('gallery')
 // Source handed over from StoryB00k's EDIT button (agent-rendered diagram).
 const editedSource = ref('')
+const editedRoute = ref(null)
 let editedSourcePending = false
 
 // `api/examples.json` is deliberately relative: it resolves beneath
@@ -37,17 +38,21 @@ function openInEditor(example) {
 }
 
 // EDIT from a StoryB00k render panel: preload the agent-produced source into
-// the editor. Prefer a matching-format example as the host (keeps format
-// dropdown/outputs consistent); fall back to the first example of that format.
-function editInEditor({ source, format }) {
+// the editor. Host selection is format+route aware: a k8s-topology source must
+// land on the k8s-topology example (its /render/k8s-topology route), not the
+// d2 example — otherwise the editor POSTs YAML to /render/d2 and Kroki 400s.
+function editInEditor({ source, format, route }) {
   const formatId = format || 'd2'
-  const host = examples.value.find((example) => example.format === formatId)
+  const host = (formatId !== 'd2' && examples.value.find((example) => example.format === formatId))
     || examples.value.find((example) => example.format === 'd2')
   if (!host) return
   viewMode.value = 'editor'
   selectedFormat.value = host.format
   selectedId.value = host.id
   editedSource.value = source
+  // Carry the panel's route through so the editor targets the right endpoint
+  // even when hosting on a different-format example.
+  editedRoute.value = route || null
   editedSourcePending = true
 }
 
@@ -139,6 +144,7 @@ onMounted(async () => {
         :example="selectedExample"
         :examples="formatExamples"
         :override-source="editedSourcePending ? editedSource : undefined"
+        :override-route="editedSourcePending ? editedRoute : undefined"
         @select-example="onSelectExample"
       />
       <p v-else class="loading">Loading test-backed examples…</p>
