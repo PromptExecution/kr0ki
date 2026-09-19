@@ -241,6 +241,46 @@ class PlanningFlowTest(unittest.TestCase):
         self.assertIn("REFINE MODE", captured["system"])
         self.assertIn("Type chosen: activity", captured["system"])
 
+    def test_approval_payload_on_question_tolerated(self):
+        """A generic client that posts {approved: true} to a rec-* question
+        gets the primary option as the answer instead of a 400."""
+        base = f"http://127.0.0.1:{self.port}"
+        self.client.chat_completion.side_effect = None
+        self.client.chat_completion.return_value = {
+            "model": "t",
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "c-rec2",
+                        "function": {
+                            "name": "recommend_diagram_type",
+                            "arguments": json.dumps({
+                                "mode": "confirm",
+                                "recommendations": [{"typeId": "flowchart", "rationale": "r"}],
+                                "question": "Go with a flowchart?",
+                                "options": ["Flowchart", "Show me both"],
+                            }),
+                        },
+                    }],
+                },
+            }],
+            "usage": {},
+        }
+        _post_stream(f"{base}/run", {
+            "threadId": "plan-tol", "runId": "r1",
+            "messages": [{"role": "user", "content": "draw it"}],
+        })
+        status, body = _post(f"{base}/respond-to-interrupt", {
+            "threadId": "plan-tol",
+            "interruptId": server._pending_questions["plan-tol"]["id"],
+            "approved": True,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(body["answer"], "Flowchart")
+        project = server.project_store.get_project("plan-tol")
+        self.assertEqual(project["lockedType"], "flowchart")
+
     def test_answer_requires_pending_question(self):
         req = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/respond-to-interrupt",

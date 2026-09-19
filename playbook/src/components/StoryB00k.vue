@@ -253,7 +253,11 @@ const questionChoice = ref('')
 const questionFreeText = ref('')
 
 function isQuestionInterrupt(interrupt) {
-  return typeof interrupt.id === 'string' && interrupt.id.startsWith('ask-')
+  // ask-* = discovery/refinement questions; rec-* = type recommendations.
+  // Both render the multiple-choice answer UI (Approve/Decline is for
+  // draft proposals only — posting `approved` on a question yields 400).
+  const id = interrupt.id
+  return typeof id === 'string' && (id.startsWith('ask-') || id.startsWith('rec-'))
 }
 
 // zod strips unknown keys from interrupt objects, so the options ride in the

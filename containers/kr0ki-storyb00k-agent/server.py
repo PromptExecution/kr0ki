@@ -398,6 +398,11 @@ class Handler(BaseHTTPRequestHandler):
                 # Planning refinement / type-confirm answer: record it in the
                 # project QA history, hand it back to the caller (the UI
                 # resumes the run with the answer recorded client-side).
+                # Tolerate an approval-style payload ({approved: true}) from a
+                # generic client: treat it as choosing the primary option.
+                if payload.get("answer") is None and payload.get("approved") is not None:
+                    options = question.get("options") or []
+                    payload = {**payload, "answer": options[0] if options else "yes"}
                 answer = str(payload.get("answer") or "").strip()[:2000]
                 if not answer:
                     return self._json(400, {"error": "answer_required"})

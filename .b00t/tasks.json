@@ -348,6 +348,14 @@
       "priority": 3,
       "tags": [],
       "created_at": "2026-09-19T08:53:16Z"
+    },
+    {
+      "id": 43,
+      "title": "kr0ki commit dcc0103 on PR #35: Plan 005 implemented — catalog.rs (24 types, /api/catalog), gallery filter+Agent handoff, discover mode with recommend_diagram_type + type lock-in, per-type skills; live E2E accepted; 40py+15vitest+19cargo",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T09:41:03Z"
     }
   ],
   "version": "1"
