@@ -272,10 +272,12 @@ async function submitAnswer(interruptId) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     questionChoice.value = ''
     questionFreeText.value = ''
-    // Record the response with the client (no auto-resume — disabled), then
-    // continue the planning loop explicitly with the answer as a user message.
+    // Record the response with the client, then RESUME the interrupted run —
+    // chat.send() would start a new run, which the agent rejects while
+    // interrupts are pending ("Thread has N pending interrupt(s) not
+    // addressed by resume"). resume() carries the recorded response payload.
     chat.respondToInterrupt(interrupt.id, { answer })
-    await chat.send(answer)
+    await chat.resume()
     loadProject()
   } catch (err) {
     console.error('[storyb00k] answer failed:', err?.message ?? err)

@@ -83,7 +83,7 @@ onMounted(async () => {
   <main class="shell">
     <aside class="sidebar">
       <a class="brand" href="../">kr0ki <span>playb00k</span></a>
-      <p class="sidebar-copy">Test-backed examples from the same catalog used by Rust tests and mdb00k — or clear the source and render your own diagram in any format below.</p>
+      <p class="sidebar-copy">Example fixtures for every supported format — or clear the source and render your own.</p>
       <nav class="view-tabs" aria-label="Playbook view">
         <button class="view-tab" :class="{ active: viewMode === 'gallery' }" @click="viewMode = 'gallery'">
           Gallery
