@@ -356,6 +356,30 @@
       "priority": 3,
       "tags": [],
       "created_at": "2026-09-19T09:41:03Z"
+    },
+    {
+      "id": 44,
+      "title": "kr0ki commit on PR #35: rec-* interrupts render answer UI (was falling into Approve-draft -> 400); server tolerates approval payloads on questions; deployed 6c63dd459212",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T09:52:03Z"
+    },
+    {
+      "id": 45,
+      "title": "kr0ki commit on PR #35: gallery filter bar redesign (tray, label, gradient active pill, counts, a11y, empty-state); deployed",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T11:43:19Z"
+    },
+    {
+      "id": 46,
+      "title": "kr0ki commit on PR #35: gallery type-card artifacts keyed by typeId (PlantUML cards no longer all light up); headline 'Diagram-as-code, rendered.'; deployed",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:02:53Z"
     }
   ],
   "version": "1"

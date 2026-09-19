@@ -67,6 +67,15 @@ SYSTEM_PREAMBLE = (
     "render the diagram.\n"
     "4. RENDER: use the tools to read the live model and render. Prefer tool "
     "evidence over guessing: if you lack a fact, call a tool before answering.\n\n"
+    "FAST-TRACK OVERRIDES (user-authorized best judgement — no more questions):\n"
+    "- If PROJECT MEMORY contains 'Fast-track: diagram now', or the user's latest "
+    "message says 'diagram now', you MUST NOT call ask_user or "
+    "recommend_diagram_type again. Pick the best-judgement type and parameters "
+    "from everything known so far, state your choices in one short paragraph "
+    "(prefixed 'Best judgement:'), treat it as the lock-in, and render immediately "
+    "in the same run.\n"
+    "- Discovery still applies the max-3-questions budget; from the third question "
+    "onward prefer fast-tracking over asking.\n\n"
     "When the user asks for a change to the authoritative model, propose it with the "
     "propose_draft_change tool — never claim to have modified the authoritative "
     "model. Keep narration concise."
@@ -387,6 +396,13 @@ class Handler(BaseHTTPRequestHandler):
             if not commit_id:
                 return self._json(400, {"error": "commitId required"})
             return self._json(200, chart_store.restore(thread_id, commit_id))
+        if self.path == "/projects/fasttrack":
+            thread_id = payload.get("threadId", "default")
+            project = project_store.get_project(thread_id)
+            if project is not None:
+                project["fastTrack"] = bool(payload.get("enabled", True))
+                project_store.save_project(thread_id, project)
+            return self._json(200, {"status": "ok"})
         if self.path == "/respond-to-interrupt":
             thread_id = payload.get("threadId", "default")
             draft = _drafts.get(thread_id)
@@ -474,6 +490,10 @@ class Handler(BaseHTTPRequestHandler):
         # questions, then recommend via the tool (never ask "which syntax?").
         if project.get("lockedType"):
             memory_lines.append(f"Type chosen: {project['lockedType']} — do not switch without asking.")
+        # Fast-track (Plan 005 UX): after 2+ answered questions the user can
+        # authorize best-judgement rendering — the agent must not ask again.
+        if project.get("fastTrack"):
+            memory_lines.append("Fast-track: diagram now — the user has authorized best judgement; do NOT ask any further questions, render immediately.")
         qa_memory = ""
         if memory_lines:
             qa_memory = (
@@ -481,29 +501,37 @@ class Handler(BaseHTTPRequestHandler):
                 "the same or an equivalent question again — treat each answer as a "
                 "hard requirement):\n" + "\n".join(f"- {line}" for line in memory_lines)
             )
+        # Fast-track (Plan 005 UX) / refine-vs-discover mode selection.
         discovery_mode = not project.get("lockedType")
         try:
             guide = urllib.request.urlopen(f"{KR0KI_URL}/api/catalog", timeout=5).read().decode("utf-8")
             catalog_guide = json.loads(guide).get("discoveryGuide", "")
         except Exception:  # noqa: BLE001 — catalog hiccups must not kill the run
             catalog_guide = ""
-        mode_rules = (
-            "\n\nQUESTION MODES — pick exactly one per run:\n"
-            "- DISCOVER MODE (active now): the user has NOT named a diagram syntax. "
-            "Ask what they want to CONVEY, not which syntax: audience/purpose first, "
-            "then which intent shape fits (use the vocabulary below), optionally "
-            "fidelity. Max 3 questions. Then you MUST call recommend_diagram_type with one "
-            "primary + one alternative type id and one-line rationales — locking in "
-            "without that tool call is a contract violation; the user confirms via "
-            "its interrupt or picks 'show me both' (render both samples). NEVER ask "
-            "'which syntax/format do you want?'\n"
-            "- REFINE MODE: the type is already locked — refine participants, "
-            "scope, and level of detail only.\n"
-            + (f"\nTYPE VOCABULARY:\n{catalog_guide}\n" if catalog_guide else "")
-            if discovery_mode else
-            "\n\nQUESTION MODES — REFINE MODE (type is locked): refine participants, "
-            "scope, and level of detail only."
-        )
+        # Fast-track overrides the mode entirely: no questions allowed.
+        if project.get("fastTrack"):
+            mode_rules = (
+                "\n\nQUESTION MODES — FAST-TRACK MODE (user-authorized best judgement): "
+                "the user has authorized you to render NOW. Do NOT call ask_user or "
+                "recommend_diagram_type — asking is a contract violation. State your "
+                "best-judgement choices (prefix 'Best judgement:'), treat it as the "
+                "lock-in, and render immediately in this run."
+            )
+        else:
+            mode_rules = (
+                "\n\nQUESTION MODES — pick exactly one per run:\n"
+                "- DISCOVER MODE (active now): the user has NOT named a diagram syntax. "
+                "Ask what they want to CONVEY, not which syntax: audience/purpose first, "
+                "then which intent shape fits (use the vocabulary below), optionally "
+                "fidelity. Max 3 questions. Then you MUST call recommend_diagram_type with one "
+                "primary + one alternative type id and one-line rationales — locking in "
+                "without that tool call is a contract violation; the user confirms via "
+                "its interrupt or picks 'show me both' (render both samples). NEVER ask "
+                "'which syntax/format do you want?'\n"
+                "- REFINE MODE: the type is already locked — refine participants, "
+                "scope, and level of detail only.\n"
+                + (f"\nTYPE VOCABULARY:\n{catalog_guide}\n" if catalog_guide else "")
+            )
         qa_memory += mode_rules
         # Plan 005 §3: per-type skill loaded ONLY when the type is locked —
         # replaces the generic skill dump so context stays small and the syntax

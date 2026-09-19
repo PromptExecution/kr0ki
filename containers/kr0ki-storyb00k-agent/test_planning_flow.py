@@ -281,6 +281,27 @@ class PlanningFlowTest(unittest.TestCase):
         project = server.project_store.get_project("plan-tol")
         self.assertEqual(project["lockedType"], "flowchart")
 
+    def test_fast_track_skips_further_questions(self):
+        """POST /projects/fasttrack arms best-judgement mode: the next run's
+        system prompt carries the fast-track override and the answered QA."""
+        base = f"http://127.0.0.1:{self.port}"
+        status, _ = _post(f"{base}/projects/fasttrack", {"threadId": "plan-ft", "enabled": True})
+        self.assertEqual(status, 200)
+        captured = {}
+
+        def capture(messages, tools):
+            captured["system"] = messages[0]["content"]
+            return {"model": "t", "choices": [{"message": {"content": "Best judgement: a flowchart."}}], "usage": {}}
+
+        self.client.chat_completion.side_effect = capture
+        _post_stream(f"{base}/run", {
+            "threadId": "plan-ft", "runId": "r1",
+            "messages": [{"role": "user", "content": "diagram now"}],
+        })
+        self.assertIn("Fast-track: diagram now", captured["system"])
+        self.assertIn("MUST NOT call ask_user", captured["system"])
+        self.assertIn("FAST-TRACK MODE", captured["system"])
+
     def test_answer_requires_pending_question(self):
         req = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/respond-to-interrupt",

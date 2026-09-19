@@ -120,6 +120,28 @@ watch(status, (next, prev) => {
   if (prev !== 'ready' && next === 'ready') loadProject()
 })
 
+// ---- Fast-track (Plan 005 UX): after 2 answered questions the user can
+// skip further questions and authorize best-judgement rendering immediately.
+const canFastTrack = computed(() => (project.value?.qa?.length || 0) >= 2 && !project.value?.fastTrack)
+const fastTrackArmed = computed(() => !!project.value?.fastTrack)
+
+async function diagramNow() {
+  if (busy.value) return
+  try {
+    const res = await fetch(`${agentUrl}/projects/fasttrack`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId: threadId.value, enabled: true }),
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    await loadProject()
+    await chat.send('Diagram now — use your best judgement from what you know so far.')
+    loadProject()
+  } catch (err) {
+    console.error('[storyb00k] diagram-now failed:', err?.message ?? err)
+    projectError.value = `diagram-now failed: ${err.message}`
+  }
+}
+
 const statusLabel = computed(() => ({
   ready: 'Ready',
   submitted: 'Thinking…',
@@ -368,6 +390,11 @@ function formatTokens(u) {
         <p v-if="project.qa.length" class="storyb00k__project-qa" :title="project.qa.map(q => `Q: ${q.question}\nA: ${q.answer}`).join('\n')">
           {{ project.qa.length }} refinement answer{{ project.qa.length === 1 ? '' : 's' }}
         </p>
+        <div v-if="canFastTrack" class="storyb00k__fasttrack">
+          <span class="storyb00k__fasttrack-hint">Enough questions?</span>
+          <button data-testid="diagram-now" :disabled="busy" @click="diagramNow">⚡ Diagram now</button>
+        </div>
+        <p v-else-if="fastTrackArmed" class="storyb00k__project-qa" title="The agent will use best judgement without asking further questions">⚡ Fast-tracked — best judgement only</p>
         <button class="storyb00k__logtoggle" @click="showPromptLog = !showPromptLog">
           {{ showPromptLog ? '▾' : '▸' }} Full prompt &amp; thinking log ({{ promptLog.length + thinkingLog.length }})
         </button>
@@ -486,8 +513,12 @@ function formatTokens(u) {
       <header class="storyb00k__dash-header">
         <h3>Evidence panels</h3>
         <span>{{ panels.length }} panel{{ panels.length === 1 ? '' : 's' }}</span>
+        <span v-if="busy" class="storyb00k__spinner" data-testid="panel-spinner" role="status" aria-label="Diagram generating" title="Generating diagram…"></span>
         <button v-if="panels.length" class="storyb00k__clear-panels" @click="chat.state = { panels: [], drafts: [] }">Clear panels</button>
       </header>
+      <p v-if="busy" class="storyb00k__generating" data-testid="generating-note">
+        <span class="storyb00k__spinner"></span> Generating diagram<span class="storyb00k__dots">…</span>
+      </p>
       <StoryB00kPanel
         v-for="(panel, index) in panels"
         :key="index"
@@ -579,5 +610,20 @@ function formatTokens(u) {
 .storyb00k__choices { display: grid; gap: .2rem; width: 100%; }
 .storyb00k__choice { display: flex; gap: .4rem; align-items: baseline; cursor: pointer; }
 .storyb00k__freetext { flex: 1 1 12rem; }
+.storyb00k__spinner {
+  width: 1rem; height: 1rem; flex: 0 0 auto;
+  border: 2px solid #3b4d7d; border-top-color: #38bdf8;
+  border-radius: 50%; display: inline-block;
+  animation: storyb00k-spin .8s linear infinite;
+}
+@keyframes storyb00k-spin { to { transform: rotate(360deg); } }
+.storyb00k__generating { margin: 0; display: flex; align-items: center; gap: .5rem; color: #9cc9ff; font-size: .85rem; }
+.storyb00k__dots { animation: storyb00k-pulse 1.2s ease-in-out infinite; }
+@keyframes storyb00k-pulse { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+.storyb00k__fasttrack { display: flex; align-items: center; gap: .5rem; }
+.storyb00k__fasttrack-hint { font-size: .75rem; opacity: .6; }
+.storyb00k__fasttrack button { border: 0; border-radius: .45rem; background: #38bdf8; color: #052235; padding: .35rem .7rem; font-weight: 800; cursor: pointer; font-size: .8rem; }
+.storyb00k__fasttrack button:hover { filter: brightness(1.1); }
+.storyb00k__fasttrack button:disabled { opacity: .5; cursor: wait; }
 @media (max-width: 760px) { .storyb00k { grid-template-columns: 1fr; } }
 </style>
