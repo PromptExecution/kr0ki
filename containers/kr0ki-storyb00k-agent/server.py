@@ -404,8 +404,37 @@ class Handler(BaseHTTPRequestHandler):
         tools = [{"type": "function", "function": {"name": tool["name"], "description": tool["description"], "parameters": tool["inputSchema"]}} for tool in manifest]
         tools.append(local_draft_tool())
         tools.append(ask_user_tool)
-        messages = [{"role": "system", "content": SYSTEM_PREAMBLE + "\n\n" + "\n\n".join(load_skills().values())}]
+        project = project_store.get_project(thread_id) or {}
+        # Requirement memory: answered questions and any locked-in summary ride
+        # in the system prompt. The client replays the same messages on resume
+        # (and fresh sends may drop the answer context entirely), so without
+        # this the model re-asks questions the user already answered.
+        memory_lines = []
+        if project.get("requirements"):
+            memory_lines.append(f"Locked in requirements (do not re-litigate): {project['requirements']}")
+        for qa in project.get("qa", []):
+            memory_lines.append(f"Already answered — Q: {qa['question']} A: {qa['answer']}")
+        qa_memory = ""
+        if memory_lines:
+            qa_memory = (
+                "\n\nPROJECT MEMORY (the user has already answered these; NEVER ask "
+                "the same or an equivalent question again — treat each answer as a "
+                "hard requirement):\n" + "\n".join(f"- {line}" for line in memory_lines)
+            )
+        messages = [{"role": "system", "content": SYSTEM_PREAMBLE + qa_memory + "\n\n" + "\n\n".join(load_skills().values())}]
         messages += messages_from_payload(payload)
+        # Also inject the answers as an explicit tool-result conversation turn so
+        # the model sees them in the message flow, not only the system prompt.
+        for qa in project.get("qa", []):
+            already = any(
+                isinstance(m.get("content"), str) and qa["answer"] in m["content"]
+                for m in messages if m.get("role") == "user"
+            )
+            if not already:
+                messages.append({
+                    "role": "user",
+                    "content": f"(answer to your question \"{qa['question']}\"): {qa['answer']}",
+                })
         client = llm_client.OpenAICompatibleClient.from_env()
 
         usage_total = {"promptTokens": 0, "completionTokens": 0}

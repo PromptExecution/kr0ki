@@ -117,6 +117,42 @@ class PlanningFlowTest(unittest.TestCase):
         status, body = _post(f"{base}/projects/rename", {"threadId": "plan-1", "title": "Cluster map"})
         self.assertEqual(body["title"], "Cluster map")
 
+    def test_repeat_run_does_not_reask_answered_questions(self):
+        """After a QA round, the next run's LLM context carries the answer —
+        in the system prompt memory and as an explicit user turn — so the
+        agent cannot re-ask the same question."""
+        base = f"http://127.0.0.1:{self.port}"
+        # Round 1: the agent asks (mock returns ask_user tool call).
+        _post_stream(f"{base}/run", {
+            "threadId": "plan-mem", "runId": "r1",
+            "messages": [{"role": "user", "content": "Draw my cluster"}],
+        })
+        # Answer via the interrupt endpoint.
+        _post(f"{base}/respond-to-interrupt", {
+            "threadId": "plan-mem",
+            "interruptId": server._pending_questions["plan-mem"]["id"],
+            "answer": "d2",
+        })
+        # Round 2: capture the messages the LLM receives on the resumed run.
+        captured = {}
+
+        def capture_completion(messages, tools):
+            captured["messages"] = messages
+            return {"model": "t", "choices": [{"message": {"content": "Locked in: a d2 diagram."}}], "usage": {}}
+
+        self.client.chat_completion.side_effect = capture_completion
+        _post_stream(f"{base}/run", {
+            "threadId": "plan-mem", "runId": "r2",
+            "messages": [{"role": "user", "content": "Draw my cluster"}],
+        })
+        system = captured["messages"][0]["content"]
+        self.assertIn("PROJECT MEMORY", system)
+        self.assertIn("Already answered", system)
+        self.assertIn("d2", system)
+        user_turns = [m["content"] for m in captured["messages"] if m["role"] == "user"]
+        self.assertTrue(any('(answer to your question "Which diagram type?")' in t and "d2" in t for t in user_turns),
+                        user_turns)
+
     def test_answer_requires_pending_question(self):
         req = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/respond-to-interrupt",
