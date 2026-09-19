@@ -34,6 +34,10 @@ const transcriptEl = ref(null)
 const chat = useChat({
   url: `${agentUrl}/run`,
   initialState: { panels: [], drafts: [] },
+  // Our submitAnswer() drives continuation explicitly via chat.send(answer);
+  // the client's auto-resume fires resume() the moment all interrupts have
+  // responses, colliding with that send ("A run is already in progress").
+  autoResumeInterrupts: false,
   // Pipe every AG-UI event and lifecycle transition to the browser console —
   // this is the debugger for the "UI feels disconnected" class of problem.
   debug: { events: true, lifecycle: true },
@@ -235,7 +239,6 @@ async function answerInterrupt(interrupt, approved) {
 
 // Planning questions (ask_user interrupts): pick an option or type free text,
 // then continue the run with the answer appended as a user message.
-const answeringQuestion = ref(null) // interrupt currently being answered
 const questionChoice = ref('')
 const questionFreeText = ref('')
 
@@ -250,25 +253,28 @@ function optionsFor(interrupt) {
 }
 
 function startAnswer(interrupt) {
-  answeringQuestion.value = interrupt
+  // Kept for symmetry/test hooks; the answer UI renders inline now.
   questionChoice.value = ''
   questionFreeText.value = ''
+  void interrupt
 }
 
-async function submitAnswer() {
-  const interrupt = answeringQuestion.value
+async function submitAnswer(interruptId) {
+  const interrupt = interrupts.value.find((i) => i.id === interruptId)
   if (!interrupt) return
   const answer = questionFreeText.value.trim() || questionChoice.value
   if (!answer) return
-  answeringQuestion.value = null
   try {
     const res = await fetch(`${agentUrl}/respond-to-interrupt`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ threadId: threadId.value, interruptId: interrupt.id, answer }),
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    questionChoice.value = ''
+    questionFreeText.value = ''
+    // Record the response with the client (no auto-resume — disabled), then
+    // continue the planning loop explicitly with the answer as a user message.
     chat.respondToInterrupt(interrupt.id, { answer })
-    // Continue the planning loop: re-run with the answer in the conversation.
     await chat.send(answer)
     loadProject()
   } catch (err) {
@@ -408,23 +414,20 @@ function formatTokens(u) {
         <div v-for="interrupt in interrupts" :key="interrupt.id" class="storyb00k__interrupt">
           <template v-if="isQuestionInterrupt(interrupt)">
             <p class="storyb00k__question">{{ interrupt.reason || interrupt.message }}</p>
-            <template v-if="answeringQuestion?.id === interrupt.id">
-              <div class="storyb00k__choices">
-                <label v-for="(option, oi) in optionsFor(interrupt)" :key="oi" class="storyb00k__choice">
-                  <input type="radio" :name="`q-${interrupt.id}`" :value="option" v-model="questionChoice" />
-                  {{ option }}
-                </label>
-              </div>
-              <input
-                v-if="interrupt.allowFreeText !== false"
-                v-model="questionFreeText"
-                class="storyb00k__freetext"
-                placeholder="…or answer in your own words"
-                @keydown.enter="submitAnswer"
-              />
-              <button :disabled="!questionChoice && !questionFreeText.trim()" data-testid="submit-answer" @click="submitAnswer">Answer</button>
-            </template>
-            <button v-else data-testid="answer-question" @click="startAnswer(interrupt)">Answer question</button>
+            <div class="storyb00k__choices">
+              <label v-for="(option, oi) in optionsFor(interrupt)" :key="oi" class="storyb00k__choice">
+                <input type="radio" :name="`q-${interrupt.id}`" :value="option" v-model="questionChoice" />
+                {{ option }}
+              </label>
+            </div>
+            <input
+              v-if="interrupt.allowFreeText !== false"
+              v-model="questionFreeText"
+              class="storyb00k__freetext"
+              placeholder="…or answer in your own words"
+              @keydown.enter="submitAnswer(interrupt.id)"
+            />
+            <button :disabled="busy || (!questionChoice && !questionFreeText.trim())" data-testid="submit-answer" @click="submitAnswer(interrupt.id)">Answer</button>
           </template>
           <template v-else>
             <p>{{ interrupt.reason || interrupt.message }}</p>
@@ -511,16 +514,21 @@ function formatTokens(u) {
 .storyb00k__lede { margin: 0; font-size: .9rem; opacity: .75; }
 .storyb00k__messages { max-height: 55vh; overflow-y: auto; display: flex; flex-direction: column; gap: .4rem; padding-right: .25rem; }
 .storyb00k__message { margin: 0; }
-.storyb00k__message[data-role='user'] { background: #eef2ff; border-radius: .4rem; padding: .35rem .5rem; }
+.storyb00k__message[data-role='user'] { background: #1b2a52; border-radius: .4rem; padding: .35rem .5rem; }
 .storyb00k__step { font-size: .78rem; opacity: .8; display: flex; gap: .5rem; align-items: baseline; }
 .storyb00k__step-name { font-family: ui-monospace, monospace; }
-.storyb00k__step-status--error { color: #b91c1c; font-weight: 700; }
-.storyb00k__interrupt { border-left: 3px solid #b57700; padding-left: .75rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+.storyb00k__step-status--error { color: #fca5a5; font-weight: 700; }
+.storyb00k__interrupt { border-left: 3px solid #b57700; padding-left: .75rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; background: #1c1830; border-radius: .3rem; padding-top: .3rem; padding-bottom: .3rem; }
 .storyb00k__interrupt p { margin: 0; flex: 1 1 auto; }
-.storyb00k__error { color: #b91c1c; margin: 0; }
+.storyb00k__error { color: #fca5a5; margin: 0; }
 .storyb00k__empty { opacity: .65; font-size: .9rem; }
 .storyb00k__composer { display: grid; gap: .4rem; }
-.storyb00k__input { width: 100%; resize: vertical; font: inherit; }
+.storyb00k__input { width: 100%; resize: vertical; font: inherit; border: 1px solid #3b4d7d; border-radius: .45rem; background: #091127; color: #edf5ff; padding: .55rem .65rem; }
+.storyb00k__edit-box textarea, .storyb00k__freetext, .storyb00k__project-title input { font: inherit; border: 1px solid #3b4d7d; border-radius: .45rem; background: #091127; color: #edf5ff; padding: .4rem .5rem; }
+.storyb00k__project-title input { font-weight: 700; }
+.storyb00k__messages { color: #dfe8f7; }
+.storyb00k__message[data-role='user'] { background: #1b2a52; }
+.storyb00k__status { background: #243465; color: #ced8ee; }
 .storyb00k__composer-actions { display: flex; gap: .4rem; }
 .storyb00k__clear-panels { font-size: .75rem; }
 .storyb00k__dash-header { display: flex; align-items: baseline; gap: .5rem; }
@@ -535,25 +543,25 @@ function formatTokens(u) {
 .storyb00k__revtoggle { cursor: pointer; }
 .storyb00k__rev-active { opacity: .65; max-width: 24ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .storyb00k__savestate { opacity: .7; font-size: .75rem; }
-.storyb00k__project { border: 1px solid #e2e8f0; border-radius: .5rem; padding: .5rem .75rem; display: grid; gap: .25rem; background: #f8fafc; }
+.storyb00k__project { border: 1px solid #2a3966; border-radius: .5rem; padding: .5rem .75rem; display: grid; gap: .25rem; background: #111936; }
 .storyb00k__project-title { display: flex; align-items: baseline; gap: .4rem; }
 .storyb00k__project-title input { font: inherit; font-weight: 700; }
-.storyb00k__locked { font-size: .7rem; background: #dcfce7; padding: .05rem .4rem; border-radius: 999px; }
+.storyb00k__locked { font-size: .7rem; background: #14532d; padding: .05rem .4rem; border-radius: 999px; color: #bbf7d0; }
 .storyb00k__project-goal { margin: 0; font-size: .85rem; opacity: .8; }
-.storyb00k__project-reqs { margin: 0; font-size: .8rem; background: #fef9c3; border-radius: .3rem; padding: .25rem .4rem; }
+.storyb00k__project-reqs { margin: 0; font-size: .8rem; background: #3a3010; border-radius: .3rem; padding: .25rem .4rem; color: #fde68a; }
 .storyb00k__project-qa { margin: 0; font-size: .75rem; opacity: .6; }
-.storyb00k__logtoggle { font-size: .75rem; text-align: left; padding: 0; background: none; border: 0; cursor: pointer; opacity: .7; }
+.storyb00k__logtoggle { font-size: .75rem; text-align: left; padding: 0; background: none; border: 0; cursor: pointer; opacity: .7; color: #9cc9ff; }
 .storyb00k__log { max-height: 14rem; overflow-y: auto; display: grid; gap: .4rem; font-size: .75rem; }
-.storyb00k__log-entry { border-left: 2px solid #cbd5e1; padding-left: .5rem; }
-.storyb00k__log-entry--thinking { border-left-color: #c084fc; }
+.storyb00k__log-entry { border-left: 2px solid #3b4d7d; padding-left: .5rem; }
+.storyb00k__log-entry--thinking { border-left-color: #a855f7; }
 .storyb00k__log-role { font-family: ui-monospace, monospace; opacity: .55; font-size: .68rem; text-transform: uppercase; }
 .storyb00k__log-entry pre { margin: .1rem 0 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
-.storyb00k__thinking { font-size: .78rem; opacity: .8; margin: .15rem 0; }
+.storyb00k__thinking { font-size: .78rem; opacity: .9; margin: .15rem 0; }
 .storyb00k__thinking summary { cursor: pointer; opacity: .7; }
-.storyb00k__thinking-text { margin: .2rem 0 0; white-space: pre-wrap; word-break: break-word; background: #faf5ff; border-radius: .3rem; padding: .35rem .5rem; max-height: 10rem; overflow-y: auto; }
+.storyb00k__thinking-text { margin: .2rem 0 0; white-space: pre-wrap; word-break: break-word; background: #1e1433; border-radius: .3rem; padding: .35rem .5rem; max-height: 10rem; overflow-y: auto; }
 .storyb00k__question { font-weight: 600; }
 .storyb00k__choices { display: grid; gap: .2rem; width: 100%; }
 .storyb00k__choice { display: flex; gap: .4rem; align-items: baseline; cursor: pointer; }
-.storyb00k__freetext { flex: 1 1 12rem; font: inherit; padding: .25rem .4rem; }
+.storyb00k__freetext { flex: 1 1 12rem; }
 @media (max-width: 760px) { .storyb00k { grid-template-columns: 1fr; } }
 </style>
