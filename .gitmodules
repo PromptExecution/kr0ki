@@ -4,3 +4,5 @@
 [submodule "vendor/kubediagrams"]
 	path = vendor/kubediagrams
 	url = https://github.com/PromptExecution/KubeDiagrams.git
+[submodule "vendor/assistant-ui"]
+	branch = b00t-vue-package

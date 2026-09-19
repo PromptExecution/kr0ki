@@ -10,8 +10,6 @@ use super::Symbol;
 const RUST_FLOW_D2: &str = include_str!("../../../../templates/kr0ki-render-flow.d2");
 const RUST_FLOW_KERML: &str = include_str!("../../../../templates/kr0ki-render-flow.kerml");
 const RUST_FLOW_SYSML: &str = include_str!("../../../../templates/kr0ki-render-flow.sysml");
-const SM3LLY_DOCS_URL: &str = "http://192.168.1.137:8787/docs";
-
 /// JSON — machine-readable, lossless.
 pub fn format_json(symbols: &[Symbol]) -> anyhow::Result<String> {
     Ok(serde_json::to_string_pretty(symbols)?)
@@ -179,10 +177,9 @@ pub fn format_html_with_live_flow(
         kerml = html_escape(RUST_FLOW_KERML),
         sysml = html_escape(RUST_FLOW_SYSML),
     );
-    let capability_section = format!(
-        r#"<h2 id="capabilities">Capability examples and test evidence</h2>
-<p>LAN documentation: <a href="{url}"><code>{url}</code></a>. Current page origin: <code id="live-origin"></code>.</p>
-<pre><code>export KR0KI_URL=http://192.168.1.137:8787
+    let capability_section = r#"<h2 id="capabilities">Capability examples and test evidence</h2>
+<p>LAN documentation: <code id="live-origin"></code>. Start with <code>just run</code> or <code>just dev</code>; both bind <code>0.0.0.0:8787</code> by default.</p>
+<pre><code>export KR0KI_URL=http://&lt;LAN-host&gt;:8787
 curl "$KR0KI_URL/health"
 curl "$KR0KI_URL/formats"
 curl -X POST "$KR0KI_URL/render/graphviz?output=svg" --data-binary 'digraph {{ kr0ki -&gt; cache }}' --output flow.svg
@@ -191,9 +188,8 @@ curl "$KR0KI_URL/docs/api.tomllm"
 just test       # unit + in-process HTTP
 just check      # formatting + clippy
 just test-live  # opt-in live render</code></pre>
-<script>document.getElementById("live-origin").textContent = window.location.origin;</script>"#,
-        url = SM3LLY_DOCS_URL,
-    );
+<script>document.getElementById("live-origin").textContent = window.location.origin + "/docs";</script>"#
+        .to_string();
 
     format!(
         r#"<!DOCTYPE html>
@@ -312,7 +308,8 @@ mod tests {
         assert!(out.contains("Diagram Example"));
         assert!(out.contains("Rendered Rust flow"));
         assert!(out.contains("SysML v2 representation"));
-        assert!(out.contains(SM3LLY_DOCS_URL));
+        assert!(out.contains("id=\"live-origin\""));
+        assert!(!out.contains("192.168.1.137"));
     }
 
     #[test]

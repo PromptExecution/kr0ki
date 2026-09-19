@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-KR0KI_URL="${1:-http://192.168.1.137:8787}"
+KR0KI_URL="${1:-http://127.0.0.1:8787}"
 FLOW_SOURCE="templates/kr0ki-render-flow.d2"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT

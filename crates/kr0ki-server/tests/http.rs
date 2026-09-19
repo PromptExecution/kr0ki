@@ -30,6 +30,12 @@ fn test_state(tag: &str) -> AppState {
         kubediagram_worker_url: None,
         sysmlv2_client: None,
         model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
+        storyb00k_agent_url: None,
+        llm_api_url: None,
+        llm_api_key: None,
+        started_at: std::time::Instant::now(),
+        boot_wall_clock: std::time::SystemTime::now(),
+        auth_token: None,
     }
 }
 
@@ -54,8 +60,40 @@ async fn health_ok() {
         .unwrap();
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("\"status\":\"ok\""));
+    // The test backend (127.0.0.1:1) is unreachable by design, so the report
+    // must honestly say "degraded" while keeping every field present.
+    assert!(body.contains("\"status\":\"degraded\""), "body: {body}");
     assert!(body.contains("\"service\":\"kr0ki\""));
+    assert!(body.contains("\"version\""));
+    assert!(body.contains("\"uptime_secs\""));
+    assert!(body.contains("\"started_at\""));
+    assert!(body.contains("\"kroki_backend\""));
+    assert!(body.contains("\"stores\""));
+    assert!(body.contains("\"cache_dir\""));
+    assert!(body.contains("\"llm\""));
+    assert!(body.contains("\"configured\":false"));
+    assert!(body.contains("\"model_count\""));
+}
+
+#[tokio::test]
+async fn root_redirects_to_a_feature_welcome_page() {
+    let redirect = test_app(test_state("root-redirect"))
+        .oneshot(Request::get("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(redirect.status(), StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(redirect.headers().get("location").unwrap(), "/welcome");
+
+    let response = test_app(test_state("welcome"))
+        .oneshot(Request::get("/welcome").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("Welcome to kr0ki"));
+    assert!(body.contains("Render diagrams"));
+    assert!(body.contains("/docs"));
+    assert!(body.contains("/mcp/tools"));
 }
 
 #[tokio::test]

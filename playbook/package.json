@@ -7,11 +7,12 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "story:dev": "histoire dev --host 0.0.0.0",
-    "story:build": "histoire build"
-    ,"test": "vitest run"
+    "story:build": "histoire build",
+    "test": "vitest run"
   },
   "dependencies": {
     "@ag-ui/client": "^0.0.59",
+    "@assistant-ui/vue": "file:../vendor/assistant-ui/packages/vue",
     "@synoped/ag-ui-vue": "^2.0.0",
     "vue": "^3.5.42"
   },

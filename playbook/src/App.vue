@@ -78,6 +78,19 @@ onMounted(async () => {
           {{ format }}
         </button>
       </nav>
+      <nav v-else-if="examples.length" class="catalog-nav" aria-label="Example catalog">
+        <p class="catalog-heading">Catalog · {{ examples.length }} fixtures</p>
+        <button
+          v-for="example in examples"
+          :key="example.id"
+          class="catalog-link"
+          :title="example.description"
+          @click="openInEditor(example)"
+        >
+          <span class="catalog-format">{{ example.format }}</span>
+          <span class="catalog-title">{{ example.title }}</span>
+        </button>
+      </nav>
       <a class="docs-link" href="../">Generated API docs ↗</a>
     </aside>
 

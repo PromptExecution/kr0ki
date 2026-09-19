@@ -97,6 +97,17 @@ impl<B: RenderBackend> RenderService<B> {
         Self { backend, cache }
     }
 
+    /// Base URL of the render backend when the backend is HTTP-backed (health
+    /// reporting). Non-HTTP test backends report `None`.
+    pub fn backend_url(&self) -> Option<&str> {
+        self.backend.describe_endpoint()
+    }
+
+    /// Filesystem root of the content-addressed cache.
+    pub fn cache_root(&self) -> &std::path::Path {
+        self.cache.root()
+    }
+
     /// Render `source` as `format` to `output`, serving from cache on a hit.
     ///
     /// Deterministic: the same `(format, output, source)` always yields the same

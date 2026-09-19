@@ -158,8 +158,9 @@ structured docs in b00t `docgen.rs` formats. Pattern derived from `b00t-cli/src/
 — not duplicated, but extended for Rust source. Endpoints above are live; visit `/docs` after
 starting the server.
 
-**LAN docs:** use [`http://192.168.1.137:8787/docs`](http://192.168.1.137:8787/docs)
-from another device on the network. The playb00k includes the implemented Rust render flow,
+**LAN docs:** run `just lan-url <LAN-host>`, then open its `/docs` path from another device
+on the network. The playb00k includes the
+implemented Rust render flow,
 rendered alongside inspectable KerML and SysML v2 fixtures, then concrete health/render/cache/
 docgen examples and test recipes. The fixture is documentation, not a replacement for the
 deferred upstream `ModelSnapshot → UFO → recognizer → ViewDefinition` path.
@@ -170,7 +171,7 @@ second-request cache hit.
 
 ## Vue/Vite playb00k
 
-[`/playbook/`](http://192.168.1.137:8787/playbook/) is the interactive evaluation
+`http://<LAN-host>:8787/playbook/` is the interactive evaluation
 surface. Its left sidebar lists every standalone kr0ki input format; each format has
 a dropdown of test-backed examples, editable source, SVG/PNG selector where supported,
 and rendered-artifact preview. The source catalog is `kr0ki_core::examples::ALL`, so
@@ -200,13 +201,14 @@ sidecar host from the page host, so opening `http://<host>:8787/playbook/` reach
 For format/fixture iteration, skip the podman-build → k0s-import → pod-recreate
 cycle entirely: `just dev` runs our own pinned `kroki-compat` image via plain
 `podman run` (not k0s) on `127.0.0.1:8010`, and `kr0ki-server` via `cargo run`
-against it on `127.0.0.1:8788`. `just dev-kroki-down` stops the container when
+against it on `0.0.0.0:8787`. `just dev-kroki-down` stops the container when
 done; `just dev` reuses an already-running one.
 
 ```bash
 just dev            # Ctrl-C stops kr0ki-server; kroki-compat keeps running
-just playbook-e2e http://127.0.0.1:8788
-just test-playbook http://127.0.0.1:8788
+just lan-url <LAN-host> # prints the URL to open from another LAN device
+just playbook-e2e   # runs locally against 127.0.0.1:8787
+just test-playbook  # runs locally against 127.0.0.1:8787
 ```
 
 This is for iteration speed only — it can drift from the real k0s deployment

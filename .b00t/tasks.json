@@ -95,18 +95,20 @@
     {
       "id": 12,
       "title": "kr0ki: Vue/Vite Histoire-style playb00k sidebar and executable example catalog",
-      "status": "pending",
+      "status": "done",
       "priority": 3,
       "tags": [],
-      "created_at": "2026-09-16T01:30:44Z"
+      "created_at": "2026-09-16T01:30:44Z",
+      "updated_at": "2026-09-18T22:28:02Z"
     },
     {
       "id": 13,
       "title": "kr0ki: make full Playb00k format matrix compatible with local k0s x86-64-v2 Kroki sidecar",
-      "status": "pending",
+      "status": "done",
       "priority": 3,
       "tags": [],
-      "created_at": "2026-09-16T01:48:13Z"
+      "created_at": "2026-09-16T01:48:13Z",
+      "updated_at": "2026-09-18T22:22:06Z"
     },
     {
       "id": 14,
@@ -116,6 +118,156 @@
       "tags": [],
       "created_at": "2026-09-17T11:11:40Z",
       "updated_at": "2026-09-17T12:30:00Z"
+    },
+    {
+      "id": 15,
+      "title": "kr0ki: review and fix local-network webserver access and port allocation convention",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-18T10:50:07Z",
+      "updated_at": "2026-09-18T11:08:14Z"
+    },
+    {
+      "id": 16,
+      "title": "kr0ki: add a root welcome page with feature introduction",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-18T11:12:47Z",
+      "updated_at": "2026-09-18T11:20:15Z"
+    },
+    {
+      "id": 17,
+      "title": "kr0ki: assess StoryB00k conversational workspace, dynamic MCP, and versioned procedural diagram UX",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-18T12:18:32Z",
+      "updated_at": "2026-09-18T12:19:32Z"
+    },
+    {
+      "id": 18,
+      "title": "kr0ki: specify revisioned procedural workspace with AG-UI and assistant-ui",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-18T13:12:55Z",
+      "updated_at": "2026-09-18T13:16:30Z"
+    },
+    {
+      "id": 19,
+      "title": "research-soul: assistant-ui",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-18T13:21:47Z"
+    },
+    {
+      "id": 20,
+      "title": "research-soul: ag-ui",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-18T13:21:47Z"
+    },
+    {
+      "id": 21,
+      "title": "kr0ki: Plan 004 Phase 0 — ADR-0001 recorded, workspace_types.rs + JSON schemas published; next: session/grant interface + fixture trace",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "notes": "submodule vendor/assistant-ui @ 4cdeb5d (b00t-vue-package) complete: build+19/19 tests+typecheck green inside submodule; playbook file-dep integration proven by new vitest + vite build; upstream PR #7712 green/MERGEABLE",
+      "created_at": "2026-09-18T13:43:53Z",
+      "updated_at": "2026-09-18T22:42:39Z"
+    },
+    {
+      "id": 22,
+      "title": "kr0ki: task 13 verified done — 27/27 playbook fixtures render 200 against live local k0s pod (port-forward :18787), incl. k8s-topology via correct route path; cargo playbook_live ignored-test PASS. Evidence: python matrix 27/27 + 'every_playbook_fixture_renders_and_caches ... ok'",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-18T22:22:06Z"
+    },
+    {
+      "id": 23,
+      "title": "kr0ki: task 12 verified done — sidebar catalog nav (all 27 fixtures, all views) added to App.vue; StoryB00kPanel.story.vue (3 variants) → Histoire 3 stories/5 variants build OK; vitest 2/2 + vite build green. Pre-existing: Gallery 'Test all' executable catalog, /api/examples, mdb00k static export",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-18T22:28:02Z"
+    },
+    {
+      "id": 24,
+      "title": "kr0ki: task 21 verified done — Plan 004 Phase 0 COMPLETE: ADR-0001, workspace_types.rs (4 tests), 4 JSON schemas (validated), dev_session.rs (8 tests), phase0_fixture.rs exit-gate trace PASS. Gates: just test 19/19 ok-suites 0 failures, just check clean",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-18T22:42:51Z"
+    },
+    {
+      "id": 25,
+      "title": "kr0ki: deep /health + welcome live-validation deployed. /health now reports version, started_at, uptime_secs, kroki/kubediagram probes, LLM check (GET /models count only, never inference; OPENAI_API_KEY presence not value), stores (cache dir writable+entries, capabilities file, graph triples), caller_auth. Welcome page fetches /health and renders live badge. Verified live at 192.168.1.137:8787: status ok, LLM ok 1 model, uptime ticking. Gates: just check clean, just test 19/19 suites. Note: .env was missing from worktree (pod-env failed); reconstructed from live k8s Secret.",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T00:26:18Z"
+    },
+    {
+      "id": 26,
+      "title": "kr0ki: StoryB00k chat hardening deployed. Agent: multi-round tool loop (MAX_TOOL_ROUNDS=6, env-tunable), streaming TEXT_MESSAGE_START/CONTENT/END, tool errors fed back to LLM as tool results, output truncation, thread TTL sweep, /threads/:id draft inspection, richer /health (llm_configured, active_threads), usage reporting via CUSTOM+RUN_FINISHED, model auto-discovery via GET /models. UI: textarea composer (Enter to send, Shift+Enter newline), status pill, token usage, tool-activity timeline from toolCallTrackers, stop/retry/clear controls, pending-draft approve/decline in state, panel count + clear. Verified live: narration run + tool run (list_formats -> 26 formats, 1 panel delta) both emit full AG-UI event chains with usage. Tests: 12/12 python (unittest), 6/6 vitest, vite build clean, just check clean, just test 19/19 suites.",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T00:47:45Z"
+    },
+    {
+      "id": 27,
+      "title": "kr0ki: StoryB00k chat FIXED — root cause: agent emitted legacy AG-UI event shapes that @ag-ui/client's zod verifyEvents rejects (missing threadId on lifecycle events; interrupt as top-level RUN_FINISHED key instead of outcome:{type:interrupt,interrupts}; tool results on TOOL_CALL_END instead of TOOL_CALL_RESULT events; usage as object not TokenUsage array). Server now emits schema-exact events; verified against real @ag-ui/core EventSchemas: ALL live-pod events VALID (mocked 11-frame tool run + live 6-frame run). Gates: 12/12 python, 6/6 vitest, vite build, just check, just test 19/19.",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T01:46:45Z"
+    },
+    {
+      "id": 28,
+      "title": "kr0ki: StoryB00k console debugging wired (task: chat feels disconnected). useChat now passes debug:{events:true,lifecycle:true} — ag-ui client logs every SSE event + lifecycle transition to browser console. sendMessage logs send (text, threadId, agent URL), run completion (newMessages count, usage) and failures; interrupt/stop/clear logged too. Rebuilt bundle index-Ctdbgfcz.js deployed to live pod (verified present). Gates: 6/6 vitest, vite build, just check clean, just test 19/19.",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T01:55:25Z"
+    },
+    {
+      "id": 29,
+      "title": "kr0ki: StoryB00k 'crypto.randomUUID is not a function' FIXED — crypto.randomUUID is secure-context-only; LAN HTTP deployment hides it so ag-ui's uuid generator crashed on send. Polyfill installed at StoryB00k.vue module scope before useChat (getRandomValues-based RFC4122 v4 fallback; getRandomValues IS available in insecure contexts). New bundle index-B3ztNSdA.js deployed + verified in live pod. Gates: 6/6 vitest, vite build, just check, just test 19/19.",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T01:59:44Z"
+    },
+    {
+      "id": 30,
+      "title": "kr0ki: polyfill crash 'Cannot set property crypto of #<Window> which has only a getter' FIXED — window.crypto is read-only; switched to Object.defineProperty on Crypto.prototype (instance inherits it). Bundle index-D8yP1liN.js deployed+verified live. Gates: 6/6 vitest, vite build, just check, just test 19/19.",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T02:05:05Z"
+    },
+    {
+      "id": 31,
+      "title": "kr0ki: StoryB00k chat incident CLOSED — working end-to-end (tool calls render, narration streams, honest 503 on unconfigured SysML server). Auditable debugging transcript written: docs/debug-transcripts/2026-09-19-storyb00k-chat-debugging.md (3 root causes: schema-rejected AG-UI events, secure-context-only crypto.randomUUID, read-only window.crypto; fixes + verification gates per phase)",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T02:08:36Z"
+    },
+    {
+      "id": 32,
+      "title": "kr0ki: SERVER-side session observability (agent-requested) — session_log.py: per-thread RunLogger fans out to (1) structured stdout JSON lines [kubectl logs], (2) bounded in-memory sessions served at GET /debug/sessions + /debug/sessions/{id} [full event log, errors+tracebacks, LLM rounds w/ usage+model, tool calls w/ latency+ok], (3) durable JSONL transcripts per thread on mounted volume KR0KI_DEBUG_LOG_DIR. Secrets never logged; bodies length-capped. Live verified: 18-event session for obs-check (2 LLM rounds w/ usage, list_formats tool 0ms ok), JSONL on pod volume. Incident: container CrashLoop (session_log.py missing from Containerfile COPY list) — fixed, pod healthy. Tests 17/17 python; just check clean; just test 19/19.",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T02:21:09Z"
     }
   ],
   "version": "1"
