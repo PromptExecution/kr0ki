@@ -25,6 +25,7 @@ from pathlib import Path
 import llm_client
 from draft_graph import DraftGraph
 import chart_store
+import project_store
 import session_log
 try:
     from manifest_dispatch import apply_binding, fetch_manifest, find_tool, http_call
@@ -38,6 +39,7 @@ MAX_TOOL_ROUNDS = int(os.environ.get("KR0KI_STORYB00K_MAX_TOOL_ROUNDS", "6"))
 MAX_OUTPUT_CHARS = int(os.environ.get("KR0KI_STORYB00K_MAX_OUTPUT_CHARS", "20000"))
 THREAD_TTL_SECS = int(os.environ.get("KR0KI_STORYB00K_THREAD_TTL_SECS", str(6 * 3600)))
 _drafts = {}  # thread_id -> {"graph": DraftGraph, "last_used": epoch}
+_pending_questions = {}  # thread_id -> ask_user question awaiting an answer
 ALLOWED_ORIGINS = frozenset(
     origin.strip()
     for origin in os.environ.get(
@@ -48,12 +50,54 @@ ALLOWED_ORIGINS = frozenset(
 )
 
 SYSTEM_PREAMBLE = (
-    "You are storyb00k, a read-only narrator for a live SysML/Kroki model service. "
-    "Use the provided tools to fetch model facts and render diagrams. Prefer tool "
-    "evidence over guessing: if you lack a fact, call a tool before answering. When "
-    "the user asks for a change, propose it with the propose_draft_change tool — "
-    "never claim to have modified the authoritative model. Keep narration concise."
+    "You are storyb00k, the planning front-end for a live SysML/Kroki model service "
+    "and chart workspace. You work on PROJECTS: one project = one diagram goal the "
+    "user is refining with you.\n\n"
+    "WORKFLOW — every request goes through a planning stage first:\n"
+    "1. THINK: use your thinking channel to restate the goal, list what you know, "
+    "and list what is ambiguous (diagram type? scope? level of detail? naming? layout?).\n"
+    "2. ASK: if anything material is ambiguous, use the ask_user tool to put ONE "
+    "multiple-choice question to the user. Each answer refines the shared "
+    "understanding. Ask as many rounds as needed — but batch what you can and never "
+    "re-ask something already answered.\n"
+    "3. LOCK: once you can restate the user's desire precisely, summarize the "
+    "requirements in one short paragraph and call it 'Locked in:' — the user then "
+    "sees exactly what will be built. Only after locking in, fetch model facts and "
+    "render the diagram.\n"
+    "4. RENDER: use the tools to read the live model and render. Prefer tool "
+    "evidence over guessing: if you lack a fact, call a tool before answering.\n\n"
+    "When the user asks for a change to the authoritative model, propose it with the "
+    "propose_draft_change tool — never claim to have modified the authoritative "
+    "model. Keep narration concise."
 )
+
+# Multiple-choice refinement question, surfaced to the user as an interrupt.
+ask_user_tool = {
+    "type": "function",
+    "function": {
+        "name": "ask_user",
+        "description": (
+            "Ask the user ONE multiple-choice question to refine the project "
+            "requirements. Use this during planning whenever the goal is ambiguous; "
+            "keep asking until you can state the desire precisely (locked in)."
+        ),
+        "parameters": {
+            "type": "object",
+            "required": ["question", "options"],
+            "properties": {
+                "question": {"type": "string", "description": "The question to put to the user."},
+                "options": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 6,
+                    "items": {"type": "string"},
+                    "description": "2–6 concise candidate answers.",
+                },
+                "allowFreeText": {"type": "boolean", "description": "Whether the user may answer in their own words. Default true."},
+            },
+        },
+    },
+}
 
 
 def load_skills():
@@ -181,6 +225,16 @@ class RunStream:
         self.try_write({"type": "TEXT_MESSAGE_CONTENT", "threadId": self.thread_id, "runId": self.run_id, "messageId": message_id, "delta": content})
         self.try_write({"type": "TEXT_MESSAGE_END", "threadId": self.thread_id, "runId": self.run_id, "messageId": message_id})
 
+    def thinking_message(self, content):
+        """Emit the model's chain of thought as THINKING_* events. The
+        @ag-ui/client maps these to a `reasoning` part on the assistant item,
+        so the transcript can show what the model was thinking."""
+        if not content:
+            return
+        self.try_write({"type": "THINKING_TEXT_MESSAGE_START", "threadId": self.thread_id, "runId": self.run_id})
+        self.try_write({"type": "THINKING_TEXT_MESSAGE_CONTENT", "threadId": self.thread_id, "runId": self.run_id, "delta": content})
+        self.try_write({"type": "THINKING_TEXT_MESSAGE_END", "threadId": self.thread_id, "runId": self.run_id})
+
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, _format, *_args):
@@ -224,6 +278,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"sessions": session_log.list_sessions()})
         elif self.path == "/charts":
             self._json(200, {"charts": chart_store.list_charts()})
+        elif self.path == "/projects":
+            self._json(200, {"projects": project_store.list_projects()})
+        elif self.path.startswith("/projects/"):
+            thread_id = self.path[len("/projects/"):] or "default"
+            project = project_store.get_project(thread_id, create=False)
+            if project is None:
+                return self._json(404, {"error": "project_not_found"})
+            self._json(200, project)
         elif self.path.startswith("/charts/history/"):
             thread_id = self.path[len("/charts/history/"):] or "default"
             self._json(200, {"thread": thread_id, "log": chart_store.history(thread_id)})
@@ -259,6 +321,11 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length)) if length else {}
         except (ValueError, json.JSONDecodeError):
             return self._json(400, {"error": "invalid_json"})
+        if self.path == "/projects/rename":
+            thread_id = payload.get("threadId", "default")
+            project_store.rename(thread_id, payload.get("title", ""))
+            renamed = project_store.get_project(thread_id)
+            return self._json(200, {"status": "ok", "title": renamed.get("title") if renamed else None})
         if self.path == "/charts/save":
             try:
                 result = chart_store.save_chart(
@@ -278,9 +345,23 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(400, {"error": "commitId required"})
             return self._json(200, chart_store.restore(thread_id, commit_id))
         if self.path == "/respond-to-interrupt":
-            draft = _drafts.get(payload.get("threadId", "default"))
-            if draft is None:
+            thread_id = payload.get("threadId", "default")
+            draft = _drafts.get(thread_id)
+            question = _pending_questions.get(thread_id)
+            is_answer = question is not None and payload.get("interruptId") == question.get("id")
+            if draft is None and not is_answer:
                 return self._json(404, {"error": "draft_session_not_found"})
+            if is_answer and question is not None:
+                # Planning refinement answer: record it in the project QA
+                # history, hand it back to the caller (the UI immediately
+                # re-runs with the answer appended as a user message,
+                # continuing the planning loop).
+                answer = str(payload.get("answer") or "").strip()[:2000]
+                if not answer:
+                    return self._json(400, {"error": "answer_required"})
+                _pending_questions.pop(thread_id, None)
+                project_store.add_qa(thread_id, question.get("question", ""), answer)
+                return self._json(200, {"status": "ok", "answered": question.get("id"), "question": question.get("question"), "answer": answer})
             try:
                 (draft["graph"].apply if payload.get("approved") else draft["graph"].decline)(payload["interruptId"])
             except KeyError:
@@ -292,6 +373,13 @@ class Handler(BaseHTTPRequestHandler):
         run_id = payload.get("runId", "unknown")
         thread_id = payload.get("threadId", "default")
         draft = thread_draft(thread_id)
+        # Project capture: every user prompt is logged verbatim; the first
+        # prompt of a thread becomes the project goal.
+        for msg in payload.get("messages") or []:
+            if msg.get("role") == "user":
+                text = (msg.get("content") or "").strip()
+                if text:
+                    project_store.add_prompt(thread_id, "user", text, run=run_id)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -315,6 +403,7 @@ class Handler(BaseHTTPRequestHandler):
         manifest = fetch_manifest(KR0KI_URL)
         tools = [{"type": "function", "function": {"name": tool["name"], "description": tool["description"], "parameters": tool["inputSchema"]}} for tool in manifest]
         tools.append(local_draft_tool())
+        tools.append(ask_user_tool)
         messages = [{"role": "system", "content": SYSTEM_PREAMBLE + "\n\n" + "\n\n".join(load_skills().values())}]
         messages += messages_from_payload(payload)
         client = llm_client.OpenAICompatibleClient.from_env()
@@ -332,6 +421,21 @@ class Handler(BaseHTTPRequestHandler):
                              usage={"promptTokens": usage.get("prompt_tokens"), "completionTokens": usage.get("completion_tokens")},
                              model=response.get("model"))
             message = response["choices"][0]["message"]
+            if message.get("reasoning_content"):
+                # Deep-think models expose their chain of thought here; surface
+                # it through AG-UI THINKING_* events (rendered by the client as
+                # reasoning parts) instead of swallowing it. Also captured in
+                # the project log so sessions stay auditable server-side.
+                stream.thinking_message(message["reasoning_content"])
+                project_store.add_thinking(thread_id, message["reasoning_content"], run=stream.run_id)
+            if message.get("content"):
+                project_store.add_prompt(thread_id, "assistant", message["content"], run=stream.run_id)
+                # Locked-in detection: the workflow contract says the agent
+                # prefixes its requirement summary with "Locked in:".
+                content_text = message["content"]
+                marker = "Locked in:"
+                if marker in content_text and not (project_store.get_project(thread_id) or {}).get("locked"):
+                    project_store.set_requirements(thread_id, content_text.split(marker, 1)[1].strip())
             messages.append({
                 "role": "assistant",
                 "content": message.get("content") or "",
@@ -355,6 +459,50 @@ class Handler(BaseHTTPRequestHandler):
                     arguments = {}
                 tool_call_id = call.get("id", name)
                 parent_message_id = f"msg-tool-{tool_call_id}"
+                if name == "ask_user":
+                    # Planning refinement: surface the question as an interrupt.
+                    # The client answers via /respond-to-interrupt; the answer
+                    # lands in _pending_answers so the next /run call (which
+                    # carries the full conversation again) sees it via the
+                    # messages the client appends. We park the run here.
+                    question_id = f"ask-{uuid.uuid4().hex[:12]}"
+                    options = arguments.get("options") or []
+                    stream.try_write({
+                        "type": "TOOL_CALL_END", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id,
+                    })
+                    stream.try_write({
+                        "type": "TOOL_CALL_RESULT", "threadId": thread_id, "runId": stream.run_id,
+                        "messageId": parent_message_id, "toolCallId": tool_call_id,
+                        "content": f"Question put to user: {arguments.get('question', '')}", "role": "tool",
+                    })
+                    _pending_questions[thread_id] = {
+                        "id": question_id,
+                        "question": arguments.get("question", ""),
+                        "options": options,
+                        "allowFreeText": bool(arguments.get("allowFreeText", True)),
+                        "toolCallId": tool_call_id,
+                        "ts": time.time(),
+                    }
+                    run_log.event("plan.question", {"id": question_id, "question": arguments.get("question", ""), "options": options})
+                    # Interrupt outcome shape per RunFinishedInterruptOutcomeSchema.
+                    stream.try_write(lifecycle_event("RUN_FINISHED", thread_id, stream.run_id, outcome={
+                        "type": "interrupt",
+                        "interrupts": [{
+                            "id": question_id,
+                            "reason": arguments.get("question", ""),
+                            "responseSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "answer": {"type": "string", "description": "Chosen option or free text"},
+                                    "optionIndex": {"type": "integer"},
+                                    "options": {"type": "array", "items": {"type": "string"}, "default": options, "description": "Candidate answers offered"},
+                                    "allowFreeText": {"type": "boolean", "default": bool(arguments.get("allowFreeText", True))},
+                                },
+                                "required": ["answer"],
+                            },
+                        }],
+                    }))
+                    return
                 if name == "propose_draft_change":
                     proposal_id = draft.propose(arguments.get("subject", ""), arguments.get("predicate", ""), arguments.get("object", ""))
                     stream.try_write({"type": "STATE_DELTA", "threadId": thread_id, "runId": stream.run_id, "delta": [{"op": "add", "path": "/drafts/-", "value": {"id": proposal_id, "status": "pending", **arguments}}]})
