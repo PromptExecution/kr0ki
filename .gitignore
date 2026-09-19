@@ -11,3 +11,4 @@
 /.worktrees
 __pycache__/
 /playbook/.histoire
+.venv/
