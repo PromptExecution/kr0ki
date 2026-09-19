@@ -66,7 +66,9 @@ function agentHandoff(card) {
 }
 
 // ---- Existing test flow -----------------------------------------------------
-// Per-example-id maps: status is 'idle' | 'testing' | 'pass' | 'fail'.
+// Status/artifacts are keyed per CARD (typeId), not per example id: ten
+// PlantUML types share one fixture, so an example-id key would light up every
+// PlantUML card when a single Test completes.
 const status = ref({})
 const artifactUrls = ref({})
 const errors = ref({})
@@ -126,6 +128,41 @@ async function testAll() {
   }
   running.value = false
 }
+
+// ---- Type-card test flow (Plan 005): same renderer, card-scoped keys --------
+const typeStatus = ref({})
+const typeArtifacts = ref({})
+const typeErrors = ref({})
+
+async function testType(card) {
+  const example = card.example
+  if (!example) return
+  if (!rendererUrl.value.trim()) {
+    typeStatus.value = { ...typeStatus.value, [card.id]: 'fail' }
+    typeErrors.value = { ...typeErrors.value, [card.id]: 'Enter a network-reachable kr0ki URL first' }
+    return
+  }
+  typeStatus.value = { ...typeStatus.value, [card.id]: 'testing' }
+  typeErrors.value = { ...typeErrors.value, [card.id]: '' }
+  try {
+    let firstArtifact = null
+    for (const output of example.outputs) {
+      const response = await fetch(endpointFor(example, output), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: example.source,
+      })
+      const bytes = await response.blob()
+      if (!response.ok) throw new Error(`${output}: ${await bytes.text()}`)
+      if (!firstArtifact) firstArtifact = URL.createObjectURL(bytes)
+    }
+    typeArtifacts.value = { ...typeArtifacts.value, [card.id]: firstArtifact }
+    typeStatus.value = { ...typeStatus.value, [card.id]: 'pass' }
+  } catch (error) {
+    typeErrors.value = { ...typeErrors.value, [card.id]: error.message }
+    typeStatus.value = { ...typeStatus.value, [card.id]: 'fail' }
+  }
+}
 </script>
 
 <template>
@@ -169,8 +206,8 @@ async function testAll() {
         <p class="card-description">{{ card.useCases.join(' · ') }}</p>
         <div class="card-preview">
           <img
-            v-if="card.example && artifactUrls[card.example.id]"
-            :src="artifactUrls[card.example.id]"
+            v-if="typeArtifacts[card.id]"
+            :src="typeArtifacts[card.id]"
             :alt="`${card.name} rendered sample`"
           />
           <p v-else class="card-empty">Hit Test below to render a sample</p>
@@ -180,14 +217,14 @@ async function testAll() {
             v-if="card.example"
             type="button"
             class="secondary"
-            :disabled="status[card.example.id] === 'testing'"
+            :disabled="typeStatus[card.id] === 'testing'"
             data-testid="card-test"
-            @click="testOne(card.example)"
-          >Test</button>
+            @click="testType(card)"
+          >{{ typeStatus[card.id] === 'testing' ? 'Testing…' : 'Test' }}</button>
           <button type="button" class="secondary" data-testid="card-edit" @click="emit('open-in-editor', card.example)">Edit</button>
           <button type="button" class="agent" data-testid="card-agent" :title="`Open the Agent with a ${card.name} prompt pre-filled`" @click="agentHandoff(card)">Agent</button>
         </footer>
-        <p v-if="card.example && errors[card.example.id]" class="card-error">{{ errors[card.example.id] }}</p>
+        <p v-if="typeErrors[card.id]" class="card-error">{{ typeErrors[card.id] }}</p>
       </article>
     </div>
 

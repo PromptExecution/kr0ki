@@ -135,7 +135,7 @@ onMounted(async () => {
     <section class="content">
       <header class="hero">
         <p class="eyebrow">IAC / CODE → PROCEDURAL DIAGRAM → KROKI → SVG / PNG</p>
-        <h1>Evaluate kr0ki with executable examples — or your own diagrams.</h1>
+        <h1>Diagram-as-code, rendered.</h1>
         <p v-if="viewMode === 'gallery'">
           Every format's fixture in one grid. Point it at a running kr0ki service and hit
           "Test all" to render and cache-verify the full catalog — the same contract
