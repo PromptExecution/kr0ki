@@ -105,7 +105,83 @@ mod tests {
             .unwrap();
         assert_eq!(
             to_d2(&view),
-            "\"r1\": One\n\"r2\": Two\n\"r1\" -> \"r2\": Contains (asserted)\n"
+            "\"r1\": \"One\"\n\"r2\": \"Two\"\n\"r1\" -> \"r2\": Contains (asserted)\n"
+        );
+    }
+
+    #[test]
+    fn adversarial_titles_cannot_alter_d2_diagram_structure() {
+        // A title beginning with `{` would otherwise open a nested D2 map
+        // block (Kroki: "maps must be terminated with }"); one containing
+        // `{shape: circle}` would otherwise be read as D2 structure rather
+        // than label text. A ReqIF/Flexo requirement title is arbitrary
+        // caller-supplied text and must never be able to do either.
+        let baseline = BaselineIdentity {
+            id: "b".into(),
+            revision: "c".into(),
+            import_artifact_sha256: None,
+            exported_baseline_sha256: None,
+        };
+        let provenance = Provenance {
+            source_uri: "x".into(),
+            artifact_sha256: None,
+            locator: None,
+        };
+        let malicious_title = r#"normal requirement { {shape: circle}"#;
+        let graph = RequirementGraph {
+            baseline: baseline.clone(),
+            requirements: vec![
+                Requirement {
+                    id: "r1".into(),
+                    title: malicious_title.into(),
+                    text: "".into(),
+                    baseline: baseline.clone(),
+                    provenance: provenance.clone(),
+                    attributes: BTreeMap::new(),
+                    evidence: vec![],
+                },
+                Requirement {
+                    id: "r2".into(),
+                    title: r#"embedded "quote" and \backslash"#.into(),
+                    text: "".into(),
+                    baseline: baseline.clone(),
+                    provenance: provenance.clone(),
+                    attributes: BTreeMap::new(),
+                    evidence: vec![],
+                },
+            ],
+            evidence: vec![],
+            relations: vec![RequirementRelation {
+                id: "e".into(),
+                source: "r1".into(),
+                target: "r2".into(),
+                kind: RequirementRelationKind::Contains,
+                authority: RelationAuthority::Asserted,
+                provenance,
+                promotion: None,
+            }],
+        };
+        let view = graph
+            .view(&ViewRequest {
+                kind: ViewKind::Decomposition,
+                scope: ViewScope::Authoritative,
+                root_id: None,
+                max_depth: None,
+                direction: TraversalDirection::Downstream,
+                confirmed_behaviour: None,
+            })
+            .unwrap();
+        let d2 = to_d2(&view);
+        // Exactly one statement per node/edge: the malicious braces did not
+        // open a nested D2 block that spills onto (or swallows) other lines.
+        assert_eq!(d2.lines().count(), 3, "{d2}");
+        assert!(
+            d2.contains(r#""r1": "normal requirement { {shape: circle}""#),
+            "{d2}"
+        );
+        assert!(
+            d2.contains(r#""r2": "embedded \"quote\" and \\backslash""#),
+            "{d2}"
         );
     }
 }

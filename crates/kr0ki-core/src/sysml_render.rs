@@ -194,10 +194,10 @@ mod tests {
         assert_eq!(
             node_lines,
             vec![
-                "\"pkg\": pkg",
-                "\"svc-a\": svc-a",
-                "\"svc-b\": svc-b",
-                "\"svc-c\": svc-c",
+                "\"pkg\": \"pkg\"",
+                "\"svc-a\": \"svc-a\"",
+                "\"svc-b\": \"svc-b\"",
+                "\"svc-c\": \"svc-c\"",
             ]
         );
     }
@@ -205,15 +205,15 @@ mod tests {
     #[test]
     fn d2_connection_with_three_ends_becomes_a_two_edge_chain() {
         let d2 = to_d2(&sample_relations());
-        assert!(d2.contains("\"svc-a\" -> \"svc-b\": connection"));
-        assert!(d2.contains("\"svc-b\" -> \"svc-c\": connection"));
-        assert!(!d2.contains("\"svc-a\" -> \"svc-c\": connection"));
+        assert!(d2.contains("\"svc-a\" -> \"svc-b\": \"connection\""));
+        assert!(d2.contains("\"svc-b\" -> \"svc-c\": \"connection\""));
+        assert!(!d2.contains("\"svc-a\" -> \"svc-c\": \"connection\""));
     }
 
     #[test]
     fn d2_domain_edge_is_labeled_with_its_own_kind_not_a_generic_placeholder() {
         let d2 = to_d2(&sample_relations());
-        assert!(d2.contains("\"svc-a\" -> \"svc-c\": traces_to"));
+        assert!(d2.contains("\"svc-a\" -> \"svc-c\": \"traces_to\""));
     }
 
     #[test]
