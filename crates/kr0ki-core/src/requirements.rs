@@ -205,6 +205,9 @@ impl RequirementGraph {
             if !ids.insert(requirement.id.as_str()) {
                 return Err(RequirementError::DuplicateNode(requirement.id.clone()));
             }
+            if requirement.baseline != self.baseline {
+                return Err(RequirementError::BaselineMismatch(requirement.id.clone()));
+            }
         }
         for evidence in &self.evidence {
             if !ids.insert(evidence.id.as_str()) {
@@ -286,7 +289,8 @@ impl RequirementGraph {
         behaviour: Option<BehaviourRecommendation>,
         coverage: Option<VerificationCoverage>,
     ) -> ViewResult {
-        let relations: Vec<RequirementRelation> = edges.into_iter().cloned().collect();
+        let mut relations: Vec<RequirementRelation> = edges.into_iter().cloned().collect();
+        relations.sort_by(|left, right| left.id.cmp(&right.id));
         let ids: BTreeSet<&str> = relations
             .iter()
             .flat_map(|e| [e.source.as_str(), e.target.as_str()])
@@ -294,18 +298,20 @@ impl RequirementGraph {
         ViewResult {
             graph: RequirementGraph {
                 baseline: self.baseline.clone(),
-                requirements: self
-                    .requirements
-                    .iter()
-                    .filter(|n| ids.contains(n.id.as_str()))
-                    .cloned()
-                    .collect(),
-                evidence: self
-                    .evidence
-                    .iter()
-                    .filter(|n| ids.contains(n.id.as_str()))
-                    .cloned()
-                    .collect(),
+                requirements: sorted_nodes(
+                    self.requirements
+                        .iter()
+                        .filter(|n| ids.contains(n.id.as_str()))
+                        .cloned(),
+                    |n| &n.id,
+                ),
+                evidence: sorted_nodes(
+                    self.evidence
+                        .iter()
+                        .filter(|n| ids.contains(n.id.as_str()))
+                        .cloned(),
+                    |n| &n.id,
+                ),
                 relations,
             },
             diagnostics,
@@ -346,7 +352,9 @@ impl RequirementGraph {
                 if let Some(neighbor) = neighbor {
                     selected.insert(edge.id.clone());
                     if !seen.insert(neighbor.clone()) {
-                        cycles.insert(edge.id.clone());
+                        if has_path(visible, request.direction, neighbor, &node) {
+                            cycles.insert(edge.id.clone());
+                        }
                     } else {
                         queue.push_back((neighbor.clone(), depth + 1));
                     }
@@ -374,15 +382,10 @@ impl RequirementGraph {
         request: &ViewRequest,
     ) -> Result<ViewResult, RequirementError> {
         let recommendation = self.recommend_behaviour(visible);
-        if let Some(selected) = request.confirmed_behaviour {
-            if selected != recommendation.recommended {
-                return Err(RequirementError::BehaviourConfirmationMismatch {
-                    recommended: recommendation.recommended,
-                    selected,
-                });
-            }
-        }
-        let kinds: &[RequirementRelationKind] = match recommendation.recommended {
+        let selected = request
+            .confirmed_behaviour
+            .unwrap_or(recommendation.recommended);
+        let kinds: &[RequirementRelationKind] = match selected {
             BehaviourViewKind::Activity | BehaviourViewKind::Sequence => {
                 &[RequirementRelationKind::Precedes]
             }
@@ -395,7 +398,10 @@ impl RequirementGraph {
             visible,
             kinds,
             ViewDiagnostics::default(),
-            Some(recommendation),
+            Some(BehaviourRecommendation {
+                selected: request.confirmed_behaviour,
+                ..recommendation
+            }),
             None,
         ))
     }
@@ -421,6 +427,7 @@ impl RequirementGraph {
         };
         BehaviourRecommendation {
             recommended,
+            selected: None,
             rationale: match hint {
                 Some("state") => "explicit behaviour=state attribute".into(),
                 Some("sequence") => "explicit behaviour=sequence attribute".into(),
@@ -568,6 +575,10 @@ pub struct ViewDiagnostics {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BehaviourRecommendation {
     pub recommended: BehaviourViewKind,
+    /// A user-selected kind can intentionally differ from the deterministic
+    /// recommendation. `None` means it must not be rendered yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<BehaviourViewKind>,
     pub rationale: String,
 }
 
@@ -608,11 +619,47 @@ pub enum RequirementError {
     UnknownNode(String),
     #[error("impact viewpoint needs root_id")]
     ImpactNeedsRoot,
-    #[error("behaviour selection ({selected:?}) disagrees with deterministic recommendation ({recommended:?})")]
-    BehaviourConfirmationMismatch {
-        recommended: BehaviourViewKind,
-        selected: BehaviourViewKind,
-    },
+    #[error("requirement belongs to a different baseline: {0}")]
+    BaselineMismatch(String),
+}
+
+fn sorted_nodes<T>(
+    nodes: impl Iterator<Item = T>,
+    id: impl for<'a> Fn(&'a T) -> &'a String,
+) -> Vec<T> {
+    let mut nodes: Vec<T> = nodes.collect();
+    nodes.sort_by(|left, right| id(left).cmp(id(right)));
+    nodes
+}
+
+fn has_path(
+    edges: &[&RequirementRelation],
+    direction: TraversalDirection,
+    start: &str,
+    target: &str,
+) -> bool {
+    let mut seen = BTreeSet::from([start.to_string()]);
+    let mut queue = VecDeque::from([start.to_string()]);
+    while let Some(node) = queue.pop_front() {
+        for edge in edges {
+            let neighbor = match direction {
+                TraversalDirection::Downstream if edge.source == node => Some(&edge.target),
+                TraversalDirection::Upstream if edge.target == node => Some(&edge.source),
+                TraversalDirection::Both if edge.source == node => Some(&edge.target),
+                TraversalDirection::Both if edge.target == node => Some(&edge.source),
+                _ => None,
+            };
+            if let Some(neighbor) = neighbor {
+                if neighbor == target {
+                    return true;
+                }
+                if seen.insert(neighbor.clone()) {
+                    queue.push_back(neighbor.clone());
+                }
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -738,12 +785,14 @@ mod tests {
         let result = g.view(&request).unwrap();
         assert_eq!(result.graph.relations.len(), 2);
         assert_eq!(
-            result.graph.relations[1]
-                .promotion
-                .as_ref()
-                .unwrap()
-                .previous_status,
-            "proposed"
+            result
+                .graph
+                .relations
+                .iter()
+                .find(|relation| relation.id == "candidate")
+                .and_then(|relation| relation.promotion.as_ref())
+                .map(|promotion| promotion.previous_status.as_str()),
+            Some("proposed")
         );
     }
 
@@ -772,7 +821,7 @@ mod tests {
     }
 
     #[test]
-    fn behaviour_is_deterministic_and_requires_matching_confirmation() {
+    fn behaviour_recommendation_is_deterministic_but_a_human_can_select_another_view() {
         let g = graph();
         let ok = g
             .view(&ViewRequest {
@@ -788,7 +837,7 @@ mod tests {
             ok.behaviour.unwrap().recommended,
             BehaviourViewKind::Sequence
         );
-        let err = g
+        let selected = g
             .view(&ViewRequest {
                 kind: ViewKind::Behaviour,
                 scope: ViewScope::Authoritative,
@@ -797,11 +846,11 @@ mod tests {
                 direction: TraversalDirection::Downstream,
                 confirmed_behaviour: Some(BehaviourViewKind::State),
             })
-            .unwrap_err();
-        assert!(matches!(
-            err,
-            RequirementError::BehaviourConfirmationMismatch { .. }
-        ));
+            .unwrap();
+        assert_eq!(
+            selected.behaviour.unwrap().selected,
+            Some(BehaviourViewKind::State)
+        );
     }
 
     #[test]
