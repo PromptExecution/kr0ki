@@ -27,6 +27,8 @@ pub struct DiagramType {
     pub id: &'static str,
     /// kr0ki render format the sample renders through.
     pub syntax: &'static str,
+    /// Type-specific playbook fixture rendered in this card.
+    pub example_id: &'static str,
     /// Human name shown on the card.
     pub name: &'static str,
     /// Intent tags from [`USE_CASES`].
@@ -44,6 +46,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "flowchart",
         syntax: "d2",
+        example_id: "d2-rust-flow",
         name: "Flowchart",
         use_cases: &["process flow", "sketch"],
         blurb: "Steps and decision branches in a process, drawn as boxes and arrows.",
@@ -52,6 +55,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "activity",
         syntax: "plantuml",
+        example_id: "plantuml-activity",
         name: "Activity diagram",
         use_cases: &["process flow"],
         blurb: "A workflow with branches, merges, and swimlanes for who does what.",
@@ -60,6 +64,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "use-case",
         syntax: "plantuml",
+        example_id: "plantuml-use-case",
         name: "Use case diagram",
         use_cases: &["process flow", "interaction"],
         blurb: "Actors outside a system boundary and the goals they can achieve.",
@@ -68,6 +73,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "state",
         syntax: "plantuml",
+        example_id: "plantuml-state",
         name: "State machine",
         use_cases: &["state machine", "process flow"],
         blurb: "The states one thing can be in and the events that move it between them.",
@@ -77,6 +83,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "sequence",
         syntax: "plantuml",
+        example_id: "plantuml-sequence",
         name: "Sequence diagram",
         use_cases: &["interaction", "process flow"],
         blurb: "Who talks to whom, in what order, over time — request/response flows.",
@@ -85,6 +92,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "component",
         syntax: "plantuml",
+        example_id: "plantuml-component",
         name: "Component diagram",
         use_cases: &["architecture"],
         blurb: "Software building blocks and the interfaces between them.",
@@ -93,6 +101,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "c4-context",
         syntax: "c4plantuml",
+        example_id: "c4-context",
         name: "C4 context diagram",
         use_cases: &["architecture"],
         blurb: "Your system as a box in the middle, surrounded by users and dependencies.",
@@ -101,6 +110,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "class",
         syntax: "plantuml",
+        example_id: "plantuml-class",
         name: "Class diagram",
         use_cases: &["data model", "architecture"],
         blurb: "Types, their fields, and inheritance/association relationships.",
@@ -110,6 +120,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "erd",
         syntax: "plantuml",
+        example_id: "plantuml-erd",
         name: "Entity-relationship diagram",
         use_cases: &["data model"],
         blurb: "Database entities and how they reference each other (1:N, M:N).",
@@ -118,6 +129,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "dbml",
         syntax: "dbml",
+        example_id: "dbml-cache-entry",
         name: "Database schema (DBML)",
         use_cases: &["data model"],
         blurb: "Tables, columns, and foreign keys in a database-flavoured notation.",
@@ -126,6 +138,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "chart",
         syntax: "vegalite",
+        example_id: "vegalite-cache-outcomes",
         name: "Data chart (Vega-Lite)",
         use_cases: &["chart"],
         blurb: "Bars, lines, and points for quantitative data.",
@@ -135,6 +148,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "network",
         syntax: "nwdiag",
+        example_id: "nwdiag-topology",
         name: "Network diagram",
         use_cases: &["network"],
         blurb: "Segments, nodes, and addresses — how machines connect.",
@@ -143,6 +157,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "k8s-topology",
         syntax: "k8s-topology",
+        example_id: "k8s-topology-web-service",
         name: "Kubernetes topology",
         use_cases: &["network", "architecture"],
         blurb: "How workloads and services in a cluster relate, from a manifest.",
@@ -151,6 +166,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "rack",
         syntax: "rackdiag",
+        example_id: "rackdiag-deployment",
         name: "Rack diagram",
         use_cases: &["hardware", "network"],
         blurb: "Server racks with units stacked in order.",
@@ -159,6 +175,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "packet",
         syntax: "packetdiag",
+        example_id: "packetdiag-cache-key",
         name: "Packet structure",
         use_cases: &["hardware"],
         blurb: "Byte-level packet or register layouts.",
@@ -167,6 +184,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "wiring",
         syntax: "wireviz",
+        example_id: "wireviz-harness",
         name: "Wiring diagram",
         use_cases: &["hardware"],
         blurb: "Cables and pin-to-pin connections between connectors.",
@@ -175,6 +193,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "bytefield",
         syntax: "bytefield",
+        example_id: "bytefield-cache-key",
         name: "Bytefield",
         use_cases: &["hardware"],
         blurb: "Memory and protocol layouts, byte by byte.",
@@ -184,6 +203,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "block",
         syntax: "blockdiag",
+        example_id: "blockdiag-pipeline",
         name: "Block diagram",
         use_cases: &["sketch", "architecture"],
         blurb: "Simple labelled blocks and arrows — the whiteboard classic.",
@@ -192,6 +212,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "sketch",
         syntax: "ditaa",
+        example_id: "ditaa-artifact-flow",
         name: "ASCII sketch (ditaa)",
         use_cases: &["sketch"],
         blurb: "Hand-drawn look from ASCII-art boxes.",
@@ -200,6 +221,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "svgbob",
         syntax: "svgbob",
+        example_id: "svgbob-ascii-pipeline",
         name: "ASCII diagram (svgbob)",
         use_cases: &["sketch"],
         blurb: "Crisp rendering of ASCII-art diagrams.",
@@ -208,6 +230,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "timing",
         syntax: "plantuml",
+        example_id: "plantuml-timing",
         name: "Timing diagram",
         use_cases: &["timeline", "state machine"],
         blurb: "Signal levels and state over a shared time axis.",
@@ -216,6 +239,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "wavedrom",
         syntax: "wavedrom",
+        example_id: "wavedrom-cache-timing",
         name: "Waveform (WaveDrom)",
         use_cases: &["timeline", "hardware"],
         blurb: "Digital signal waveforms with clock edges.",
@@ -224,6 +248,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "gantt",
         syntax: "plantuml",
+        example_id: "plantuml-gantt",
         name: "Gantt chart",
         use_cases: &["timeline", "process flow"],
         blurb: "Tasks on a calendar with dependencies and milestones.",
@@ -232,6 +257,7 @@ pub const TYPES: &[DiagramType] = &[
     DiagramType {
         id: "deployment",
         syntax: "plantuml",
+        example_id: "plantuml-deployment",
         name: "Deployment diagram",
         use_cases: &["architecture", "network"],
         blurb: "Artifacts placed on nodes — what runs where.",
@@ -279,6 +305,7 @@ to these families, then recommend a type by id:\n",
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::examples;
 
     #[test]
     fn ids_are_unique_and_addressible() {
@@ -352,6 +379,21 @@ mod tests {
                 ),
                 "{} sample_prompt must name the type explicitly",
                 t.id
+            );
+        }
+    }
+
+    #[test]
+    fn every_type_points_to_a_type_specific_fixture() {
+        for diagram_type in TYPES {
+            let fixture = examples::ALL
+                .iter()
+                .find(|example| example.id == diagram_type.example_id)
+                .unwrap_or_else(|| panic!("{} fixture missing", diagram_type.id));
+            assert_eq!(
+                fixture.format, diagram_type.syntax,
+                "{} fixture syntax",
+                diagram_type.id
             );
         }
     }

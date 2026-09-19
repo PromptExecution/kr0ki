@@ -32,9 +32,11 @@ const props = defineProps({
   // Gallery → Agent handoff: a sample prompt (names the diagram type) the
   // composer starts with. The user edits/sends it — never auto-sent.
   prefill: { type: String, default: '' },
+  lockedType: { type: String, default: '' },
 })
 
 const input = ref(props.prefill)
+const comparisonPanels = ref([])
 // Fresh handoffs replace a still-untouched composer; a half-typed draft wins.
 watch(() => props.prefill, (next) => {
   if (next && (!input.value.trim() || input.value === props.prefill)) input.value = next
@@ -64,7 +66,7 @@ const error = chat.error
 const toolCallTrackers = chat.toolCallTrackers
 const usage = chat.usage
 const threadId = chat.threadId
-const panels = computed(() => chat.state.value?.panels || [])
+const panels = computed(() => [...(chat.state.value?.panels || []), ...comparisonPanels.value])
 const drafts = computed(() => chat.state.value?.drafts || [])
 const busy = computed(() => status.value === 'submitted' || status.value === 'streaming')
 const toolActivity = computed(() => Array.from(toolCallTrackers.value?.values() || []).map(t => ({
@@ -252,6 +254,13 @@ async function sendMessage() {
   input.value = ''
   console.info('[storyb00k] send →', text, '| thread:', threadId.value, '| agent:', agentUrl)
   try {
+    if (props.lockedType) {
+      const lock = await fetch(`${agentUrl}/projects/lock-type`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threadId: threadId.value, typeId: props.lockedType }),
+      })
+      if (!lock.ok) throw new Error(`type lock failed: HTTP ${lock.status}`)
+    }
     const result = await chat.send(text)
     console.info('[storyb00k] run finished | new messages:', result?.newMessages?.length ?? 0,
       '| usage:', usage.value.at(-1) ?? 'none reported')
@@ -306,6 +315,15 @@ async function submitAnswer(interruptId) {
       body: JSON.stringify({ threadId: threadId.value, interruptId: interrupt.id, answer }),
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const response = await res.json()
+    if (response.comparisonPanels?.length) {
+      comparisonPanels.value = [...comparisonPanels.value, ...response.comparisonPanels]
+      questionChoice.value = ''
+      questionFreeText.value = ''
+      chat.respondToInterrupt(interrupt.id, { answer })
+      await loadProject()
+      return
+    }
     questionChoice.value = ''
     questionFreeText.value = ''
     // Record the response with the client, then RESUME the interrupted run —

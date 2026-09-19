@@ -195,6 +195,47 @@ def truncate(text, limit=MAX_OUTPUT_CHARS):
     return text[:limit] + f"\n… [truncated {len(text) - limit} chars]"
 
 
+def normalize_type_id(value):
+    """Normalize a UI label only for comparison with catalog type ids."""
+    return "-".join(str(value or "").strip().lower().split())
+
+
+def selected_recommendation_type(answer, recommendations):
+    """Return the canonical recommendation id for a normal confirmation choice."""
+    answer_id = normalize_type_id(answer)
+    for recommendation in recommendations:
+        type_id = normalize_type_id(recommendation.get("typeId"))
+        if type_id and type_id == answer_id:
+            return recommendation["typeId"]
+    return None
+
+
+def render_recommendation_samples(recommendations):
+    """Render the catalog fixtures for a comparison choice without involving the LLM."""
+    catalog = json.loads(urllib.request.urlopen(f"{KR0KI_URL}/api/catalog", timeout=5).read())
+    examples = json.loads(urllib.request.urlopen(f"{KR0KI_URL}/api/examples", timeout=5).read())
+    types = {entry["id"]: entry for entry in catalog.get("types", [])}
+    fixtures = {entry["id"]: entry for entry in examples}
+    panels = []
+    for recommendation in recommendations[:2]:
+        type_id = recommendation.get("typeId")
+        diagram_type = types.get(type_id, {})
+        fixture = fixtures.get(diagram_type.get("exampleId"))
+        if not fixture:
+            continue
+        route = fixture.get("route") or f"/render/{fixture['format']}"
+        content_type, result = http_call(
+            "POST", f"{KR0KI_URL}{route}?output=svg", fixture["source"].encode()
+        )
+        panel = panel_from_tool_result(
+            "render_diagram", {"format": fixture["format"], "source": fixture["source"]}, content_type, result
+        )
+        panel["title"] = diagram_type.get("name", type_id)
+        panel["source"]["route"] = fixture.get("route")
+        panels.append(panel)
+    return panels
+
+
 def panel_from_tool_result(name, arguments, content_type, result):
     """Preserve binary render output rather than corrupting PNG bytes as UTF-8."""
     # Tool-name → editor format/route mapping: the k8s tools take a `manifest`
@@ -403,6 +444,15 @@ class Handler(BaseHTTPRequestHandler):
                 project["fastTrack"] = bool(payload.get("enabled", True))
                 project_store.save_project(thread_id, project)
             return self._json(200, {"status": "ok"})
+        if self.path == "/projects/lock-type":
+            thread_id = payload.get("threadId", "default")
+            type_id = normalize_type_id(payload.get("typeId"))
+            if not type_id:
+                return self._json(400, {"error": "type_id_required"})
+            project = project_store.get_project(thread_id) or {"threadId": thread_id}
+            project["lockedType"] = type_id
+            project_store.save_project(thread_id, project)
+            return self._json(200, project)
         if self.path == "/respond-to-interrupt":
             thread_id = payload.get("threadId", "default")
             draft = _drafts.get(thread_id)
@@ -425,11 +475,27 @@ class Handler(BaseHTTPRequestHandler):
                 _pending_questions.pop(thread_id, None)
                 project_store.add_qa(thread_id, question.get("question", ""), answer)
                 if question.get("kind") == "type-confirm":
-                    # The confirmed recommendation locks the diagram type
-                    # (Plan 005 §2.3) — discover mode is done after this.
+                    recommendations = question.get("recommendations") or []
+                    if normalize_type_id(answer) == "show-me-both":
+                        # A comparison is deliberately not a type lock. Render
+                        # the catalog fixtures now so the UI can show the
+                        # promised visual comparison instead of treating this
+                        # label as an invalid diagram type on the next run.
+                        try:
+                            panels = render_recommendation_samples(recommendations)
+                        except Exception as error:  # noqa: BLE001 — answer remains valid if rendering is unavailable
+                            return self._json(502, {"error": "comparison_render_failed", "detail": str(error)})
+                        return self._json(200, {
+                            "status": "ok", "answered": question.get("id"), "question": question.get("question"),
+                            "answer": answer, "comparisonTypes": [r.get("typeId") for r in recommendations],
+                            "comparisonPanels": panels,
+                        })
+                    # Lock the canonical typeId from the recommendation, not a
+                    # display label supplied by the interrupt client.
+                    selected_type = selected_recommendation_type(answer, recommendations)
                     project = project_store.get_project(thread_id)
-                    if project is not None:
-                        project["lockedType"] = answer.strip().lower().replace(" ", "-")[:60]
+                    if project is not None and selected_type:
+                        project["lockedType"] = selected_type
                         project_store.save_project(thread_id, project)
                 return self._json(200, {"status": "ok", "answered": question.get("id"), "question": question.get("question"), "answer": answer})
             try:
@@ -517,7 +583,7 @@ class Handler(BaseHTTPRequestHandler):
                 "best-judgement choices (prefix 'Best judgement:'), treat it as the "
                 "lock-in, and render immediately in this run."
             )
-        else:
+        elif discovery_mode:
             mode_rules = (
                 "\n\nQUESTION MODES — pick exactly one per run:\n"
                 "- DISCOVER MODE (active now): the user has NOT named a diagram syntax. "
@@ -531,6 +597,12 @@ class Handler(BaseHTTPRequestHandler):
                 "- REFINE MODE: the type is already locked — refine participants, "
                 "scope, and level of detail only.\n"
                 + (f"\nTYPE VOCABULARY:\n{catalog_guide}\n" if catalog_guide else "")
+            )
+        else:
+            mode_rules = (
+                "\n\nQUESTION MODES — REFINE MODE (active now): the diagram type is locked. "
+                "Refine only its participants, scope, and level of detail. Do NOT call "
+                "recommend_diagram_type and do not re-enter discovery unless the user asks to switch types."
             )
         qa_memory += mode_rules
         # Plan 005 §3: per-type skill loaded ONLY when the type is locked —

@@ -36,6 +36,8 @@ pub mod k8s_recognizer;
 pub mod mcp_tool;
 pub mod probe;
 pub mod render;
+pub mod requirements;
+pub mod requirements_render;
 pub mod rust_recognizer;
 pub mod sysml_lift;
 pub mod sysml_render;
