@@ -92,7 +92,7 @@ onMounted(async () => {
           Editor
         </button>
         <button class="view-tab" :class="{ active: viewMode === 'storyb00k' }" @click="viewMode = 'storyb00k'">
-          storyb00k
+          Agent
         </button>
       </nav>
       <nav v-if="viewMode === 'editor'" aria-label="Supported diagram formats">
@@ -132,7 +132,7 @@ onMounted(async () => {
           <code>just test-playbook</code> checks, from the browser.
         </p>
         <p v-else-if="viewMode === 'editor'">
-          Choose a supported input format, inspect its fixture, render it through kr0ki, and review cache-backed output. Every fixture's source is editable in place: paste or upload your own hand-authored diagram-as-code and render it the same way, independent of whether it came from a generator. D2 code flows are executable today; the typed SysML v2 path remains upstream of this renderer.
+          Pick a format, paste or upload your own diagram-as-code, and render it.
         </p>
       </header>
 
