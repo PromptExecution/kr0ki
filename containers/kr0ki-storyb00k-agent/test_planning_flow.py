@@ -84,6 +84,13 @@ class PlanningFlowTest(unittest.TestCase):
         frames = [json.loads(line[5:]) for line in raw.splitlines() if line.startswith("data: ")]
         types = [f["type"] for f in frames]
         self.assertIn("THINKING_TEXT_MESSAGE_CONTENT", types, types)
+        # Tool-call lifecycle must be complete before the interrupt — the
+        # client's state machine rejects END/RESULT without a prior START.
+        self.assertEqual(
+            [t for t in types if t.startswith("TOOL_CALL")],
+            ["TOOL_CALL_START", "TOOL_CALL_ARGS", "TOOL_CALL_END", "TOOL_CALL_RESULT"],
+            types,
+        )
         self.assertIn("RUN_FINISHED", types)
         finished = next(f for f in frames if f["type"] == "RUN_FINISHED")
         self.assertEqual(finished["outcome"]["type"], "interrupt")

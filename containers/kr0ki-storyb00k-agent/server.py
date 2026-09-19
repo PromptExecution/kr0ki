@@ -467,6 +467,17 @@ class Handler(BaseHTTPRequestHandler):
                     # messages the client appends. We park the run here.
                     question_id = f"ask-{uuid.uuid4().hex[:12]}"
                     options = arguments.get("options") or []
+                    # Contract: TOOL_CALL_START → ARGS → END → TOOL_CALL_RESULT.
+                    # Skipping START/ARGS made the client reject END ("No active
+                    # tool call found") and abort the run before the interrupt.
+                    stream.try_write({
+                        "type": "TOOL_CALL_START", "threadId": thread_id, "runId": stream.run_id,
+                        "toolCallId": tool_call_id, "toolCallName": name, "parentMessageId": parent_message_id,
+                    })
+                    stream.try_write({
+                        "type": "TOOL_CALL_ARGS", "threadId": thread_id, "runId": stream.run_id,
+                        "toolCallId": tool_call_id, "delta": call["function"]["arguments"] or "{}",
+                    })
                     stream.try_write({
                         "type": "TOOL_CALL_END", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id,
                     })
@@ -505,6 +516,17 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 if name == "propose_draft_change":
                     proposal_id = draft.propose(arguments.get("subject", ""), arguments.get("predicate", ""), arguments.get("object", ""))
+                    # Contract: the assistant emitted a tool_call, so the client
+                    # needs the START → ARGS → END → RESULT lifecycle before the
+                    # interrupt, same as ask_user.
+                    stream.try_write({"type": "TOOL_CALL_START", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "toolCallName": name, "parentMessageId": parent_message_id})
+                    stream.try_write({"type": "TOOL_CALL_ARGS", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "delta": call["function"]["arguments"] or "{}"})
+                    stream.try_write({"type": "TOOL_CALL_END", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id})
+                    stream.try_write({
+                        "type": "TOOL_CALL_RESULT", "threadId": thread_id, "runId": stream.run_id,
+                        "messageId": parent_message_id, "toolCallId": tool_call_id,
+                        "content": f"Proposal {proposal_id} pending user approval.", "role": "tool",
+                    })
                     stream.try_write({"type": "STATE_DELTA", "threadId": thread_id, "runId": stream.run_id, "delta": [{"op": "add", "path": "/drafts/-", "value": {"id": proposal_id, "status": "pending", **arguments}}]})
                     # Interrupt outcome shape per RunFinishedInterruptOutcomeSchema.
                     stream.try_write(lifecycle_event("RUN_FINISHED", thread_id, stream.run_id, outcome={
