@@ -15,14 +15,15 @@ Read [`HANDOFF-2026-09-19-reqif-flexo.md`](HANDOFF-2026-09-19-reqif-flexo.md) be
 starting this stream. kr0ki's stateless view slice is on
 `feature/flexo-reqif-implementation` (`f9039be`); it is not a requirements store.
 
-- [x] **Normalized requirements graph + five viewpoints** — local integration seam in
-  `kr0ki-core::{requirements,requirements_render}` and HTTP view/render routes. It
-  preserves baseline/provenance/evidence and gates inferred/proposed edges behind
-  explicit promotion. This must migrate to `ufo-types` before a second consumer uses
-  it.
-- [ ] **Upstream `ufo-types::mbse::requirements`** — move/release the shared semantic
-  model and make kr0ki consume it. Keep View results typed; no renderer source in the
-  semantic contract.
+- [x] **Normalized requirements graph + five viewpoints** — integration seam in
+  `kr0ki-core::{requirements,requirements_render}` (now re-exporting the upstream
+  model, see next item) and HTTP view/render routes. Preserves baseline/provenance/
+  evidence and gates inferred/proposed edges behind explicit promotion.
+- [x] **Upstream `ufo-types::mbse::requirements`** — moved/released as `ufo-types`
+  v0.15.0 (`PromptExecution/ufo-types#28`). `kr0ki-core` re-exports
+  `ufo_types::mbse::requirements` as `kr0ki_core::requirements` rather than owning a
+  copy — zero drift, zero duplication. View results stay typed; no renderer source
+  in the semantic contract (rendering stays in `kr0ki-core::requirements_render`).
 - [ ] **StrictDoc ReqIF / ReqIFz adapter** — use the Apache-2.0 Python `reqif` package
   (parser, unparser, validation, schema validation, progress callbacks) through a
   sidecar HTTP/MCP boundary. Do not write XML parsing in Rust. Cover malformed input,
