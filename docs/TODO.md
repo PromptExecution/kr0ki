@@ -451,6 +451,35 @@ tracked as they affect production readiness.
   build) — the last three datum PRs were admin-merged past a backed-up `cargo check`
   queue after `validate graph references` passed.
 
+## Versioned dialects / b00t loader (design-note follow-ups)
+
+Tracked from `docs/DESIGN-NOTE-versioned-dialects-and-b00t-loader.md` §4–7 (2026-09-20).
+§1–3 (`DialectUrn`/`Upgrade` in `ufo-types`, `Requirement` as a UFO Endurant, the ReqIF
+bridge) are done — see `ufo-types#29` and `kr0ki#43`. None of the items below have design
+passes complete yet; none should be started without one (this repo's own process
+convention — brainstorm/plan first, per `superpowers:brainstorming`/`writing-plans`).
+
+- [ ] **§4 `b00t://` loader** — sponsored by b00t, not kr0ki (see the design note's
+  rationale: `BootDatum`/`DatabaseDatum` already model the DSN/credential registry,
+  `is_reachable` is reachability-only today via CLI shell-out, a real native client per
+  `db_type` — postgres/pgwire first, matching what's already first-class — is the actual
+  gap). New surface in `b00t-c0re-lib`, not kr0ki. Not scoped as a task yet.
+- [ ] **§5 Rust-source frontend vocabulary** — `PLAN-KR0KI-003`'s box-1/box-3 recognizer
+  should draw its structural vocabulary from `b00t learn rust` (`_b00t_/rust.🦀/.md`)
+  rather than kr0ki inventing its own idiom. Only relevant once box-1/box-3 itself is
+  picked up (currently design-only per §1 of this file's own pipeline table).
+- [ ] **§6 Isometric / procedural SVG render target** — explicitly **not kr0ki's to
+  build** per this file's own `AGENTS.md` §4 scope guardrails ("Isometric renderer →
+  `systhread-core` (call it, don't port it)"). Noted here only so the design note's
+  major/minor-abstraction requirement isn't lost; any implementation work belongs in
+  `systhread-core`, called through the existing `RenderBackend` trait boundary.
+- [ ] **§7 `transm0grify`/`m0grph` requirement-authoring agent interface** — least
+  defined of the set; the design note flags it needs its own real design pass (MCP tool
+  surface, how a proposed `RequirementRelation` gets human-gated before `Asserted` —
+  reuse the existing `RelationAuthority::Proposed`/`Inferred` → `promote()` flow in
+  `ufo_types::mbse::requirements` rather than reinventing it — and whether it's
+  kr0ki-hosted or b00t-hosted given §4). Not started.
+
 ## b00t platform backlog (external)
 
 - [ ] **Credential-provenance / CVE-review hook** — detect when an agent encounters a
