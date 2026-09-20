@@ -13,10 +13,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use zip::ZipArchive;
 
-use crate::{
-    reqif_adapter::{bundle_to_requirement_graph, ReqIfAdapterConfig, ReqIfAdapterError},
-    requirements::RequirementGraph,
-};
+use crate::requirements::RequirementGraph;
+use ufo_types::reqif::{parse_and_lower, ReqIfAdapterConfig, ReqIfAdapterError};
 
 /// Default cap for both the uploaded artifact and an expanded ReqIFz archive.
 ///
@@ -125,8 +123,6 @@ pub enum ReqIfImportError {
     NoDocuments,
     #[error("invalid ReqIFz archive: {0}")]
     Archive(String),
-    #[error(transparent)]
-    Parse(#[from] reqrs::ReqIfError),
     #[error(transparent)]
     Adapter(#[from] ReqIfAdapterError),
     #[error("could not serialize the normalized requirements graph: {0}")]
@@ -275,9 +271,8 @@ fn parse_document(
         .revision
         .clone()
         .unwrap_or_else(|| format!("sha256:{artifact_sha256}"));
-    let bundle = reqrs::ReqIfParser::parse_bytes(bytes)?;
-    let graph = bundle_to_requirement_graph(
-        &bundle,
+    let graph = parse_and_lower(
+        bytes,
         &ReqIfAdapterConfig {
             source_uri,
             revision,
@@ -366,7 +361,7 @@ mod tests {
     fn rejects_malformed_xml_with_a_typed_parse_error() {
         let error = import_reqif_artifact(b"<REQ-IF><CORE-CONTENT>", &ReqIfImportConfig::default())
             .unwrap_err();
-        assert!(matches!(error, ReqIfImportError::Parse(_)));
+        assert!(matches!(error, ReqIfImportError::Adapter(_)));
     }
 
     #[test]
