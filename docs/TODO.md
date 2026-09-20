@@ -340,10 +340,23 @@ starting this stream. kr0ki's stateless view slice is on
 - [ ] **Negative / error corpus** — `SysML-v2-Release` has positive fixtures only; port
   selected error cases from the OMG Pilot Implementation's `org.omg.*.xpect.tests/**/*.xt`
   (EPL-2.0). Deferred; noted in `CONFORMANCE.md`.
-- [ ] 🚩 **`sysml-v2-parser` 0.55 deep-nesting stack overflow** — a few deeply-nested
-  `sysml/src/examples/` models SIGABRT with the default 2 MiB test-thread stack
-  (contained in the harness with a 256 MiB worker). Reduce to a minimal standalone
-  repro on the crate's own public `parse()` API, then file upstream + `b00t task add`.
+- [ ] 🚩 **`sysml-v2-parser` deep-nesting stack overflow — patch submitted upstream,
+  not yet merged** — re-verified 2026-09-19 against both 0.55.0 (kr0ki's pin) and
+  0.56.0 (latest): exactly one file in the whole corpus SIGABRTs on a 2 MiB thread in
+  a debug build, `sysml/src/examples/Vehicle Example/VehicleIndividuals.sysml`
+  (contained in kr0ki's own harness by the existing 256 MiB worker — see
+  `with_big_stack` in `conformance.rs`). Bisected to a 15-line minimal repro: an
+  `individual` declaration with a redefinition/multi-specialization header
+  (`individual x : T :>> f, g { ... }`) whose body's sole member is a `doc` comment,
+  6 levels deep — `NESTED_BODY_RED_ZONE` (1 MiB, sized for the general case) can be
+  exhausted within a single such level, before the parser's own per-level headroom
+  check runs again. Fix (doubling the red zone to 2 MiB, verified against the full
+  342-file corpus, 0 regressions) submitted as
+  [elan8/sysml-v2-parser#142](https://github.com/elan8/sysml-v2-parser/pull/142).
+  Once merged and released: bump `sysml_v2_parser` in `Cargo.toml`/`ufo-types`/
+  `docs/conformance-target.toml`, remove `with_big_stack` from `conformance.rs`
+  (verify the corpus still passes on the default thread stack first), and `b00t task
+  add` to track the release-bump itself if it doesn't land quickly.
 
 ## Gaps discovered during 2026-09-15 session
 
