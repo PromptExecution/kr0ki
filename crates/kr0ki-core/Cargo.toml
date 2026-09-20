@@ -42,6 +42,11 @@ oxrdf = "0.3"
 # source.md #5): reads workspace Cargo.toml files to tell a workspace-sibling
 # crate apart from a genuine external dependency.
 toml = "0.8"
+# M2 (docs/TODO.md "ReqIF / ReqIFz adapter", decided 2026-09-20 -- see
+# docs/HANDOFF-2026-09-19-reqif-flexo.md): parse ReqIF 1.2 XML directly in
+# Rust rather than calling `reqif-opa-mcp` as a sidecar. Apache-2.0, a direct
+# Rust port of the same StrictDoc `reqif` reference implementation.
+reqrs = "0.2.2"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "fs", "net", "rt-multi-thread"] }
