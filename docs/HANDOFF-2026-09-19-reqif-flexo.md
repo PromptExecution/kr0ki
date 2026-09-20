@@ -95,10 +95,27 @@ StrictDoc.
 
 - **kr0ki is not the requirements database.** Flexo MMS is the durable RDF/versioned
   model store. kr0ki accepts materialized graphs and makes ephemeral views/artifacts.
-- **No handwritten ReqIF XML parser.** The planned adapter must use the Apache-2.0
-  StrictDoc `reqif` package for ReqIF/ReqIFz parsing, unparsing, basic validation, and
-  optional OMG schema validation. It is a Python library, so use a small sidecar/HTTP
-  or MCP boundary; Rust owns the normalized model and viewpoints.
+- **No handwritten ReqIF XML parser.** **Decided 2026-09-20** (superseding the
+  original "Python sidecar/HTTP/MCP boundary" plan below): use
+  [`reqrs`](https://crates.io/crates/reqrs) (Apache-2.0, MIT-compatible), a direct
+  Rust port of the same mandated StrictDoc `reqif` package, as a normal
+  `kr0ki-core` Cargo dependency — no sidecar process, no HTTP/MCP hop for
+  parsing itself. Verified hands-on before deciding (see
+  [kr0ki#39](https://github.com/PromptExecution/kr0ki/issues/39)): parses a
+  real fixture correctly, rejects a structurally-invalid one with a clearer
+  error than the Python original gave for the identical case, and round-trips
+  byte-identically on consistently-formatted input. Caveats carried forward,
+  not yet resolved: `reqrs` is young (created 2026-05-28, pre-1.0, ~1 star,
+  single maintainer) and its behavior on `reqif` 0.0.48's confirmed
+  no-namespace parsing bug (found in
+  [reqif-opa-mcp#25](https://github.com/PromptExecution/reqif-opa-mcp/pull/25))
+  hasn't been checked yet — verify before the adapter depends on it for
+  anything namespace-optional. Original plan, kept for context: use the
+  Apache-2.0 StrictDoc `reqif` package for ReqIF/ReqIFz parsing, unparsing,
+  basic validation, and optional OMG schema validation via a small
+  sidecar/HTTP or MCP boundary, since it's a Python library. `reqrs` makes
+  that boundary unnecessary for parsing; Rust still owns the normalized model
+  and viewpoints either way.
 - **`ufo-types` owns shared semantics.** The current module is a kr0ki integration
   seam, not permission to fork the canonical semantic model. Move it upstream as
   `ufo_types::mbse::requirements` before another consumer depends on this local path,
