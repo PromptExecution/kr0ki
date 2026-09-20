@@ -18,9 +18,11 @@ let editedSourcePending = false
 // prompt naming the diagram type, then flip to the Agent view. Never auto-sent.
 const agentUrl = `${window.location.protocol}//${window.location.hostname}:8789`
 const agentPrefill = ref('')
+const agentTypeId = ref('')
 
-function agentHandoff({ prompt }) {
+function agentHandoff({ prompt, typeId }) {
   agentPrefill.value = prompt
+  agentTypeId.value = typeId
   viewMode.value = 'storyb00k'
 }
 
@@ -154,7 +156,7 @@ onMounted(async () => {
         @open-in-editor="openInEditor"
         @agent-handoff="agentHandoff"
       />
-      <StoryB00k v-else-if="viewMode === 'storyb00k'" :prefill="agentPrefill" @edit-in-editor="editInEditor" />
+      <StoryB00k v-else-if="viewMode === 'storyb00k'" :prefill="agentPrefill" :locked-type="agentTypeId" @edit-in-editor="editInEditor" />
       <RendererPanel
         v-else-if="selectedExample"
         :example="selectedExample"

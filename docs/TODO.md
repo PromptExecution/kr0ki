@@ -6,8 +6,43 @@ in [`PLAN-KR0KI-002.md`](PLAN-KR0KI-002.md); the typed-layer shape in
 [`DESIGN-NOTE-typed-model-layer.md`](DESIGN-NOTE-typed-model-layer.md). This file just
 tracks *what is left to do*, ordered by the five-box pipeline.
 
-_Last updated: 2026-09-15; corrected 2026-09-17 — boxes 2/3 and the ledgrrr
+_Last updated: 2026-09-19; corrected 2026-09-17 — boxes 2/3 and the ledgrrr
 cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
+
+## ReqIF / Flexo requirements viewpoints — new tracked stream
+
+Read [`HANDOFF-2026-09-19-reqif-flexo.md`](HANDOFF-2026-09-19-reqif-flexo.md) before
+starting this stream. kr0ki's stateless view slice is on
+`feature/flexo-reqif-implementation` (`f9039be`); it is not a requirements store.
+
+- [x] **Normalized requirements graph + five viewpoints** — integration seam in
+  `kr0ki-core::{requirements,requirements_render}` (now re-exporting the upstream
+  model, see next item) and HTTP view/render routes. Preserves baseline/provenance/
+  evidence and gates inferred/proposed edges behind explicit promotion.
+- [x] **Upstream `ufo-types::mbse::requirements`** — moved/released as `ufo-types`
+  v0.15.0 (`PromptExecution/ufo-types#28`). `kr0ki-core` re-exports
+  `ufo_types::mbse::requirements` as `kr0ki_core::requirements` rather than owning a
+  copy — zero drift, zero duplication. View results stay typed; no renderer source
+  in the semantic contract (rendering stays in `kr0ki-core::requirements_render`).
+- [ ] **StrictDoc ReqIF / ReqIFz adapter** — use the Apache-2.0 Python `reqif` package
+  (parser, unparser, validation, schema validation, progress callbacks) through a
+  sidecar HTTP/MCP boundary. Do not write XML parsing in Rust. Cover malformed input,
+  attachments, large-file progress, and round trips against upstream fixtures.
+- [ ] **`reqif-opa-mcp` refactor** — retain its artifact → document graph → candidate
+  → OPA → ReqIF pipeline; replace its private requirement DTO/relation/provenance and
+  validation types with the upstream `ufo-types` contract.
+- [ ] **Flexo baseline adapter** — import validated ReqIF into versioned RDF, retain
+  original artifact and deterministic export per Flexo commit, then materialize the
+  same normalized graph. Prove commit ↔ graph ↔ export equivalence in contract tests.
+- [ ] **Playb00k requirements workspace** — after M2/M3 contracts exist: import and
+  validate, select baseline, browse hierarchy/provenance, run all five viewpoints,
+  distinguish asserted/inferred/proposed edges, explicitly promote, and open cached
+  artifacts. Keep Vue independent of the API schema so Flexo Web Modeler can reuse it.
+- [ ] **MCP requirements tools** — add accepted view/render contracts to
+  `McpTool::ALL`, bridge manifest tests, and API docs; do not hard-code a second
+  dispatcher.
+- [ ] **GraalVM LLVM/Rust spike** — only after HTTP/MCP integration works. Record
+  target/library constraints and keep it optional for first release.
 
 ---
 
@@ -305,10 +340,23 @@ cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
 - [ ] **Negative / error corpus** — `SysML-v2-Release` has positive fixtures only; port
   selected error cases from the OMG Pilot Implementation's `org.omg.*.xpect.tests/**/*.xt`
   (EPL-2.0). Deferred; noted in `CONFORMANCE.md`.
-- [ ] 🚩 **`sysml-v2-parser` 0.55 deep-nesting stack overflow** — a few deeply-nested
-  `sysml/src/examples/` models SIGABRT with the default 2 MiB test-thread stack
-  (contained in the harness with a 256 MiB worker). Reduce to a minimal standalone
-  repro on the crate's own public `parse()` API, then file upstream + `b00t task add`.
+- [ ] 🚩 **`sysml-v2-parser` deep-nesting stack overflow — patch submitted upstream,
+  not yet merged** — re-verified 2026-09-19 against both 0.55.0 (kr0ki's pin) and
+  0.56.0 (latest): exactly one file in the whole corpus SIGABRTs on a 2 MiB thread in
+  a debug build, `sysml/src/examples/Vehicle Example/VehicleIndividuals.sysml`
+  (contained in kr0ki's own harness by the existing 256 MiB worker — see
+  `with_big_stack` in `conformance.rs`). Bisected to a 15-line minimal repro: an
+  `individual` declaration with a redefinition/multi-specialization header
+  (`individual x : T :>> f, g { ... }`) whose body's sole member is a `doc` comment,
+  6 levels deep — `NESTED_BODY_RED_ZONE` (1 MiB, sized for the general case) can be
+  exhausted within a single such level, before the parser's own per-level headroom
+  check runs again. Fix (doubling the red zone to 2 MiB, verified against the full
+  342-file corpus, 0 regressions) submitted as
+  [elan8/sysml-v2-parser#142](https://github.com/elan8/sysml-v2-parser/pull/142).
+  Once merged and released: bump `sysml_v2_parser` in `Cargo.toml`/`ufo-types`/
+  `docs/conformance-target.toml`, remove `with_big_stack` from `conformance.rs`
+  (verify the corpus still passes on the default thread stack first), and `b00t task
+  add` to track the release-bump itself if it doesn't land quickly.
 
 ## Gaps discovered during 2026-09-15 session
 

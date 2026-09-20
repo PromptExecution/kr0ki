@@ -43,6 +43,14 @@ class PlanningFlowTest(unittest.TestCase):
         server._pending_questions.clear()
         server._drafts.clear()
 
+        # This suite runs the real HTTP server end-to-end but must not depend
+        # on a live kr0ki-server being reachable at KR0KI_URL: fetch_manifest()
+        # is the one real network call _run() makes before it ever reaches the
+        # (also mocked) LLM. Same pattern test_server.py already uses.
+        self.manifest = patch("server.fetch_manifest", return_value=[])
+        self.manifest.start()
+        self.addCleanup(self.manifest.stop)
+
         # Mock LLM: first call asks the user a multiple-choice question.
         self.llm = patch("llm_client.OpenAICompatibleClient")
         mock_cls = self.llm.start()
@@ -240,6 +248,37 @@ class PlanningFlowTest(unittest.TestCase):
         })
         self.assertIn("REFINE MODE", captured["system"])
         self.assertIn("Type chosen: activity", captured["system"])
+        self.assertNotIn("DISCOVER MODE (active now)", captured["system"])
+
+    def test_type_confirmation_uses_canonical_recommendation_id_and_compares_both(self):
+        base = f"http://127.0.0.1:{self.port}"
+        recommendations = [
+            {"typeId": "activity", "rationale": "workflow"},
+            {"typeId": "flowchart", "rationale": "simpler flow"},
+        ]
+        server._pending_questions["plan-choice"] = {
+            "id": "rec-choice", "kind": "type-confirm", "question": "Choose",
+            "options": ["Activity", "Flowchart", "Show me both"], "recommendations": recommendations,
+        }
+        status, _ = _post(f"{base}/respond-to-interrupt", {
+            "threadId": "plan-choice", "interruptId": "rec-choice", "answer": "Activity",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(server.project_store.get_project("plan-choice")["lockedType"], "activity")
+
+        server._pending_questions["plan-both"] = {
+            "id": "rec-both", "kind": "type-confirm", "question": "Choose",
+            "options": ["Activity", "Flowchart", "Show me both"], "recommendations": recommendations,
+        }
+        with patch.object(server, "render_recommendation_samples", return_value=[{"kind": "render"}, {"kind": "render"}]) as render:
+            status, body = _post(f"{base}/respond-to-interrupt", {
+                "threadId": "plan-both", "interruptId": "rec-both", "answer": "show me both",
+            })
+        self.assertEqual(status, 200)
+        render.assert_called_once_with(recommendations)
+        self.assertEqual(body["comparisonTypes"], ["activity", "flowchart"])
+        self.assertEqual(len(body["comparisonPanels"]), 2)
+        self.assertNotIn("lockedType", server.project_store.get_project("plan-both"))
 
     def test_approval_payload_on_question_tolerated(self):
         """A generic client that posts {approved: true} to a rec-* question

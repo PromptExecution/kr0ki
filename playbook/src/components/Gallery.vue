@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
   examples: { type: Array, required: true },
@@ -33,15 +33,30 @@ const useCaseFilters = computed(() => ['All', ...(catalog.value?.useCases || [])
 
 // Type cards from the taxonomy; each links to its fixture (match by syntax)
 // so the card can render a thumbnail through the existing test flow.
+const selectedType = ref(new URL(window.location.href).searchParams.get('type') || '')
+
+function selectType(typeId) {
+  selectedType.value = typeId
+  const url = new URL(window.location.href)
+  url.searchParams.set('type', typeId)
+  window.history.replaceState({}, '', url)
+}
+
+async function focusSelectedType() {
+  await nextTick()
+  const card = document.querySelector(`[data-type-id="${CSS.escape(selectedType.value)}"]`)
+  card?.focus({ preventScroll: true })
+  card?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+}
+
+// Type cards link to the fixture explicitly named by their catalog type.
 const typeCards = computed(() => {
   const types = catalog.value?.types || []
   return types
     .filter((t) => activeUseCase.value === 'All' || t.useCases.includes(activeUseCase.value))
     .map((t) => ({
       ...t,
-      // First fixture whose format matches the type's syntax — used for the
-      // Edit deep link. Types without a fixture render Agent-only.
-      example: props.examples.find((e) => e.format === t.syntax),
+      example: props.examples.find((e) => e.id === t.exampleId),
     }))
 })
 
@@ -50,6 +65,12 @@ const typeCards = computed(() => {
 watch(useCaseFilters, (filters) => {
   if (!filters.includes(activeUseCase.value)) activeUseCase.value = 'All'
 })
+
+watch([catalog, selectedType], () => {
+  if (selectedType.value && (catalog.value?.types || []).some((type) => type.id === selectedType.value)) {
+    focusSelectedType()
+  }
+}, { immediate: true })
 
 function countFor(tag) {
   return (catalog.value?.types || []).filter((t) => t.useCases.includes(tag)).length
@@ -198,7 +219,15 @@ async function testType(card) {
 
     <!-- Type cards: browse by intent, deep-linkable by typeId -->
     <div v-if="typeCards.length" class="gallery-grid">
-      <article v-for="card in typeCards" :key="card.id" class="gallery-card" :data-type-id="card.id">
+      <article
+        v-for="card in typeCards"
+        :key="card.id"
+        class="gallery-card"
+        :class="{ selected: selectedType === card.id }"
+        :data-type-id="card.id"
+        tabindex="-1"
+        @click="selectType(card.id)"
+      >
         <header>
           <p class="eyebrow">{{ card.name }} · {{ card.syntax }}</p>
           <h3>{{ card.blurb }}</h3>

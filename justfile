@@ -11,6 +11,9 @@ build:
 test:
     cargo test --workspace
     cd containers/kr0ki-mcp && python3 test_bridge.py && python3 test_http_worker.py
+    cd containers/kr0ki-storyb00k-agent && python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt && .venv/bin/python3 -m unittest discover -p 'test_*.py'
+    pnpm --dir playbook install --frozen-lockfile
+    pnpm --dir playbook test
 
 # Live render test against a real Kroki (needs a backend URL).
 test-live backend="https://kroki.io":

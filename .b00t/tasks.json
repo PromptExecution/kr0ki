@@ -380,6 +380,59 @@
       "priority": 3,
       "tags": [],
       "created_at": "2026-09-19T12:02:53Z"
+    },
+    {
+      "id": 47,
+      "title": "kr0ki commit on PR #35: fast-track Diagram-now button (skips questions after 2 answers, best-judgement render) + dashboard generation spinner; live verified no-ask render; deployed 3812b5a6366b",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:39:12Z"
+    },
+    {
+      "id": 48,
+      "title": "kr0ki review: make locked diagram type prompt refine-only",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:56:26Z",
+      "updated_at": "2026-09-19T13:06:55Z"
+    },
+    {
+      "id": 49,
+      "title": "kr0ki review: render recommendation pair for show-me-both selection",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:56:26Z",
+      "updated_at": "2026-09-19T13:06:55Z"
+    },
+    {
+      "id": 50,
+      "title": "kr0ki review: forward gallery selected type into StoryB00k agent request",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:56:26Z",
+      "updated_at": "2026-09-19T13:06:55Z"
+    },
+    {
+      "id": 51,
+      "title": "kr0ki review: bind gallery type cards to type-specific sample fixtures",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:56:26Z",
+      "updated_at": "2026-09-19T13:06:55Z"
+    },
+    {
+      "id": 52,
+      "title": "kr0ki review: honor catalog type query deep links in gallery",
+      "status": "done",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-19T12:56:26Z",
+      "updated_at": "2026-09-19T13:06:55Z"
     }
   ],
   "version": "1"

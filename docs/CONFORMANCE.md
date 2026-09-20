@@ -26,9 +26,14 @@ Each fixture is fed to `sysml_v2_parser::parse(&str) -> Result<ParsedDocument, P
 `Display` carries `at line L, column C`, which the scorecard prints for each
 failure.
 
-Parsing runs on a 256 MiB worker thread: `sysml-v2-parser` 0.55 is
-recursive-descent and a few deeply-nested `examples/` models overflow the default
-2 MiB test-thread stack.
+Parsing runs on a 256 MiB worker thread: `sysml-v2-parser` 0.55/0.56 is
+recursive-descent and one deeply-nested `examples/` model (`Vehicle Example/
+VehicleIndividuals.sysml` — an `individual`/redefinition-headed declaration whose
+body's sole member is a `doc` comment, 6 levels deep) overflows the default 2 MiB
+test-thread stack. Root-caused and a fix submitted upstream 2026-09-19:
+[elan8/sysml-v2-parser#142](https://github.com/elan8/sysml-v2-parser/pull/142). See
+`docs/TODO.md`'s 🚩 entry — remove this worker once that's merged, released, and
+kr0ki's pin is bumped.
 
 ### Measured baselines (tag `2026-07`, `sysml-v2-parser` 0.55.0)
 

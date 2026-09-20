@@ -257,10 +257,18 @@ pub(crate) fn d2_quote(id: &str) -> String {
     format!("\"{}\"", id.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// D2 labels after `:` are plain text up to the newline; only the newline
-/// itself (which would otherwise end the statement early) needs neutralizing.
+/// D2 labels after `:` are *not* safe as bare trailing text: a label
+/// beginning with `{` opens a nested map block (Kroki then rejects the
+/// whole diagram, e.g. "maps must be terminated with }"), and other D2
+/// syntax characters (`:`, `;`, `#`, …) can likewise be misread as
+/// structure rather than label content. Always emit the label as a quoted
+/// D2 string — the same escaping [`d2_quote`] uses for ids — so arbitrary
+/// caller-supplied text (a ReqIF requirement title, an RDF `rdfs:label`, a
+/// SysML element name) can never alter diagram structure. A raw newline
+/// would still break the line-oriented statement format this module
+/// builds, so it's flattened to a space before quoting.
 pub(crate) fn d2_escape_label(label: &str) -> String {
-    label.replace('\n', " ")
+    d2_quote(&label.replace('\n', " "))
 }
 
 #[cfg(test)]
@@ -408,14 +416,37 @@ mod tests {
         });
         let d2 = D2Emitter::emit(&graph.to_cytoscape());
         assert!(d2.contains("\"b00t:shard/datum/*\":"));
-        // The label is plain trailing text after `: ` in D2's simple key-colon-value
-        // form (not itself a quoted string), so an embedded `"` needs no escaping —
-        // only the ID (which D2-quotes to allow arbitrary characters) does.
-        assert!(d2.contains("shard \"star\""));
+        // The label is itself a quoted D2 string now, so an embedded `"`
+        // comes out backslash-escaped, not bare.
+        assert!(d2.contains(r#": "shard \"star\"""#));
         assert_eq!(
             d2.lines().count(),
             1,
             "one node -> exactly one D2 statement line"
+        );
+    }
+
+    #[test]
+    fn d2_emitter_quotes_labels_containing_d2_structural_characters() {
+        // A label beginning with `{` would otherwise open a nested D2 map
+        // block and break the whole diagram (Kroki: "maps must be
+        // terminated with }"). An `rdfs:label` is arbitrary caller text and
+        // must never be able to do this.
+        let mut graph = TypeRelationshipGraph::default();
+        graph.nodes.push(TypeNode {
+            id: "n1".to_string(),
+            label: "normal requirement { {shape: circle}".to_string(),
+            kind: "shard".to_string(),
+            parent_id: None,
+            z_layer: None,
+            semantic_type: None,
+        });
+        let d2 = D2Emitter::emit(&graph.to_cytoscape());
+        assert_eq!(d2, "\"n1\": \"normal requirement { {shape: circle}\"\n");
+        assert_eq!(
+            d2.lines().count(),
+            1,
+            "malicious braces must not open a nested D2 block across lines"
         );
     }
 
