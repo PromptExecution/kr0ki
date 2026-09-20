@@ -1,6 +1,7 @@
 /target
 /site
 /.serena
+/.claude/
 /package-lock.json
 /playbook/node_modules
 /playbook/dist
