@@ -56,13 +56,29 @@ starting this stream. kr0ki's stateless view slice is on
     text/subtype recovered via the same `name`/`title`/`key`/`text`/
     `description` attribute-name convention as `normalization.py`). 7 tests,
     parse-through-map, `cargo clippy -D warnings` clean.
-  - [ ] Verify `reqrs`'s behavior on the `reqif` 0.0.48 no-namespace bug found
-    above before depending on it for namespace-optional input.
-  - [ ] Cover malformed input, ReqIFz attachments, large-file progress, and
-    round trips against upstream fixtures.
-  - [ ] Wire the adapter into an HTTP/MCP import route once M3 needs it —
-    `bundle_to_requirement_graph` is a pure function today, not yet called
-    from anywhere outside its own tests.
+  - [x] `reqrs` accepts a namespace-less `<REQ-IF>` document correctly — the
+    no-namespace defect found in `reqif` 0.0.48 is not inherited. A fixture
+    test proves it normalizes a valid empty baseline with digest provenance.
+  - [x] **Bounded raw import contract** — `kr0ki_core::reqif_import` accepts
+    plain ReqIF XML or in-memory ReqIFz bytes; it hashes the complete input,
+    enforces both compressed and expanded limits (32 MiB by default), maps
+    every embedded ReqIF document, and inventories attachment digests without
+    retaining their bytes. `POST /requirements/import` is the matching raw
+    upload route; MCP `import_reqif` accepts UTF-8 XML through the generic
+    manifest bridge (the bridge's independent 1 MiB text cap remains in
+    force). Tests cover malformed XML, no-namespace input, ReqIFz attachments,
+    core and HTTP size limits, and the endpoint's no-renderer failure path.
+  - [ ] Stream progress for large uploads/fetches, add an approved upstream
+    fixture corpus, and prove deterministic ReqIF/ReqIFz export round trips.
+    The current result is deliberately stateless inventory, not attachment
+    retention or a durable baseline store.
+  - [ ] **Validated source acquisition** — add callers over the bounded-byte
+    import seam, not new parser paths: browser/API uploads; a CLI/MCP local
+    loader confined to an allow-listed root; and an HTTPS-only fetcher with
+    DNS/IP SSRF checks, redirect policy, time/size limits, and URI/ETag/
+    Last-Modified provenance. Never expose arbitrary server-side `file://`
+    reads. Keep source/validator/graph/view-recipe digests together so a
+    derived SVG remains reproducible.
 - [ ] **`reqif-opa-mcp` refactor** — retain its artifact → document graph → candidate
   → OPA → ReqIF pipeline; replace its private requirement DTO/relation/provenance and
   validation types with the upstream `ufo-types` contract.

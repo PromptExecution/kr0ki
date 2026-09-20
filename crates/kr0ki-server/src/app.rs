@@ -6,7 +6,7 @@ use std::{path::Component, path::PathBuf};
 
 use axum::{
     body::Bytes,
-    extract::{Path, State},
+    extract::{DefaultBodyLimit, Path, State},
     http::{header, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
@@ -79,6 +79,12 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
         .route("/playbook", get(playbook_index))
         .route("/playbook/", get(playbook_index))
         .route("/playbook/*path", get(playbook_asset))
+        .route(
+            "/requirements/import",
+            post(import_requirements).layer(DefaultBodyLimit::max(
+                kr0ki_core::reqif_import::DEFAULT_MAX_REQIF_IMPORT_BYTES,
+            )),
+        )
         .route("/requirements/views", post(requirements_view))
         .route("/render/:format", post(render))
         .route("/render/requirements-view", post(render_requirements_view))
@@ -225,6 +231,37 @@ async fn formats() -> Json<Vec<&'static str>> {
 struct RequirementsViewInput {
     graph: kr0ki_core::requirements::RequirementGraph,
     request: kr0ki_core::requirements::ViewRequest,
+}
+
+/// `POST /requirements/import` — accept a raw ReqIF XML document or ReqIFz
+/// archive, validate it under the bounded M2 intake policy, and return the
+/// resulting normalized graphs.  This service never persists the source or
+/// attachments: a requirements store (for example Flexo) owns retention.
+///
+/// The route accepts bytes rather than a `file://` or arbitrary URL so a
+/// deployment cannot accidentally turn kr0ki into a server-side file/network
+/// reader.  A future approved HTTPS fetcher and an allow-listed CLI/MCP local
+/// loader can call the same core import boundary after acquiring bytes.
+async fn import_requirements(body: Bytes) -> Response {
+    match kr0ki_core::reqif_import::import_reqif_artifact(
+        &body,
+        &kr0ki_core::reqif_import::ReqIfImportConfig::default(),
+    ) {
+        Ok(imported) => Json(imported).into_response(),
+        Err(
+            kr0ki_core::reqif_import::ReqIfImportError::ArtifactTooLarge { .. }
+            | kr0ki_core::reqif_import::ReqIfImportError::ExpandedTooLarge { .. },
+        ) => error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "reqif_import_too_large",
+            "ReqIF import exceeds this deployment's size policy",
+        ),
+        Err(error) => error_json(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_reqif_import",
+            &error.to_string(),
+        ),
+    }
 }
 
 /// `POST /requirements/views` — return an induced typed graph, not diagram

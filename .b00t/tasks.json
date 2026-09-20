@@ -433,6 +433,14 @@
       "tags": [],
       "created_at": "2026-09-19T12:56:26Z",
       "updated_at": "2026-09-19T13:06:55Z"
+    },
+    {
+      "id": 53,
+      "title": "kr0ki: harden ReqIF and ReqIFz intake then expose a validated import contract",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-20T06:18:55Z"
     }
   ],
   "version": "1"

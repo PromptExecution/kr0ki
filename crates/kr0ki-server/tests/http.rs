@@ -113,7 +113,7 @@ async fn formats_lists_supported_slugs_only() {
 }
 
 #[tokio::test]
-async fn mcp_tools_lists_all_twelve_tools_with_bindings() {
+async fn mcp_tools_lists_all_thirteen_tools_with_bindings() {
     let app = test_app(test_state("mcp-tools"));
     let resp = app
         .oneshot(Request::get("/mcp/tools").body(Body::empty()).unwrap())
@@ -122,13 +122,14 @@ async fn mcp_tools_lists_all_twelve_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 12);
+    assert_eq!(tools.len(), 13);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
     assert!(names.contains(&"render_kubernetes_manifest"));
     assert!(names.contains(&"render_kubernetes_topology"));
     assert!(names.contains(&"render_sysmlv2_snapshot"));
+    assert!(names.contains(&"import_reqif"));
     assert!(names.contains(&"query_model_graph"));
 
     let render = tools
@@ -141,6 +142,65 @@ async fn mcp_tools_lists_all_twelve_tools_with_bindings() {
         .as_array()
         .unwrap()
         .contains(&serde_json::json!("format")));
+}
+
+const MINIMAL_REQIF: &str = include_str!("../../kr0ki-core/tests/fixtures/reqif/minimal.reqif");
+
+#[tokio::test]
+async fn requirements_import_normalizes_raw_reqif_with_digest_provenance() {
+    let response = test_app(test_state("requirements-import"))
+        .oneshot(
+            Request::post("/requirements/import")
+                .header("content-type", "application/reqif+xml")
+                .body(Body::from(MINIMAL_REQIF))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    let imported: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(imported["documents"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        imported["documents"][0]["graph"]["baseline"]["id"],
+        "BL-MINIMAL"
+    );
+    assert_eq!(
+        imported["documents"][0]["graph"]["baseline"]["import_artifact_sha256"],
+        imported["artifact_sha256"]
+    );
+}
+
+#[tokio::test]
+async fn requirements_import_rejects_malformed_reqif_without_calling_a_renderer() {
+    let response = test_app(test_state("requirements-import-malformed"))
+        .oneshot(
+            Request::post("/requirements/import")
+                .body(Body::from("<REQ-IF><CORE-CONTENT>"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(body.contains("invalid_reqif_import"), "body: {body}");
+}
+
+#[tokio::test]
+async fn requirements_import_rejects_an_oversized_upload_at_the_http_boundary() {
+    let too_large = vec![0_u8; kr0ki_core::reqif_import::DEFAULT_MAX_REQIF_IMPORT_BYTES + 1];
+    let response = test_app(test_state("requirements-import-too-large"))
+        .oneshot(
+            Request::post("/requirements/import")
+                .body(Body::from(too_large))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
 }
 
 fn requirement_view_payload(kind: &str, confirmed_behaviour: Option<&str>) -> String {

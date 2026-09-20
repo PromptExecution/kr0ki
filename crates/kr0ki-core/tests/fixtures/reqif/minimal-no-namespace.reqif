@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<REQ-IF>
+  <THE-HEADER>
+    <REQ-IF-HEADER IDENTIFIER="BL-NO-NAMESPACE"><TITLE>Namespace optional fixture</TITLE></REQ-IF-HEADER>
+  </THE-HEADER>
+  <CORE-CONTENT>
+    <REQ-IF-CONTENT>
+      <DATATYPES/>
+      <SPEC-TYPES/>
+      <SPEC-OBJECTS/>
+      <SPEC-RELATIONS/>
+      <SPECIFICATIONS/>
+      <RELATION-GROUPS/>
+    </REQ-IF-CONTENT>
+  </CORE-CONTENT>
+</REQ-IF>
