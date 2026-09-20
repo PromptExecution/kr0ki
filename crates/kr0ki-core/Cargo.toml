@@ -27,10 +27,11 @@ kr0ki-sysmlv2-client = { path = "../kr0ki-sysmlv2-client" }
 # CHANGELOG guidance ("pin an exact version or a git tag"). `ontology` /
 # `sysml_model` / `view` are default (not feature-gated) — no extra features
 # needed here.
-# Pinned to the feat/mbse-requirements branch tip (not yet a tagged
-# release) -- bump to a `tag =` pin once ufo-types cuts one past v0.15.0
-# including this commit.
-ufo-types = { git = "https://github.com/PromptExecution/ufo-types", rev = "a1f6a89bb5b0f63352ff00ac7c1eaf6acef8a4af", features = ["reqif"] }
+# PR #43's rev pin (a1f6a89) pointed at a feature-branch tip that no longer
+# exists after ufo-types#29's squash-merge into main (2026-09-20). Re-pinned
+# to that merge commit on main -- bump to a `tag =` pin once ufo-types cuts
+# a release past v0.15.0 including it.
+ufo-types = { git = "https://github.com/PromptExecution/ufo-types", rev = "ee873488f31a390073d5f8ab38d91654a3504bfa", features = ["reqif"] }
 # kr0ki#13 — box 5 (b00t-graph Turtle -> D2 route): the typed TypeRelationshipGraph /
 # CytoscapeGraph the D2 emitter targets. No tagged release exists yet (checked
 # 2026-09-16); pinned by git rev per this issue's own operator decision, to be
