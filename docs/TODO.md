@@ -24,10 +24,25 @@ starting this stream. kr0ki's stateless view slice is on
   `ufo_types::mbse::requirements` as `kr0ki_core::requirements` rather than owning a
   copy — zero drift, zero duplication. View results stay typed; no renderer source
   in the semantic contract (rendering stays in `kr0ki-core::requirements_render`).
-- [ ] **StrictDoc ReqIF / ReqIFz adapter** — use the Apache-2.0 Python `reqif` package
-  (parser, unparser, validation, schema validation, progress callbacks) through a
-  sidecar HTTP/MCP boundary. Do not write XML parsing in Rust. Cover malformed input,
-  attachments, large-file progress, and round trips against upstream fixtures.
+- [x] **Vendor `reqif-opa-mcp`** — `vendor/reqif-opa-mcp` submodule
+  (`PromptExecution/reqif-opa-mcp`, pinned to `main`). Confirmed 2026-09-20 it
+  declared `reqif>=0.0.48` (StrictDoc, Apache-2.0) as a dependency but never
+  imported it — parsing/emission were hand-rolled `xml.etree.ElementTree`.
+  Fixed upstream: [PromptExecution/reqif-opa-mcp#25](https://github.com/PromptExecution/reqif-opa-mcp/pull/25)
+  (not yet merged — bump the submodule pin once it lands). Found and fixed
+  along the way: every fixture/sample was missing ReqIF 1.2's required
+  `THE-HEADER`/`CORE-CONTENT` wrappers, `DATATYPES`/`TYPE` attribute-datatype
+  refs, and `THE-VALUE`-as-XML-attribute shape — the old hand-rolled parser's
+  permissive `.find(".//X")` XPath had silently accepted all three gaps. Also
+  surfaced (not fixed, out of scope, worth its own upstream issue): `reqif`
+  0.0.48 itself has a real bug where a no-namespace `<REQ-IF>` root silently
+  fails to parse its header/content (mutates the same tree object it reads
+  from when building a round-trip tag-dump string).
+- [ ] **StrictDoc ReqIF / ReqIFz adapter** — kr0ki-core-side sidecar boundary
+  (HTTP/MCP) calling the now-StrictDoc-backed `reqif-opa-mcp`, mapping its
+  output into `ufo_types::mbse::requirements::RequirementGraph`. Cover
+  malformed input, attachments, large-file progress, and round trips against
+  upstream fixtures.
 - [ ] **`reqif-opa-mcp` refactor** — retain its artifact → document graph → candidate
   → OPA → ReqIF pipeline; replace its private requirement DTO/relation/provenance and
   validation types with the upstream `ufo-types` contract.

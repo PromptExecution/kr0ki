@@ -8,3 +8,6 @@
 	path = vendor/assistant-ui
 	url = https://github.com/elasticdotventures/assistant-ui.git
 	branch = b00t-vue-package
+[submodule "vendor/reqif-opa-mcp"]
+	path = vendor/reqif-opa-mcp
+	url = https://github.com/PromptExecution/reqif-opa-mcp.git
