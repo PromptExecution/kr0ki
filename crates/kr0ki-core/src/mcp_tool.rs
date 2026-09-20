@@ -17,6 +17,7 @@ pub enum McpTool {
     RenderKubeDiagram,
     RenderK8sTopology,
     RenderSysmlV2Snapshot,
+    ImportReqIf,
     ListModelProjects,
     ListModelCommits,
     GetModelSnapshot,
@@ -33,6 +34,7 @@ impl McpTool {
         Self::RenderKubeDiagram,
         Self::RenderK8sTopology,
         Self::RenderSysmlV2Snapshot,
+        Self::ImportReqIf,
         Self::ListModelProjects,
         Self::ListModelCommits,
         Self::GetModelSnapshot,
@@ -49,6 +51,7 @@ impl McpTool {
             Self::RenderKubeDiagram => "render_kubernetes_manifest",
             Self::RenderK8sTopology => "render_kubernetes_topology",
             Self::RenderSysmlV2Snapshot => "render_sysmlv2_snapshot",
+            Self::ImportReqIf => "import_reqif",
             Self::ListModelProjects => "list_model_projects",
             Self::ListModelCommits => "list_model_commits",
             Self::GetModelSnapshot => "get_model_snapshot",
@@ -75,6 +78,9 @@ impl McpTool {
             }
             Self::RenderSysmlV2Snapshot => {
                 "Render a validated SysML v2 project commit from the configured model server."
+            }
+            Self::ImportReqIf => {
+                "Validate and normalize a UTF-8 ReqIF document. For binary ReqIFz archives, use POST /requirements/import."
             }
             Self::ListModelProjects => "List SysML v2 projects on the configured model server.",
             Self::ListModelCommits => "List commits (immutable model snapshots) for a project.",
@@ -127,6 +133,16 @@ impl McpTool {
                     "project_id": {"type": "string", "description": "SysML v2 project id."},
                     "commit_id": {"type": "string", "description": "Immutable SysML v2 commit id."},
                     "output": {"type": "string", "enum": ["svg", "png"], "default": "svg"}
+                }
+            }),
+            Self::ImportReqIf => serde_json::json!({
+                "type": "object",
+                "required": ["artifact"],
+                "properties": {
+                    "artifact": {
+                        "type": "string",
+                        "description": "UTF-8 ReqIF XML. Use the HTTP upload route for binary ReqIFz."
+                    }
                 }
             }),
             Self::ListModelProjects => serde_json::json!({"type": "object", "properties": {}}),
@@ -219,6 +235,14 @@ impl McpTool {
                     ArgBinding { name: "commit_id", placement: ArgPlacement::Path },
                     ArgBinding { name: "output", placement: ArgPlacement::Query },
                 ],
+            },
+            Self::ImportReqIf => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/requirements/import",
+                args: &[ArgBinding {
+                    name: "artifact",
+                    placement: ArgPlacement::Body,
+                }],
             },
             Self::ListModelProjects => HttpBinding { method: HttpMethod::Get, path_template: "/model/projects", args: &[] },
             Self::ListModelCommits => HttpBinding {
@@ -322,13 +346,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_twelve_tools_have_unique_names() {
+    fn all_thirteen_tools_have_unique_names() {
         let mut names: Vec<&str> = McpTool::ALL.iter().map(|t| t.name()).collect();
         let before = names.len();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), before, "duplicate McpTool name in ALL");
-        assert_eq!(McpTool::ALL.len(), 12);
+        assert_eq!(McpTool::ALL.len(), 13);
     }
 
     #[test]

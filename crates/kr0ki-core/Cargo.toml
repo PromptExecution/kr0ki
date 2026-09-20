@@ -47,6 +47,10 @@ toml = "0.8"
 # Rust rather than calling `reqif-opa-mcp` as a sidecar. Apache-2.0, a direct
 # Rust port of the same StrictDoc `reqif` reference implementation.
 reqrs = "0.2.2"
+# ReqIFz is a ZIP container.  `reqrs` exposes a path-only ReqIfzBundle API;
+# kr0ki reads archives in-memory so the import boundary can enforce its own
+# compressed and expanded byte limits before retaining any attachment metadata.
+zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "fs", "net", "rt-multi-thread"] }

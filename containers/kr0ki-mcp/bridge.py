@@ -53,8 +53,10 @@ def call_tool(arguments):
     if tool is None:
         return tool_error(f"unknown tool: {name}")
 
-    for key in ("source", "manifest"):
-        value = params.get(key)
+    for argument in tool["httpBinding"]["args"]:
+        if argument["placement"] != "body":
+            continue
+        value = params.get(argument["name"])
         if isinstance(value, str) and len(value.encode("utf-8")) > MAX_INPUT_BYTES:
             return tool_error("input exceeds the 1 MiB MCP bridge limit")
 
