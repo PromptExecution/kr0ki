@@ -116,9 +116,13 @@ field, not speculatively (matches this crate's own stated `DataFormat` conventio
   distinction lives in the `ElementId` prefix and a debug-only label suffix, not a
   second stereotype) — revisit only if a real consumer needs to filter by
   resource_type specifically.
-- Each `depends_on.nodes` entry → `OntologicalEdge` using the existing `DependsOn`
-  member of `ontology::UfoRelation` (no new relation variant needed — this is exactly
-  the shape that vocabulary already normalizes).
+- Each `depends_on.nodes` entry → `OntologicalEdge` using `UfoRelation::Requires`
+  (`source = the node whose depends_on list this is`, `target = the referenced
+  upstream node`) — its doc comment's own synonym list is literally "consumes,
+  depends-on, needs"; no new relation variant needed. (Corrected 2026-09-20: this
+  spec originally named a `DependsOn` variant that does not exist in
+  `ontology::UfoRelation`'s real 25-member vocabulary — `Requires` is the actual
+  match, found while writing the implementation plan.)
 - No new types added to `ontology.rs` or `sysgraph.rs`. This spec is additive-only at
   the `ufo_types::dbt` module level.
 
