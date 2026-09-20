@@ -475,6 +475,11 @@ class Handler(BaseHTTPRequestHandler):
                 _pending_questions.pop(thread_id, None)
                 project_store.add_qa(thread_id, question.get("question", ""), answer)
                 if question.get("kind") == "type-confirm":
+                    # The confirmed recommendation locks the diagram type
+                    # (Plan 005 §2.3) — discover mode is done after this.
+                    project = project_store.get_project(thread_id)
+                    if project is not None:
+                        project["lockedType"] = answer.strip().lower().replace(" ", "-")[:60]
                     recommendations = question.get("recommendations") or []
                     if normalize_type_id(answer) == "show-me-both":
                         # A comparison is deliberately not a type lock. Render

@@ -30,6 +30,9 @@ onMounted(async () => {
 })
 
 const useCaseFilters = computed(() => ['All', ...(catalog.value?.useCases || [])])
+
+// Type cards from the taxonomy; each links to its fixture (match by syntax)
+// so the card can render a thumbnail through the existing test flow.
 const selectedType = ref(new URL(window.location.href).searchParams.get('type') || '')
 
 function selectType(typeId) {
