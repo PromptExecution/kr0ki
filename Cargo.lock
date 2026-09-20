@@ -1077,7 +1077,6 @@ dependencies = [
  "oxrdf",
  "oxttl",
  "quote",
- "reqrs",
  "reqwest",
  "resvg",
  "serde",
@@ -1870,6 +1869,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "semver"
+version = "1.0.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
+
+[[package]]
 name = "serde"
 version = "1.0.229"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2471,12 +2476,14 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 [[package]]
 name = "ufo-types"
 version = "0.15.0"
-source = "git+https://github.com/PromptExecution/ufo-types?tag=v0.15.0#a17bf7444bba77fd049a25e943f44c8b0a8afa77"
+source = "git+https://github.com/PromptExecution/ufo-types?rev=a1f6a89bb5b0f63352ff00ac7c1eaf6acef8a4af#a1f6a89bb5b0f63352ff00ac7c1eaf6acef8a4af"
 dependencies = [
  "anyhow",
  "chrono",
+ "reqrs",
  "rpassword",
  "schemars",
+ "semver",
  "serde",
  "serde_json",
  "shellexpand",
