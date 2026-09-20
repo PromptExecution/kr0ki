@@ -48,13 +48,21 @@ starting this stream. kr0ki's stateless view slice is on
   evaluation. The vendored `reqif-opa-mcp` submodule above stays useful as a
   fixture/test-harness source and for its own separate artifact → OPA →
   SARIF pipeline (a different concern from parsing); it's no longer this
-  adapter's parsing dependency. Still open: pull `reqrs` in, map
-  `ReqIfBundle` → `ufo_types::mbse::requirements::RequirementGraph` (mirrors
-  the mapping already written once in Python for `reqif-opa-mcp` — PR #25
-  above), and verify `reqrs`'s behavior on the `reqif` 0.0.48 no-namespace
-  bug found above before depending on it for namespace-optional input.
-  Cover malformed input, attachments, large-file progress, and round trips
-  against upstream fixtures.
+  adapter's parsing dependency.
+  - [x] `reqrs` added as a `kr0ki-core` dependency; `kr0ki_core::reqif_adapter`
+    maps `reqrs::model::ReqIfBundle` → `ufo_types::mbse::requirements::RequirementGraph`
+    (mirrors the mapping already written once in Python for `reqif-opa-mcp`
+    — PR #25 above: attribute values keyed by normalized `LONG-NAME`, title/
+    text/subtype recovered via the same `name`/`title`/`key`/`text`/
+    `description` attribute-name convention as `normalization.py`). 7 tests,
+    parse-through-map, `cargo clippy -D warnings` clean.
+  - [ ] Verify `reqrs`'s behavior on the `reqif` 0.0.48 no-namespace bug found
+    above before depending on it for namespace-optional input.
+  - [ ] Cover malformed input, ReqIFz attachments, large-file progress, and
+    round trips against upstream fixtures.
+  - [ ] Wire the adapter into an HTTP/MCP import route once M3 needs it —
+    `bundle_to_requirement_graph` is a pure function today, not yet called
+    from anywhere outside its own tests.
 - [ ] **`reqif-opa-mcp` refactor** — retain its artifact → document graph → candidate
   → OPA → ReqIF pipeline; replace its private requirement DTO/relation/provenance and
   validation types with the upstream `ufo-types` contract.
