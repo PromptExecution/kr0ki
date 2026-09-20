@@ -38,11 +38,23 @@ starting this stream. kr0ki's stateless view slice is on
   0.0.48 itself has a real bug where a no-namespace `<REQ-IF>` root silently
   fails to parse its header/content (mutates the same tree object it reads
   from when building a round-trip tag-dump string).
-- [ ] **StrictDoc ReqIF / ReqIFz adapter** — kr0ki-core-side sidecar boundary
-  (HTTP/MCP) calling the now-StrictDoc-backed `reqif-opa-mcp`, mapping its
-  output into `ufo_types::mbse::requirements::RequirementGraph`. Cover
-  malformed input, attachments, large-file progress, and round trips against
-  upstream fixtures.
+- [ ] **ReqIF / ReqIFz adapter** — **decided 2026-09-20, supersedes the sidecar
+  plan above**: use the [`reqrs`](https://crates.io/crates/reqrs) crate
+  (Apache-2.0, a direct Rust port of the same mandated StrictDoc `reqif`
+  package) as a normal `kr0ki-core` dependency instead of calling
+  `reqif-opa-mcp` as a sidecar — no HTTP/MCP hop needed for parsing itself.
+  See `docs/HANDOFF-2026-09-19-reqif-flexo.md`'s "Deliberate boundaries" and
+  [kr0ki#39](https://github.com/PromptExecution/kr0ki/issues/39) for the
+  evaluation. The vendored `reqif-opa-mcp` submodule above stays useful as a
+  fixture/test-harness source and for its own separate artifact → OPA →
+  SARIF pipeline (a different concern from parsing); it's no longer this
+  adapter's parsing dependency. Still open: pull `reqrs` in, map
+  `ReqIfBundle` → `ufo_types::mbse::requirements::RequirementGraph` (mirrors
+  the mapping already written once in Python for `reqif-opa-mcp` — PR #25
+  above), and verify `reqrs`'s behavior on the `reqif` 0.0.48 no-namespace
+  bug found above before depending on it for namespace-optional input.
+  Cover malformed input, attachments, large-file progress, and round trips
+  against upstream fixtures.
 - [ ] **`reqif-opa-mcp` refactor** — retain its artifact → document graph → candidate
   → OPA → ReqIF pipeline; replace its private requirement DTO/relation/provenance and
   validation types with the upstream `ufo-types` contract.
