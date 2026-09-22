@@ -27,6 +27,7 @@
 pub mod b00t_graph;
 pub mod cache;
 pub mod catalog;
+pub mod digital_thread_sync;
 pub mod docgen;
 pub mod examples;
 pub mod flatten;
