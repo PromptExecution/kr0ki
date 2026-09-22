@@ -44,6 +44,7 @@ pub mod reqif_import;
 /// call sites keep working without a local copy of the types.
 pub use ufo_types::mbse::requirements;
 pub mod requirements_render;
+pub mod requirements_sync;
 pub mod rule_docs;
 pub mod rule_eval;
 pub mod rust_recognizer;

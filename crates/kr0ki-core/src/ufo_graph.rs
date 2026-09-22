@@ -400,9 +400,10 @@ mod tests {
             .provenance
             .iter()
             .any(|a| matches!(a, SourceAnchor::KermlQualifiedName(qn) if qn == "fm-1")));
-        assert!(edge.provenance.iter().any(
-            |a| matches!(a, SourceAnchor::Vcs { commit, .. } if commit == "test")
-        ));
+        assert!(edge
+            .provenance
+            .iter()
+            .any(|a| matches!(a, SourceAnchor::Vcs { commit, .. } if commit == "test")));
     }
 
     #[test]
