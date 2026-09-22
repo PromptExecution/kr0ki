@@ -90,7 +90,9 @@ mod tests {
 
     #[test]
     fn loopback_v4_is_disallowed() {
-        assert!(is_disallowed_address(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))));
+        assert!(is_disallowed_address(IpAddr::V4(Ipv4Addr::new(
+            127, 0, 0, 1
+        ))));
     }
 
     #[test]
@@ -100,16 +102,24 @@ mod tests {
 
     #[test]
     fn private_v4_ranges_are_disallowed() {
-        assert!(is_disallowed_address(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
-        assert!(is_disallowed_address(IpAddr::V4(Ipv4Addr::new(172, 16, 0, 1))));
-        assert!(is_disallowed_address(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
+        assert!(is_disallowed_address(IpAddr::V4(Ipv4Addr::new(
+            10, 0, 0, 1
+        ))));
+        assert!(is_disallowed_address(IpAddr::V4(Ipv4Addr::new(
+            172, 16, 0, 1
+        ))));
+        assert!(is_disallowed_address(IpAddr::V4(Ipv4Addr::new(
+            192, 168, 1, 1
+        ))));
     }
 
     #[test]
     fn link_local_v4_including_cloud_metadata_is_disallowed() {
         // 169.254.169.254 -- the AWS/GCP/Azure instance-metadata endpoint,
         // the concrete case this whole module exists to close.
-        assert!(is_disallowed_address(IpAddr::V4(Ipv4Addr::new(169, 254, 169, 254))));
+        assert!(is_disallowed_address(IpAddr::V4(Ipv4Addr::new(
+            169, 254, 169, 254
+        ))));
     }
 
     #[test]
@@ -134,6 +144,8 @@ mod tests {
     fn a_normal_public_v4_address_is_allowed() {
         // 8.8.8.8 -- a real, stable public address (Google DNS), not a
         // network we're claiming to reach, just a known-public literal.
-        assert!(!is_disallowed_address(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
+        assert!(!is_disallowed_address(IpAddr::V4(Ipv4Addr::new(
+            8, 8, 8, 8
+        ))));
     }
 }
