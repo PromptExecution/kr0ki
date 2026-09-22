@@ -135,18 +135,27 @@ for ReqIF parsing (`docs/TODO.md`'s ReqIF stream). The vendored
 `reqif-opa-mcp`'s own artifact→document-graph→candidate→OPA→ReqIF pipeline
 is a different, already-scoped concern and is not touched by this work.
 
-**Unverified, flag for the implementation plan:** `regorus` is not yet a
-dependency anywhere in this repo. The `Engine`/`add_policy`/`set_input`/
-`eval_rule` method names below and the `data.kr0ki.violations` entrypoint
-convention come from the crate's public README, not from kr0ki's own code —
-confirm the exact API against `docs.rs/regorus` or the vendored source once
-it's added as a dependency, before coding this section from the plan.
+**Verified against `microsoft/regorus`'s actual `src/engine.rs` (not just its
+README) on 2026-09-22** — `regorus` is not yet a dependency anywhere in this
+repo, so this is still to be confirmed again once it's actually pinned (an
+API can move between that check and the pin date), but the signatures below
+are read from source, not remembered:
 
-For each `RuleDoc`: build a `regorus::Engine`, `add_policy` the Rego source,
-`set_input` to the current `SysGraph` serialized as JSON, `eval_rule` against
-a documented entrypoint convention — `data.kr0ki.violations`, a JSON array
-rule authors populate, one entry per violation with at least an
-`element_id` and a `reason`.
+```rust
+pub fn add_policy(&mut self, path: String, rego: String) -> Result<String>;
+pub fn set_input_json(&mut self, input_json: &str) -> Result<()>;
+pub fn add_data_json(&mut self, data_json: &str) -> Result<()>;
+pub fn eval_rule(&mut self, rule: String) -> Result<Value>;
+```
+
+For each `RuleDoc`: build a `regorus::Engine`, `add_policy(doc.id.to_string(),
+doc.rego_source.clone())`, `set_input_json(&serde_json::to_string(graph)?)`
+with the current `SysGraph` serialized, `eval_rule("data.kr0ki.violations"
+.to_string())` against a documented entrypoint convention — `violations`, a
+JSON array rule authors populate, one entry per violation with at least an
+`element_id` and a `reason`. (`add_data_json` is unused in v1 — no rule
+needs Rego-side static data beyond the input graph itself; noted here so a
+future rule type that does isn't a surprise API gap.)
 
 ```rust
 pub trait RuleBackend {
