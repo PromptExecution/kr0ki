@@ -625,6 +625,15 @@ fn provenance_from_anchor(anchor: &SourceAnchor) -> Provenance {
             artifact_sha256: None,
             locator: None,
         },
+        // SourceAnchor is #[non_exhaustive] in ufo-types (confirmed against
+        // the pinned rev) -- a downstream match must carry a wildcard arm
+        // even though the 7 arms above cover every variant that exists
+        // today, or this is a compile error (E0004), not a style choice.
+        _ => Provenance {
+            source_uri: "unknown-anchor".into(),
+            artifact_sha256: None,
+            locator: None,
+        },
     }
 }
 
