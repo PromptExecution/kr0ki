@@ -36,6 +36,7 @@ pub mod graph_store;
 pub mod k8s_recognizer;
 pub mod mcp_tool;
 pub mod probe;
+pub mod recompute;
 pub mod render;
 pub mod reqif_export;
 pub mod reqif_import;
