@@ -1,6 +1,8 @@
-//! Ties Tasks 1-4 together: latest commit -> `SysGraph` -> rule docs ->
-//! evaluate -> `RequirementGraph`. Synchronous, no persistence -- see
-//! Global Constraints in `docs/superpowers/plans/
+//! Orchestrates `crate::ufo_graph::build_sysgraph`,
+//! `crate::rule_docs::extract_rule_docs`, `crate::rule_eval::RegorusBackend`,
+//! and `crate::requirements_sync::register_violations`: latest commit ->
+//! `SysGraph` -> rule docs -> evaluate -> `RequirementGraph`. Synchronous,
+//! no persistence -- see Global Constraints in `docs/superpowers/plans/
 //! 2026-09-22-requirements-rules-system.md`.
 
 use crate::requirements_sync::{baseline_for, register_violations};
@@ -23,6 +25,10 @@ pub struct RuleViolation {
 pub struct RecomputeResult {
     pub graph: SysGraph,
     pub requirements: RequirementGraph,
+    /// Every rule's result, including `Disposition::Satisfied` and
+    /// `Disposition::Unknown` -- not just actual violations, despite the
+    /// field name. A consumer that renders this verbatim as "violations"
+    /// should filter by `.result.is_violated()` first.
     pub violations: Vec<RuleViolation>,
 }
 
@@ -37,6 +43,18 @@ pub async fn recompute_and_evaluate(
     project_id: &str,
 ) -> Result<RecomputeResult, ClientError> {
     let commits = client.commits(project_id).await?;
+    // TODO: this assumes `commits()` returns commits newest-first, so
+    // `.first()` is the latest. That assumption rests entirely on the OMG
+    // API server's own ordering behavior, which `SysmlV2Client::commits()`
+    // does not itself verify or enforce -- kr0ki has no control over it and
+    // it is currently unverified against any real server in this
+    // environment (see `docs/TODO.md`'s "Commit poll loop" note and the
+    // requirements-rules-system final review ledger). A defensive fix would
+    // sort by `Commit.created` (falling back to server order when `created`
+    // is absent) rather than trusting `.first()` outright; that change was
+    // judged too risky to make inside this already-large fix wave (risk of
+    // subtly changing existing test semantics around tie-breaking), so it
+    // is deliberately left as a visible, tracked assumption instead.
     let latest = commits.first().ok_or_else(|| ClientError::Status {
         code: 404,
         body: format!("project {project_id} has no commits"),
@@ -111,6 +129,7 @@ mod tests {
         assert_eq!(result.violations.len(), 1);
         assert!(result.violations[0].result.is_violated());
         assert_eq!(result.requirements.relations.len(), 1);
+        assert!(result.requirements.validate().is_ok());
     }
 
     #[tokio::test]

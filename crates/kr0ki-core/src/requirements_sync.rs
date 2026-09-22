@@ -10,10 +10,10 @@
 //! entire existing relation, including its `authority`*, on every call for
 //! the same `(doc, evidence)` pair -- so re-registering a violation after a
 //! human has promoted its relation to `RelationAuthority::Asserted` silently
-//! reverts it to `Inferred`. This is safe today only because this task's
-//! caller (Task 5's `recompute_and_evaluate`) always builds a brand-new,
-//! empty `RequirementGraph` per recompute rather than reusing one across
-//! calls, so there is never a pre-existing promoted relation in scope to
+//! reverts it to `Inferred`. This is safe today only because this module's
+//! caller (`crate::recompute::recompute_and_evaluate`) always builds a
+//! brand-new, empty `RequirementGraph` per recompute rather than reusing one
+//! across calls, so there is never a pre-existing promoted relation in scope to
 //! clobber in production. A promotion therefore only lasts for the current
 //! response cycle -- there is no write-back to Flexo yet. If this module is
 //! ever called against a persisted/reused `RequirementGraph`, this behavior
@@ -70,7 +70,10 @@ fn provenance_from_anchor(anchor: &SourceAnchor) -> Provenance {
             locator: None,
         },
         SourceAnchor::Vcs { repo, commit, path } => Provenance {
-            source_uri: repo.clone().unwrap_or_else(|| commit.clone()),
+            source_uri: match repo {
+                Some(repo) => repo.clone(),
+                None => format!("sysmlv2-commit:{commit}"),
+            },
             artifact_sha256: None,
             locator: path.clone(),
         },
@@ -168,8 +171,9 @@ fn register_fallback_evidence(graph: &mut RequirementGraph, element_id: &Element
 /// relation, including `authority`** -- a relation a human previously
 /// promoted to `RelationAuthority::Asserted` is silently reverted to
 /// `Inferred`. See the module-level doc comment: this is intentional and
-/// safe under this task's actual caller (Task 5 always recomputes into a
-/// fresh, empty `RequirementGraph`), not a general-purpose upsert contract.
+/// safe under this module's actual caller (`crate::recompute::recompute_and_evaluate`
+/// always recomputes into a fresh, empty `RequirementGraph`), not a
+/// general-purpose upsert contract.
 fn register_relation(
     graph: &mut RequirementGraph,
     doc: &RuleDoc,
@@ -347,8 +351,9 @@ mod tests {
     /// upsert (see the module doc comment and `register_relation`'s own doc
     /// comment): re-registering the same violation against a
     /// `RequirementGraph` that already holds a promoted relation reverts it
-    /// to `Inferred`. Safe today only because Task 5 always recomputes into
-    /// a fresh, empty `RequirementGraph` -- this test documents the behavior
+    /// to `Inferred`. Safe today only because
+    /// `crate::recompute::recompute_and_evaluate` always recomputes into a
+    /// fresh, empty `RequirementGraph` -- this test documents the behavior
     /// as a contract rather than leaving it an implicit trap.
     #[test]
     fn promoting_then_reregistering_the_same_violation_reverts_the_promotion() {
@@ -372,6 +377,67 @@ mod tests {
             RelationAuthority::Inferred(_) => {}
             other => panic!("expected the promotion to be reverted to Inferred, got {other:?}"),
         }
+    }
+
+    /// Closes the integration-test gap the final whole-branch review found:
+    /// every other test in this module hand-builds an `OntologicalEdge`
+    /// fixture directly, which never exercises `build_ufo_graph`'s own
+    /// provenance-population code (`crates/kr0ki-core/src/ufo_graph.rs`).
+    /// This test runs the real pipeline -- `build_sysgraph` on a
+    /// `ModelSnapshot` containing a real `FeatureMembership` relationship
+    /// element -- so the `SourceAnchor`s that flow into `EvidenceRef`s here
+    /// are the ones `build_ufo_graph` actually produces, not a fixture that
+    /// merely looks like them. It also pins the `provenance_from_anchor`
+    /// fix above: a `SourceAnchor::Vcs { repo: None, .. }` (exactly what
+    /// `build_ufo_graph` always emits) must produce a `sysmlv2-commit:`-
+    /// scheme URI, not a bare commit id string.
+    #[test]
+    fn real_ufo_graph_provenance_flows_into_evidence_with_both_anchor_schemes() {
+        use crate::ufo_graph::build_sysgraph;
+        use kr0ki_sysmlv2_client::Element;
+        use serde_json::json;
+
+        let element = |v: serde_json::Value| -> Element { serde_json::from_value(v).unwrap() };
+        let snapshot = ModelSnapshot {
+            project_id: "p1".into(),
+            commit_id: "c1".into(),
+            roots: Vec::new(),
+            content_hash: "test".into(),
+            elements: vec![
+                element(json!({"@id": "owner-1", "@type": "PartDefinition", "name": "Owner"})),
+                element(json!({"@id": "elem-1", "@type": "PartUsage", "name": "BadPart"})),
+                element(json!({
+                    "@id": "fm-1",
+                    "@type": "FeatureMembership",
+                    "owner": { "@id": "owner-1" },
+                    "member": { "@id": "elem-1" }
+                })),
+            ],
+        };
+        let sysgraph = build_sysgraph(&snapshot);
+
+        let mut graph = empty_graph();
+        let result = SatisfiesResult::violated("BadPart is not allowed".to_string())
+            .with_confidence(1.0)
+            .with_evidence(vec![NodeId::new("node:elem-1")]);
+        register_violations(&mut graph, &doc(), &sysgraph.edges, &result);
+
+        let provenance_uris: Vec<&str> = graph
+            .evidence
+            .iter()
+            .filter_map(|e| e.provenance.as_ref())
+            .map(|p| p.source_uri.as_str())
+            .collect();
+        assert!(
+            provenance_uris.iter().any(|uri| uri.starts_with("kerml:")),
+            "expected a kerml: evidence uri, got {provenance_uris:?}"
+        );
+        assert!(
+            provenance_uris
+                .iter()
+                .any(|uri| uri.starts_with("sysmlv2-commit:")),
+            "expected a sysmlv2-commit: evidence uri, got {provenance_uris:?}"
+        );
     }
 
     #[test]

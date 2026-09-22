@@ -14,7 +14,7 @@
 
 - No new persistence layer. `recompute_and_evaluate` rebuilds `SysGraph` and `RequirementGraph` fresh from the latest `ModelSnapshot` on every call — nothing is cached or stored server-side beyond kr0ki's existing render cache (untouched by this work).
 - `regorus` is a direct `kr0ki-core` dependency (pure-Rust, embedded) — never a sidecar process, never a call into the vendored Python `reqif-opa-mcp`.
-- Rule documents are SysML/KerML elements with `@type: "RuleDocument"` and id prefix `rule:` (e.g. `rule:no-bad-parts`), carrying their Rego source in a `"rego"` field (a plain JSON string field on the element, chosen in this plan per the spec's Section 3 revision note, which left the exact element shape as an implementation-plan decision).
+- Rule documents are SysML/KerML elements identified by `@type: "RuleDocument"` alone, carrying their Rego source in a `"rego"` field (a plain JSON string field on the element, chosen in this plan per the spec's Section 3 revision note, which left the exact element shape as an implementation-plan decision). **Amended during Task 8's fix round:** an earlier draft of this plan additionally required a client-chosen `rule:` id prefix (e.g. `rule:no-bad-parts`); that was dropped because the OMG SysML v2 API assigns `@id` server-side on create, so a client-chosen prefixed id can never survive a real `create_commit` round-trip. `extract_rule_docs` (Task 2) matches on `@type` only; a rule doc's id is opaque and server-assigned.
 - The Rego entrypoint convention is `data.kr0ki.violations`, defined as a **complete rule assigning an array comprehension** (`violations := [v | ...]`), never a partial-set rule (`violations[v] { ... }`) — this plan's own refinement over the spec's looser "a JSON array" language, chosen because a complete-rule array comprehension has an unambiguous JSON shape (`[]` when empty) that a partial-set rule's regorus `Value::Set` output does not guarantee without first verifying regorus's `Set` JSON-serialization shape.
 - One `RequirementRelation` per `(rule doc, violated element)` pair, and **only** for `Disposition::Violated` results — a `Satisfied`/`Unknown` result is still reported in the HTTP/MCP response's `violations` list (Task 5/6) but does not get a `RequirementGraph` relation, since it has no specific element to anchor one to. This is a disclosed refinement of the spec's Section 5 language ("each per-rule `SatisfiesResult` becomes one inferred edge") — see Task 4's own note.
 - Never fail the whole recompute for one bad rule doc: a Rego parse/eval error becomes `Disposition::Unknown` for that rule only (Task 3).
@@ -174,12 +174,15 @@ git commit -m "feat(ufo_graph): populate SourceAnchor provenance; add build_sysg
 
 Create `crates/kr0ki-core/src/rule_docs.rs`:
 
+> **Amended during Task 8's fix round** (see the Global Constraints note above): the filter below originally also required `el.id().starts_with("rule:")`. That requirement was dropped because the OMG API assigns `@id` server-side on create, so a client-chosen `rule:`-prefixed id can never survive a real `create_commit` round-trip. The block below reflects the actual shipped filter (`@type == "RuleDocument"` alone).
+
 ```rust
-//! Rule-document extraction: `@type: "RuleDocument"` / `rule:`-prefixed
-//! elements in a `ModelSnapshot`, carrying Rego source in a `"rego"` field
+//! Rule-document extraction: `@type: "RuleDocument"` elements in a
+//! `ModelSnapshot`, carrying Rego source in a `"rego"` field
 //! (this crate's own element-shape convention — see
 //! `docs/superpowers/specs/2026-09-22-requirements-rules-system-design.md`
-//! §3's revision note).
+//! §3's revision note). ID format is not constrained — the OMG API assigns
+//! server-generated IDs on create, so kr0ki cannot assume any prefix.
 
 use kr0ki_sysmlv2_client::ModelSnapshot;
 use ufo_types::sysml_model::ElementId;
@@ -198,15 +201,14 @@ pub struct RuleDoc {
 }
 
 /// Extract every `RuleDocument` element from `snapshot`. An element whose
-/// `@type` is `"RuleDocument"` but is missing its `rego` field, or whose id
-/// doesn't carry the `rule:` prefix convention, is silently skipped — same
-/// "never abort the whole snapshot's graph build" convention `ufo_graph.rs`
-/// already uses for malformed relationship elements.
+/// `@type` is `"RuleDocument"` but is missing its `rego` field is silently
+/// skipped — same "never abort the whole snapshot's graph build" convention
+/// `ufo_graph.rs` already uses for malformed relationship elements.
 pub fn extract_rule_docs(snapshot: &ModelSnapshot) -> Vec<RuleDoc> {
     snapshot
         .elements
         .iter()
-        .filter(|el| el.ty() == "RuleDocument" && el.id().starts_with("rule:"))
+        .filter(|el| el.ty() == "RuleDocument")
         .filter_map(|el| {
             let rego_source = el.get("rego")?.as_str()?.to_string();
             let name = el.name().unwrap_or_else(|| el.id()).to_string();
@@ -283,13 +285,17 @@ mod tests {
     }
 
     #[test]
-    fn skips_rule_typed_element_without_the_id_prefix_convention() {
+    fn extracts_rule_document_with_server_assigned_id() {
         let snap = snapshot(vec![element(json!({
-            "@id": "not-prefixed",
+            "@id": "elem-42",
             "@type": "RuleDocument",
+            "name": "Server-assigned ID rule",
             "rego": "package kr0ki\n\nviolations := []\n"
         }))]);
-        assert!(extract_rule_docs(&snap).is_empty());
+        let docs = extract_rule_docs(&snap);
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].id, ElementId::new("elem-42"));
+        assert_eq!(docs[0].name, "Server-assigned ID rule");
     }
 }
 ```
@@ -1340,6 +1346,8 @@ git commit -m "feat(mcp): expose recompute_and_evaluate as an MCP tool"
 
 Create `crates/kr0ki-core/tests/recompute_live.rs`:
 
+> **Amended during the final whole-branch review's fix round:** an earlier draft of this block seeded both `DataVersion` payloads with a client-chosen `"@id": "rule:live-..."` and then asserted on that literal id string. Both are wrong for the same reason as the Task 2/Global Constraints amendments above — the OMG API assigns `@id` server-side on create, so a client-chosen id never survives. The block below reflects the actual shipped test: no `@id` in the seed payloads, and assertions on violation count/disposition/relation-linkage instead of any specific id string.
+
 ```rust
 //! Live acceptance test for the requirements-rules system (spec §1 item 6):
 //! author real RuleDocument elements in a real project, recompute, assert
@@ -1368,7 +1376,9 @@ async fn recompute_flags_a_real_violation_on_a_live_project() {
     };
 
     let projects = client.projects().await.expect("list projects");
-    let project = projects.first().expect("at least one project on the live server");
+    let project = projects
+        .first()
+        .expect("at least one project on the live server");
     let project_id = project.at_id.clone();
     let commits = client.commits(&project_id).await.expect("list commits");
     let previous_commit = commits.first().map(|c| kr0ki_sysmlv2_client::Ref {
@@ -1377,15 +1387,14 @@ async fn recompute_flags_a_real_violation_on_a_live_project() {
     });
 
     // Author two rule docs directly (Playb00k UX is deferred -- this test
-    // seeds them itself, exactly the write path Task-1-through-9's
-    // `docs/superpowers/plans/2026-09-20-flexo-write-path.md` already
-    // shipped for).
+    // seeds them itself, exactly the write path that separate,
+    // already-merged plan's own Task 1-9 (`docs/superpowers/plans/2026-09-20-flexo-write-path.md`)
+    // already shipped for).
     let change = vec![
         DataVersion {
             type_: "DataVersion",
             payload: Some(serde_json::json!({
                 "@type": "RuleDocument",
-                "@id": "rule:live-no-untitled-parts",
                 "name": "No untitled parts",
                 "rego": "package kr0ki\n\nviolations := [v |\n    some n\n    not input.nodes[n].label\n    v := {\"element_id\": input.nodes[n].id, \"reason\": \"element has no name\"}\n]\n"
             })),
@@ -1395,7 +1404,6 @@ async fn recompute_flags_a_real_violation_on_a_live_project() {
             type_: "DataVersion",
             payload: Some(serde_json::json!({
                 "@type": "RuleDocument",
-                "@id": "rule:live-always-pass",
                 "name": "Always passes",
                 "rego": "package kr0ki\n\nviolations := []\n"
             })),
@@ -1419,36 +1427,25 @@ async fn recompute_flags_a_real_violation_on_a_live_project() {
         .await
         .expect("recompute");
 
-    let rule_ids: Vec<&str> = result
-        .violations
-        .iter()
-        .map(|v| v.rule_id.as_str())
-        .collect();
-    assert!(rule_ids.contains(&"rule:live-no-untitled-parts"));
-    assert!(rule_ids.contains(&"rule:live-always-pass"));
-
-    let untitled_result = result
-        .violations
-        .iter()
-        .find(|v| v.rule_id == "rule:live-no-untitled-parts")
-        .unwrap();
-    let always_pass_result = result
-        .violations
-        .iter()
-        .find(|v| v.rule_id == "rule:live-always-pass")
-        .unwrap();
-    assert!(always_pass_result.result.is_satisfied());
-    // "no untitled parts" may pass or fail depending on the live project's
-    // actual content -- either is a valid outcome; what this test proves
-    // is that a real evaluation ran and reported cleanly either way.
     assert!(
-        untitled_result.result.is_satisfied() || untitled_result.result.is_violated(),
-        "expected a definite disposition, got {:?}",
-        untitled_result.result.disposition
+        result.violations.len() >= 2,
+        "expected at least the 2 freshly-seeded rule docs to be found and evaluated \
+         (found {} — if this is 0, extract_rule_docs likely isn't matching the \
+         server's actual element shape for these two)",
+        result.violations.len()
     );
-    if untitled_result.result.is_violated() {
-        assert!(!result.requirements.relations.is_empty());
-        let relation = &result.requirements.relations[0];
+    assert!(
+        result.violations.iter().any(|v| v.result.is_satisfied()),
+        "expected the always-pass rule doc to evaluate as satisfied"
+    );
+
+    if let Some(violated) = result.violations.iter().find(|v| v.result.is_violated()) {
+        let relation = result
+            .requirements
+            .relations
+            .iter()
+            .find(|r| r.source == violated.rule_id)
+            .expect("a relation sourced from the violated rule doc");
         assert!(relation.target.starts_with("node:"));
     }
 }

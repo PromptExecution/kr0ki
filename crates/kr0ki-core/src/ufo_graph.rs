@@ -97,6 +97,15 @@ pub fn build_ufo_graph(snapshot: &ModelSnapshot) -> Vec<OntologicalEdge> {
 /// open "is adopting the envelope worth it" question, resolved here: yes, at
 /// this one serialization/evaluation boundary, not by changing
 /// [`build_ufo_graph`]'s own signature or its callers).
+///
+/// Pushes a node for **every** element in the snapshot, deliberately
+/// including relationship elements (`FeatureMembership`, `Specialization`,
+/// etc. -- these are also separately lifted into edges by
+/// [`build_ufo_graph`], so they end up represented as both a node and an
+/// edge) and `RuleDocument` elements themselves. This is intentional, not a
+/// bug: a rule evaluator (`RuleBackend`) receiving this `SysGraph` as its
+/// Rego input needs to be able to see and reason about relationship and
+/// rule-document elements as nodes too, not just the "business" elements.
 pub fn build_sysgraph(snapshot: &ModelSnapshot) -> SysGraph {
     let mut graph = SysGraph::new();
     for el in &snapshot.elements {

@@ -3,7 +3,10 @@
 //! §6) -- [`RegorusBackend`] is the only implementation today.
 
 use crate::rule_docs::RuleDoc;
+use regorus::utils::limits::ExecutionTimerConfig;
 use serde::Deserialize;
+use std::num::NonZeroU32;
+use std::time::Duration;
 use ufo_types::satisfies::{NodeId, SatisfiesResult};
 use ufo_types::sysgraph::SysGraph;
 
@@ -27,6 +30,17 @@ struct ViolationEntry {
 impl RuleBackend for RegorusBackend {
     fn evaluate(&self, graph: &SysGraph, doc: &RuleDoc) -> SatisfiesResult {
         let mut engine = regorus::Engine::new();
+        // Bound evaluation wall-clock time: regorus has no default execution
+        // limit, and `recompute_and_evaluate` runs inline on an async axum
+        // handler (not via `spawn_blocking`), so a pathological rule doc
+        // (e.g. a large nested comprehension) could otherwise pin a tokio
+        // worker thread indefinitely. A timeout here surfaces as an `Err`
+        // from `eval_rule` below, which the existing error handling already
+        // maps to `SatisfiesResult::unknown()` -- no other change needed.
+        engine.set_execution_timer_config(ExecutionTimerConfig {
+            limit: Duration::from_millis(500),
+            check_interval: NonZeroU32::new(1000).expect("1000 is nonzero"),
+        });
         if engine
             .add_policy(doc.id.as_str().to_string(), doc.rego_source.clone())
             .is_err()
@@ -130,6 +144,36 @@ violations := [v |
         let graph = SysGraph::new();
         let broken = doc("package kr0ki\n\nviolations := [v | v := ");
         let result = RegorusBackend.evaluate(&graph, &broken);
+        assert_eq!(result.disposition, Disposition::Unknown);
+        assert_eq!(result.confidence, 0.0);
+    }
+
+    /// Proves the 500ms `ExecutionTimerConfig` wired into
+    /// `RegorusBackend::evaluate` actually bounds evaluation: a doubly-nested
+    /// comprehension over 50,000 x 50,000 index pairs (2.5 billion checks) is
+    /// evaluated by regorus's tree-walking interpreter far too slowly to
+    /// finish in 500ms on any realistic machine, so the engine's own
+    /// wall-clock check (ticked on every loop iteration, per
+    /// `regorus::Engine`'s `check_interval`) aborts evaluation with an
+    /// error -- which the existing `eval_rule` error handling already maps
+    /// to `SatisfiesResult::unknown()`. This test would hang instead of
+    /// failing fast if the timer config were ever dropped, so it also
+    /// serves as a regression guard for that wiring.
+    #[test]
+    fn reports_unknown_when_evaluation_exceeds_the_execution_time_limit() {
+        let pathological = r#"
+package kr0ki
+
+violations := [v |
+    r := numbers.range(1, 50000)
+    some i
+    some j
+    r[i] == r[j]
+    v := {"element_id": sprintf("%d-%d", [i, j]), "reason": "slow"}
+]
+"#;
+        let graph = SysGraph::new();
+        let result = RegorusBackend.evaluate(&graph, &doc(pathological));
         assert_eq!(result.disposition, Disposition::Unknown);
         assert_eq!(result.confidence, 0.0);
     }

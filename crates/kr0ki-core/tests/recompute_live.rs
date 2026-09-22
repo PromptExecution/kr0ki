@@ -25,7 +25,9 @@ async fn recompute_flags_a_real_violation_on_a_live_project() {
     };
 
     let projects = client.projects().await.expect("list projects");
-    let project = projects.first().expect("at least one project on the live server");
+    let project = projects
+        .first()
+        .expect("at least one project on the live server");
     let project_id = project.at_id.clone();
     let commits = client.commits(&project_id).await.expect("list commits");
     let previous_commit = commits.first().map(|c| kr0ki_sysmlv2_client::Ref {
@@ -42,7 +44,6 @@ async fn recompute_flags_a_real_violation_on_a_live_project() {
             type_: "DataVersion",
             payload: Some(serde_json::json!({
                 "@type": "RuleDocument",
-                "@id": "rule:live-no-untitled-parts",
                 "name": "No untitled parts",
                 "rego": "package kr0ki\n\nviolations := [v |\n    some n\n    not input.nodes[n].label\n    v := {\"element_id\": input.nodes[n].id, \"reason\": \"element has no name\"}\n]\n"
             })),
@@ -52,7 +53,6 @@ async fn recompute_flags_a_real_violation_on_a_live_project() {
             type_: "DataVersion",
             payload: Some(serde_json::json!({
                 "@type": "RuleDocument",
-                "@id": "rule:live-always-pass",
                 "name": "Always passes",
                 "rego": "package kr0ki\n\nviolations := []\n"
             })),

@@ -179,24 +179,26 @@ starting this stream. kr0ki's stateless view slice is on
 
 - [x] **Graph container type** — `SysGraph` (`nodes: Vec<OntologicalNode>`, `edges:
   Vec<OntologicalEdge>`), serde JSON, round-trip tested, no `SchemaVersion` field
-  (DESIGN-NOTE §2.6/§2.8). `ufo-types` PR #27, merged. **Not yet consumed by kr0ki**
-  — `ufo_graph.rs`, `k8s_recognizer.rs`, and `sysml_lift.rs` all still pass a bare
-  `Vec<OntologicalEdge>` between stages rather than a `SysGraph`. Open question for
-  whoever picks this up: is adopting the envelope actually worth a signature change
-  to three already-shipped, tested modules, or is `Vec<OntologicalEdge>` fine as the
-  pipeline's working type and `SysGraph` only needed at a serialization boundary
-  (e.g. a future `GET /model/graph` snapshot route)? Not decided — don't silently
-  pick one without flagging it here first.
+  (DESIGN-NOTE §2.6/§2.8). `ufo-types` PR #27, merged. **Now consumed by kr0ki** —
+  the requirements-rules-system work (`docs/superpowers/plans/
+  2026-09-22-requirements-rules-system.md`, Task 1) added
+  `ufo_graph::build_sysgraph(snapshot: &ModelSnapshot) -> SysGraph` as a thin
+  wrapper at the recompute/evaluation boundary, resolving the open question below
+  without touching `build_ufo_graph`'s own signature or its existing callers
+  (`k8s_recognizer.rs`, `sysml_lift.rs` still pass a bare `Vec<OntologicalEdge>`,
+  unchanged) — the envelope is adopted only where it's actually needed
+  (serialization into `RecomputeResult.graph`), not everywhere.
 - [x] **`ModelSnapshot → UFO graph` builder** — `kr0ki-core/src/ufo_graph.rs`
   (box 2 of `PLAN-KR0KI-002`). Raw KerML relationship `@type` → `UfoRelation` via a
   direct table lookup (`FeatureMembership`→`HasPart`, `Specialization`→`Specializes`,
   etc. — see the module's own mapping table). Already shipped; this checkbox was
   stale.
-- [ ] **Provenance population** — the Kubernetes arm already does this
+- [x] **Provenance population** — the Kubernetes arm already does this
   (`k8s_recognizer.rs` pushes `SourceAnchor::K8sObject` on every edge it builds).
-  **The SysML-v2 arm (`ufo_graph.rs`) does not yet** — no `SourceAnchor` is attached
-  to the edges it produces. Needs `KermlQualifiedName` from the element's `@id` and
-  `Vcs { commit }` from the `ModelSnapshot`. Genuinely still open.
+  **The SysML-v2 arm (`ufo_graph.rs`) now does too** — the requirements-rules-system
+  work's Task 1 made `build_ufo_graph` attach
+  `[SourceAnchor::KermlQualifiedName(edge.id), SourceAnchor::Vcs{ repo: None,
+  commit: snapshot.commit_id, path: None }]` to every edge it produces.
 
 ## Box 3 — pattern recognizers
 

@@ -376,7 +376,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_thirteen_tools_have_unique_names() {
+    fn all_tools_have_unique_names() {
         let mut names: Vec<&str> = McpTool::ALL.iter().map(|t| t.name()).collect();
         let before = names.len();
         names.sort_unstable();
@@ -544,7 +544,10 @@ mod tests {
     fn recompute_and_evaluate_binds_to_the_post_recompute_route() {
         let binding = McpTool::RecomputeAndEvaluate.http_binding();
         assert!(matches!(binding.method, HttpMethod::Post));
-        assert_eq!(binding.path_template, "/model/projects/{project_id}/recompute");
+        assert_eq!(
+            binding.path_template,
+            "/model/projects/{project_id}/recompute"
+        );
         assert_eq!(binding.args.len(), 1);
         assert_eq!(binding.args[0].name, "project_id");
         assert!(matches!(binding.args[0].placement, ArgPlacement::Path));
