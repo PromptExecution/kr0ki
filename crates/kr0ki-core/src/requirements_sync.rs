@@ -4,6 +4,21 @@
 //! promotion machinery rather than building a parallel one. See
 //! `docs/superpowers/specs/2026-09-22-requirements-rules-system-design.md`
 //! §5, including its revision note.
+//!
+//! **Known limitation (spec §5's "Open gap" / §10's "Durable persistence of
+//! promoted relations"):** [`register_relation`]'s upsert *overwrites the
+//! entire existing relation, including its `authority`*, on every call for
+//! the same `(doc, evidence)` pair -- so re-registering a violation after a
+//! human has promoted its relation to `RelationAuthority::Asserted` silently
+//! reverts it to `Inferred`. This is safe today only because this task's
+//! caller (Task 5's `recompute_and_evaluate`) always builds a brand-new,
+//! empty `RequirementGraph` per recompute rather than reusing one across
+//! calls, so there is never a pre-existing promoted relation in scope to
+//! clobber in production. A promotion therefore only lasts for the current
+//! response cycle -- there is no write-back to Flexo yet. If this module is
+//! ever called against a persisted/reused `RequirementGraph`, this behavior
+//! would need to change (e.g. preserve `Asserted` across an upsert); that is
+//! out of this plan's scope and is tracked as a follow-up in the spec's §10.
 
 use crate::rule_docs::RuleDoc;
 use kr0ki_sysmlv2_client::ModelSnapshot;
@@ -147,6 +162,14 @@ fn register_fallback_evidence(graph: &mut RequirementGraph, element_id: &Element
     id
 }
 
+/// Upsert the `Satisfies` relation for one `(doc, evidence)` pair.
+///
+/// On a repeat call with the same id, this **overwrites the entire existing
+/// relation, including `authority`** -- a relation a human previously
+/// promoted to `RelationAuthority::Asserted` is silently reverted to
+/// `Inferred`. See the module-level doc comment: this is intentional and
+/// safe under this task's actual caller (Task 5 always recomputes into a
+/// fresh, empty `RequirementGraph`), not a general-purpose upsert contract.
 fn register_relation(
     graph: &mut RequirementGraph,
     doc: &RuleDoc,
@@ -318,6 +341,37 @@ mod tests {
             .promote_relation(&relation_id, "brianh", "reviewed manually")
             .expect("promote");
         assert!(graph.relations[0].authority.is_asserted());
+    }
+
+    /// Pins the documented, intentional limitation on `register_relation`'s
+    /// upsert (see the module doc comment and `register_relation`'s own doc
+    /// comment): re-registering the same violation against a
+    /// `RequirementGraph` that already holds a promoted relation reverts it
+    /// to `Inferred`. Safe today only because Task 5 always recomputes into
+    /// a fresh, empty `RequirementGraph` -- this test documents the behavior
+    /// as a contract rather than leaving it an implicit trap.
+    #[test]
+    fn promoting_then_reregistering_the_same_violation_reverts_the_promotion() {
+        let mut graph = empty_graph();
+        let edges = vec![attested_edge()];
+        let result = SatisfiesResult::violated("BadPart is not allowed".to_string())
+            .with_confidence(1.0)
+            .with_evidence(vec![NodeId::new("node:elem-1")]);
+        register_violations(&mut graph, &doc(), &edges, &result);
+        let relation_id = graph.relations[0].id.clone();
+        graph
+            .promote_relation(&relation_id, "brianh", "reviewed manually")
+            .expect("promote");
+        assert!(graph.relations[0].authority.is_asserted());
+
+        register_violations(&mut graph, &doc(), &edges, &result);
+
+        assert_eq!(graph.relations.len(), 1);
+        assert!(!graph.relations[0].authority.is_asserted());
+        match &graph.relations[0].authority {
+            RelationAuthority::Inferred(_) => {}
+            other => panic!("expected the promotion to be reverted to Inferred, got {other:?}"),
+        }
     }
 
     #[test]
