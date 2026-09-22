@@ -301,7 +301,7 @@ Expected: FAIL — `rule_docs` is not a registered module yet.
 
 - [ ] **Step 3: Register the module**
 
-In `crates/kr0ki-core/src/lib.rs`, add `pub mod rule_docs;` immediately after `pub mod render;` and before `pub mod reqif_import;` (alphabetical, matching the file's existing ordering).
+In `crates/kr0ki-core/src/lib.rs`, add `pub mod rule_docs;` immediately after `pub mod requirements_render;` and before `pub mod rust_recognizer;` (alphabetical, matching the file's existing ordering — note this is *not* immediately after `render`/`reqif_import`; `render < reqif_import < requirements_render < rule_docs < rust_recognizer` is the correct sort order, verified against the file's actual current contents).
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -1215,11 +1215,11 @@ Add to `crates/kr0ki-core/src/mcp_tool.rs`'s existing `#[cfg(test)] mod tests` b
     #[test]
     fn recompute_and_evaluate_binds_to_the_post_recompute_route() {
         let binding = McpTool::RecomputeAndEvaluate.http_binding();
-        assert_eq!(binding.method, HttpMethod::Post);
+        assert!(matches!(binding.method, HttpMethod::Post));
         assert_eq!(binding.path_template, "/model/projects/{project_id}/recompute");
         assert_eq!(binding.args.len(), 1);
         assert_eq!(binding.args[0].name, "project_id");
-        assert_eq!(binding.args[0].placement, ArgPlacement::Path);
+        assert!(matches!(binding.args[0].placement, ArgPlacement::Path));
     }
 
     #[test]
@@ -1228,7 +1228,7 @@ Add to `crates/kr0ki-core/src/mcp_tool.rs`'s existing `#[cfg(test)] mod tests` b
     }
 ```
 
-(Check the existing test module's imports/style first — e.g. the `let graph = McpTool::QueryModelGraph.http_binding();` test already in this file — and match its exact assertion style; the code above assumes `HttpMethod`/`ArgPlacement` derive `PartialEq` and are already in scope there, matching how neighboring tests use them.)
+(Verified against the actual file: `HttpMethod`/`ArgPlacement` derive only `Debug, Clone, Copy` — no `PartialEq` — which is exactly why the code above uses `matches!()` for `method`/`placement` rather than `assert_eq!()`, mirroring the existing `model_tools_have_the_expected_get_bindings` test's own style in this same file.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
