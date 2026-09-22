@@ -39,6 +39,7 @@ pub mod probe;
 pub mod recompute;
 pub mod render;
 pub mod reqif_export;
+pub mod reqif_fetch;
 pub mod reqif_import;
 /// Canonical home is `ufo_types::mbse::requirements` (kr0ki M1,
 /// 2026-09-19) — re-exported here so existing `kr0ki_core::requirements::*`
