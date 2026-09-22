@@ -122,7 +122,7 @@ async fn mcp_tools_lists_all_thirteen_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 13);
+    assert_eq!(tools.len(), 14);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
@@ -131,6 +131,7 @@ async fn mcp_tools_lists_all_thirteen_tools_with_bindings() {
     assert!(names.contains(&"render_sysmlv2_snapshot"));
     assert!(names.contains(&"import_reqif"));
     assert!(names.contains(&"query_model_graph"));
+    assert!(names.contains(&"recompute_and_evaluate"));
 
     let render = tools
         .iter()
