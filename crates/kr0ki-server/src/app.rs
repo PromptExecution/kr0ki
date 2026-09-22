@@ -104,6 +104,10 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
             get(get_model_snapshot),
         )
         .route(
+            "/model/projects/:project_id/recompute",
+            post(recompute_model),
+        )
+        .route(
             "/model/projects/:project_id/commits/:commit_id/elements",
             get(query_model_elements),
         )
@@ -352,6 +356,20 @@ async fn get_model_snapshot(
             }
             Json(snapshot).into_response()
         }
+        Err(error) => client_error_response(error),
+    }
+}
+
+async fn recompute_model(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+) -> Response {
+    let client = match require_sysmlv2_client(&state) {
+        Ok(client) => client,
+        Err(response) => return *response,
+    };
+    match kr0ki_core::recompute::recompute_and_evaluate(&client, &project_id).await {
+        Ok(result) => Json(result).into_response(),
         Err(error) => client_error_response(error),
     }
 }

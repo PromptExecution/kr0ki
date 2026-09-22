@@ -406,6 +406,68 @@ async fn model_projects_proxy_and_snapshot_materializes_the_graph() {
 }
 
 #[tokio::test]
+async fn model_recompute_evaluates_rule_docs_and_returns_violations() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/projects/p1/commits"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {"@id": "c1", "@type": "Commit"}
+            ])),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path(
+            "/projects/p1/commits/c1/elements",
+        ))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!([
+            {"@id": "elem-1", "@type": "PartUsage", "name": "BadPart"},
+            {
+                "@id": "rule:no-bad-parts",
+                "@type": "RuleDocument",
+                "name": "No BadPart allowed",
+                "rego": "package kr0ki\n\nviolations := [v |\n    some n\n    input.nodes[n].label == \"BadPart\"\n    v := {\"element_id\": input.nodes[n].id, \"reason\": \"BadPart is not allowed\"}\n]\n"
+            }
+        ])))
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/projects/p1/commits/c1/roots"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!(["elem-1"])),
+        )
+        .mount(&server)
+        .await;
+
+    let response = test_app(test_state_with_sysmlv2_client("recompute", server.uri()))
+        .oneshot(
+            Request::post("/model/projects/p1/recompute")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("\"disposition\""));
+    assert!(body.contains("BadPart is not allowed"));
+}
+
+#[tokio::test]
+async fn model_recompute_without_a_configured_client_is_503() {
+    let response = test_app(test_state("recompute-unconfigured"))
+        .oneshot(
+            Request::post("/model/projects/p1/recompute")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
 async fn model_graph_query_is_bounded_and_validates_its_shape() {
     let state = test_state("model-graph");
     let element: kr0ki_sysmlv2_client::Element = serde_json::from_value(serde_json::json!({
