@@ -1,8 +1,9 @@
-//! Rule-document extraction: `@type: "RuleDocument"` / `rule:`-prefixed
-//! elements in a `ModelSnapshot`, carrying Rego source in a `"rego"` field
+//! Rule-document extraction: `@type: "RuleDocument"` elements in a
+//! `ModelSnapshot`, carrying Rego source in a `"rego"` field
 //! (this crate's own element-shape convention — see
 //! `docs/superpowers/specs/2026-09-22-requirements-rules-system-design.md`
-//! §3's revision note).
+//! §3's revision note). ID format is not constrained — the OMG API assigns
+//! server-generated IDs on create, so kr0ki cannot assume any prefix.
 
 use kr0ki_sysmlv2_client::ModelSnapshot;
 use ufo_types::sysml_model::ElementId;
@@ -21,15 +22,14 @@ pub struct RuleDoc {
 }
 
 /// Extract every `RuleDocument` element from `snapshot`. An element whose
-/// `@type` is `"RuleDocument"` but is missing its `rego` field, or whose id
-/// doesn't carry the `rule:` prefix convention, is silently skipped — same
-/// "never abort the whole snapshot's graph build" convention `ufo_graph.rs`
-/// already uses for malformed relationship elements.
+/// `@type` is `"RuleDocument"` but is missing its `rego` field is silently
+/// skipped — same "never abort the whole snapshot's graph build" convention
+/// `ufo_graph.rs` already uses for malformed relationship elements.
 pub fn extract_rule_docs(snapshot: &ModelSnapshot) -> Vec<RuleDoc> {
     snapshot
         .elements
         .iter()
-        .filter(|el| el.ty() == "RuleDocument" && el.id().starts_with("rule:"))
+        .filter(|el| el.ty() == "RuleDocument")
         .filter_map(|el| {
             let rego_source = el.get("rego")?.as_str()?.to_string();
             let name = el.name().unwrap_or_else(|| el.id()).to_string();
@@ -106,12 +106,16 @@ mod tests {
     }
 
     #[test]
-    fn skips_rule_typed_element_without_the_id_prefix_convention() {
+    fn extracts_rule_document_with_server_assigned_id() {
         let snap = snapshot(vec![element(json!({
-            "@id": "not-prefixed",
+            "@id": "elem-42",
             "@type": "RuleDocument",
+            "name": "Server-assigned ID rule",
             "rego": "package kr0ki\n\nviolations := []\n"
         }))]);
-        assert!(extract_rule_docs(&snap).is_empty());
+        let docs = extract_rule_docs(&snap);
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].id, ElementId::new("elem-42"));
+        assert_eq!(docs[0].name, "Server-assigned ID rule");
     }
 }
