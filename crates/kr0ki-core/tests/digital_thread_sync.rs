@@ -31,7 +31,10 @@ async fn syncs_a_new_node_as_a_create_commit() {
 
     Mock::given(method("POST"))
         .and(path("/projects/p1/commits"))
-        .and(body_partial_json(json!({"previousCommit": {"@id": "c1"}})))
+        .and(body_partial_json(json!({
+            "previousCommit": {"@id": "c1"},
+            "change": [{"@type": "DataVersion"}]
+        })))
         .respond_with(
             ResponseTemplate::new(200).set_body_json(json!({"@id": "c2", "@type": "Commit"})),
         )
@@ -50,7 +53,10 @@ async fn syncs_a_new_node_as_a_create_commit() {
         branch_id: None,
     };
 
-    let commit = sync_dbt_graph(&client, &graph, &config).await.unwrap();
+    let commit = sync_dbt_graph(&client, &graph, &config)
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(commit.at_id, "c2");
 }
@@ -89,10 +95,42 @@ async fn empty_changeset_skips_the_post_and_returns_the_latest_commit() {
         branch_id: None,
     };
 
-    let commit = sync_dbt_graph(&client, &graph, &config).await.unwrap();
+    let commit = sync_dbt_graph(&client, &graph, &config)
+        .await
+        .unwrap()
+        .unwrap();
 
     assert_eq!(
         commit.at_id, "c1",
         "should return the existing latest commit unchanged"
+    );
+}
+
+#[tokio::test]
+async fn empty_project_with_empty_graph_skips_the_post_and_returns_none() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/p1/commits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    // No prior commit, so sync_dbt_graph must not call GET .../elements either --
+    // deliberately no mock for it, and no POST mock: if the code posts an empty
+    // first commit anyway, this test fails with a connection/match error from
+    // wiremock, proving the "never post an empty commit" invariant.
+
+    let client = SysmlV2Client::new(server.uri());
+    let graph = SysGraph::new();
+    let config = SyncConfig {
+        project_id: "p1".to_string(),
+        branch_id: None,
+    };
+
+    let commit = sync_dbt_graph(&client, &graph, &config).await.unwrap();
+
+    assert!(
+        commit.is_none(),
+        "nothing to sync and no prior commit exists -- should return None"
     );
 }
