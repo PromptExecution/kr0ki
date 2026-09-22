@@ -45,6 +45,7 @@ pub mod reqif_import;
 pub use ufo_types::mbse::requirements;
 pub mod requirements_render;
 pub mod rule_docs;
+pub mod rule_eval;
 pub mod rust_recognizer;
 pub mod sysml_lift;
 pub mod sysml_render;

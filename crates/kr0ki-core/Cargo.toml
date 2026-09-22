@@ -69,6 +69,12 @@ zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 # surface. Unlike regorus (feat/requirements-rules-system), reqrs has
 # no [features] table at all -- nothing to disable.
 reqrs = "0.2.2"
+# docs/superpowers/specs/2026-09-22-requirements-rules-system-design.md §4:
+# embedded, pure-Rust Rego/OPA evaluation for rule documents (RuleBackend /
+# RegorusBackend, rule_eval.rs) -- no Python sidecar, same "direct Rust
+# dependency" precedent the ReqIF work already set.
+regorus = "0.12.0"
+
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "fs", "net", "rt-multi-thread"] }
