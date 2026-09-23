@@ -130,6 +130,7 @@ async fn mcp_tools_lists_all_tools_with_bindings() {
     assert!(names.contains(&"render_kubernetes_topology"));
     assert!(names.contains(&"render_sysmlv2_snapshot"));
     assert!(names.contains(&"import_reqif"));
+    assert!(names.contains(&"import_reqif_url"));
     assert!(names.contains(&"query_model_graph"));
     assert!(names.contains(&"recompute_and_evaluate"));
 
