@@ -21,8 +21,12 @@ losing information.
 (`parse_and_lower`/`bundle_to_requirement_graph`: bytes → `ReqIfBundle` →
 `RequirementGraph`). Nothing anywhere maps `RequirementGraph` back to a
 `reqrs::model::ReqIfBundle` for re-serialization, even though `reqrs`
-itself has the writer (`reqrs::unparse::unparse_bundle(&ReqIfBundle,
-FormatMode) -> Result<String, ReqIfError>`).
+itself has the writer — `reqrs::ReqIfUnparser::unparse(&bundle, mode) ->
+Result<String, ReqIfError>` (also re-exported at the crate root; the
+free function lives at `unparse::driver::unparse_bundle` internally but
+is *not* re-exported from `unparse::`, so the type's associated method
+is the real public entry point — verified against `reqrs` 0.2.2 source
+2026-09-23).
 
 **Decision (approved):** build this export direction as a new
 `kr0ki_core::reqif_export` module, using `reqrs` as a **direct**
@@ -48,8 +52,47 @@ a kr0ki/ufo-types concept ReqIF itself has no field for, and exporting
 them would silently promote them, which is exactly what
 `promote_relation()`'s explicit gate exists to prevent. A second function,
 `export_bundle_to_xml(graph: &RequirementGraph) -> Result<String,
-ReqIfExportError>`, calls `reqrs::unparse::unparse_bundle` to finish the
-job.
+ReqIfExportError>`, calls `ReqIfUnparser::unparse` to finish the job.
+
+### 1a. Corrections and missing steps (verified 2026-09-23 against real `reqrs` 0.2.2 source)
+
+The paragraphs above are corrected in place above; four further things this
+spec did not originally account for, found by reading `reqrs`' actual
+source rather than guessing its shape:
+
+1. **`ReqIfBundle` has no full constructor.** The only one is
+   `ReqIfBundle::empty(namespace: Option<String>, configuration:
+   Option<String>)`, which sets `header`/`core_content` to `None` and
+   nothing else. `export_bundle` must build `core_content` itself, **then
+   call `ObjectLookup::build(&content) -> ObjectLookup`** (single-argument,
+   infallible, content-only) and assign it to the bundle's `lookup` field
+   before unparsing — nothing wires this automatically.
+2. **`AttributeValue` carries no name/key/title string.** Every variant
+   (String/Boolean/Integer/Real/Date/Xhtml/Enumeration) only carries
+   `definition_ref: AttributeDefId` — an opaque id pointing at an
+   `AttributeDefinition`. The `title`/`name`/`key`, `text`/`description`
+   attribute-name convention this spec describes cannot attach directly to
+   an `AttributeValue`; `export_bundle` must first synthesize a
+   `SpecObjectType` (with two `AttributeDefinition`s in its
+   `spec_attributes`, one per convention name) and reference their ids via
+   `definition_ref` on each `SpecObject`'s values. This is new scope this
+   spec did not originally call out, not just a renamed field.
+3. **`FormatMode` choice is an open decision, not a default.** `reqrs`
+   offers `FormatMode::Passthrough` (relies on parser-captured
+   self-closing/whitespace flags) and `FormatMode::Canonical`. A bundle
+   built synthetically by `export_bundle` was never parsed, so it has no
+   captured formatting flags — `export_bundle_to_xml` should pass
+   `FormatMode::Canonical` explicitly. The implementation plan should
+   confirm this against a real unparse call before relying on it.
+4. **`children_order` fields are required, not `Option`.** Both
+   `SpecObject.children_order` and `SpecRelation.children_order` need an
+   explicit value — `Vec::new()` is valid (the unparser falls back to
+   canonical order) but omitting the field is a compile error, not a
+   silent default.
+
+Everything else this spec assumes about `SpecObject`/`SpecRelation` field
+names (`identifier`, `description`, `spec_object_type`/`relation_type`,
+`source`/`target`) checked out correctly against the real source.
 
 ## 2. Storing a baseline in Flexo
 
