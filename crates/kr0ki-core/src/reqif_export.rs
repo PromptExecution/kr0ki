@@ -3,6 +3,43 @@
 //! builds a `reqrs::model::ReqIfBundle` from a `RequirementGraph` and
 //! serializes it back to XML. See
 //! docs/superpowers/specs/2026-09-23-flexo-baseline-adapter-design.md.
+//!
+//! **Conformance scope.** This module's output is round-trip-grade for
+//! kr0ki/reqrs, not full OMG ReqIF-1.2-schema-valid: it is proven to
+//! round-trip through kr0ki's own import/export (`reqrs` parse +
+//! `ufo_types::reqif` lowering -- see `tests/reqif_export.rs`), but the
+//! emitted XML omits fields the OMG ReqIF 1.2 XSD requires on every
+//! identifiable element (`LAST-CHANGE`), a `MAX-LENGTH` on the string
+//! datatype, several `REQ-IF-HEADER` fields, and any `<SPECIFICATIONS>`
+//! grouping. None of these are fabricated here (no `Utc::now()`, no
+//! placeholder tool-id strings) -- doing so would make
+//! `BaselineIdentity::exported_baseline_sha256` non-deterministic or
+//! misleading. The output is therefore not guaranteed to be accepted by
+//! third-party ReqIF tools (ReqIF Studio, DOORS, Polarion, etc.) without
+//! further work.
+//!
+//! **Evidence endpoints are dropped, not dangling.** `RequirementGraph`
+//! permits a `RequirementRelation` to point at an `EvidenceRef` id (e.g. a
+//! `Verifies` edge from evidence to a requirement), but this module only
+//! ever emits `SpecObject`s for `graph.requirements`, never for
+//! `graph.evidence`. `export_bundle` therefore excludes any relation
+//! touching a non-requirement endpoint from the exported bundle's
+//! `spec_relations` -- matching the existing "no attachment
+//! round-tripping" precedent (design doc §4). Exporting a
+//! `SPEC-OBJECT-REF` to an object that was never written would produce
+//! XML that `ufo_types::reqif::bundle_to_requirement_graph` rejects on
+//! re-import ("relation has an unknown endpoint").
+//!
+//! **What is not preserved through export.** Only ids/titles/texts/
+//! asserted relations round-trip (design doc §1/§4). Specifically dropped,
+//! deliberately:
+//! - `Requirement.attributes` -- all vendor/original attributes beyond
+//!   title/text. Re-import always derives `subtypes = "requirement"` since
+//!   only one `SpecObjectType` is synthesized here.
+//! - `RequirementRelation.promotion` -- a promoted relation's audit trail.
+//!   It re-imports looking like it was always `Asserted`.
+//! - `BaselineIdentity.revision` and other provenance fields -- not part
+//!   of ReqIF's own schema; there is no field to carry them in.
 
 use crate::requirements::{Requirement, RequirementGraph, RequirementRelationKind};
 use reqrs::model::{
@@ -27,7 +64,24 @@ pub fn export_bundle(graph: &RequirementGraph) -> Result<ReqIfBundle, ReqIfExpor
         .iter()
         .map(|r| requirement_to_spec_object(r, &layer.text_attr_def_id))
         .collect();
-    let spec_relations = asserted_relations_to_spec_relations(&graph.relations);
+
+    // Only `graph.requirements` become `SpecObject`s (never `graph.evidence`
+    // -- see the module doc comment's "Evidence endpoints are dropped, not
+    // dangling" section). A `RequirementRelation` may legally point at an
+    // evidence id per `RequirementGraph::validate()`; exporting such a
+    // relation would emit a `SPEC-OBJECT-REF` to an object this bundle never
+    // writes, which `ufo_types::reqif::bundle_to_requirement_graph` rejects
+    // on re-import. Drop any relation whose source or target isn't a known
+    // requirement id.
+    let requirement_ids: std::collections::BTreeSet<&str> =
+        graph.requirements.iter().map(|r| r.id.as_str()).collect();
+    let spec_relations: Vec<_> = asserted_relations_to_spec_relations(&graph.relations)
+        .into_iter()
+        .filter(|rel| {
+            requirement_ids.contains(rel.source.as_str())
+                && requirement_ids.contains(rel.target.as_str())
+        })
+        .collect();
 
     let mut spec_types = vec![layer.spec_object_type];
     spec_types.extend(layer.relation_types);
@@ -61,7 +115,12 @@ pub fn export_bundle(graph: &RequirementGraph) -> Result<ReqIfBundle, ReqIfExpor
     };
 
     Ok(ReqIfBundle {
-        namespace_info: NamespaceInfo::default(),
+        namespace_info: NamespaceInfo {
+            doctype_is_present: true,
+            encoding: Some("UTF-8".to_string()),
+            namespace: Some("http://www.omg.org/spec/ReqIF/20110401/reqif.xsd".to_string()),
+            ..Default::default()
+        },
         header: Some(header),
         core_content: Some(CoreContent {
             req_if_content: Some(content),
@@ -127,31 +186,70 @@ fn spec_type_common(
     }
 }
 
-/// `(RequirementRelationKind variant, spec-relation-type id, LONG-NAME)` --
-/// LONG-NAME must exactly match one of `ufo_types::reqif::relation_kind_from_name`'s
-/// recognized strings so re-import recovers the same kind.
-const RELATION_KINDS: &[(RequirementRelationKind, &str, &str)] = {
+/// Every `RequirementRelationKind` variant, purely for `type_layer()`'s
+/// iteration -- `ufo_types::mbse::requirements::RequirementRelationKind` is a
+/// foreign enum (from the `ufo-types` git dependency), so nothing here can
+/// stop it from growing an 11th variant someday. This array is not the
+/// source of truth for id/name mapping (see `relation_type_id` and
+/// `relation_long_name` below, both exhaustive `match`es with no wildcard
+/// arm) -- if a variant is ever added, the compiler fails at both match
+/// sites *and* this array becomes stale-but-harmless (`type_layer()` would
+/// simply omit the new kind's `SpecType` until this array is updated too).
+const ALL_RELATION_KINDS: [RequirementRelationKind; 10] = {
     use RequirementRelationKind::*;
-    &[
-        (Contains, "ST-CONTAINS", "contains"),
-        (Derives, "ST-DERIVES", "derives"),
-        (Refines, "ST-REFINES", "refines"),
-        (Requires, "ST-REQUIRES", "requires"),
-        (Satisfies, "ST-SATISFIES", "satisfies"),
-        (Verifies, "ST-VERIFIES", "verifies"),
-        (Implements, "ST-IMPLEMENTS", "implements"),
-        (Traces, "ST-TRACES", "traces"),
-        (AllocatedTo, "ST-ALLOCATED-TO", "allocated_to"),
-        (Precedes, "ST-PRECEDES", "precedes"),
+    [
+        Contains,
+        Derives,
+        Refines,
+        Requires,
+        Satisfies,
+        Verifies,
+        Implements,
+        Traces,
+        AllocatedTo,
+        Precedes,
     ]
 };
 
+/// `ST-*` spec-relation-type id for a `RequirementRelationKind`. Exhaustive
+/// `match` with no `_ =>` wildcard arm on purpose: if
+/// `RequirementRelationKind` (foreign, from the `ufo-types` git dependency)
+/// ever gains an 11th variant, this must fail to compile rather than panic
+/// at runtime the way a table-lookup-plus-`.expect()` would.
 fn relation_type_id(kind: RequirementRelationKind) -> SpecTypeId {
-    RELATION_KINDS
-        .iter()
-        .find(|(k, _, _)| *k == kind)
-        .map(|(_, id, _)| SpecTypeId::new(*id))
-        .expect("RELATION_KINDS covers every RequirementRelationKind variant")
+    use RequirementRelationKind::*;
+    SpecTypeId::new(match kind {
+        Contains => "ST-CONTAINS",
+        Derives => "ST-DERIVES",
+        Refines => "ST-REFINES",
+        Requires => "ST-REQUIRES",
+        Satisfies => "ST-SATISFIES",
+        Verifies => "ST-VERIFIES",
+        Implements => "ST-IMPLEMENTS",
+        Traces => "ST-TRACES",
+        AllocatedTo => "ST-ALLOCATED-TO",
+        Precedes => "ST-PRECEDES",
+    })
+}
+
+/// `<SPEC-RELATION-TYPE LONG-NAME>` for a `RequirementRelationKind`. Must
+/// exactly match one of `ufo_types::reqif::relation_kind_from_name`'s
+/// recognized strings so re-import recovers the same kind. Exhaustive
+/// `match`, same rationale as `relation_type_id`.
+fn relation_long_name(kind: RequirementRelationKind) -> &'static str {
+    use RequirementRelationKind::*;
+    match kind {
+        Contains => "contains",
+        Derives => "derives",
+        Refines => "refines",
+        Requires => "requires",
+        Satisfies => "satisfies",
+        Verifies => "verifies",
+        Implements => "implements",
+        Traces => "traces",
+        AllocatedTo => "allocated_to",
+        Precedes => "precedes",
+    }
 }
 
 fn type_layer() -> TypeLayer {
@@ -174,11 +272,15 @@ fn type_layer() -> TypeLayer {
             Some(vec![text_attr_def]),
         ),
     });
-    let relation_types = RELATION_KINDS
+    let relation_types = ALL_RELATION_KINDS
         .iter()
-        .map(|(_, id, long_name)| {
+        .map(|kind| {
             SpecType::SpecRelation(SpecRelationType {
-                common: spec_type_common(id, long_name, None),
+                common: spec_type_common(
+                    relation_type_id(*kind).as_str(),
+                    relation_long_name(*kind),
+                    None,
+                ),
             })
         })
         .collect();
@@ -396,7 +498,7 @@ mod tests {
 
     #[test]
     fn export_bundle_to_xml_produces_parseable_output_containing_the_requirement() {
-        let mut graph = RequirementGraph {
+        let graph = RequirementGraph {
             baseline: baseline(),
             requirements: vec![requirement("REQ-1", "Encrypt at rest", "Body text.")],
             evidence: Vec::new(),
@@ -415,7 +517,55 @@ mod tests {
             .and_then(|c| c.req_if_content.as_ref())
             .expect("re-parsed bundle must have content");
         assert_eq!(content.spec_objects.as_ref().map(|v| v.len()), Some(1));
+    }
 
-        let _ = &mut graph; // silence unused_mut if the test grows
+    #[test]
+    fn export_bundle_to_xml_emits_xml_declaration_and_reqif_namespace() {
+        let graph = RequirementGraph {
+            baseline: baseline(),
+            requirements: vec![requirement("REQ-1", "Encrypt at rest", "Body text.")],
+            evidence: Vec::new(),
+            relations: Vec::new(),
+        };
+        let xml = super::export_bundle_to_xml(&graph).expect("export should succeed");
+        assert!(
+            xml.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"),
+            "expected an XML declaration, got: {xml}"
+        );
+        assert!(
+            xml.contains("xmlns=\"http://www.omg.org/spec/ReqIF/20110401/reqif.xsd\""),
+            "expected the ReqIF namespace attribute, got: {xml}"
+        );
+    }
+
+    #[test]
+    fn a_relation_touching_a_non_requirement_endpoint_is_excluded_from_the_bundle() {
+        // REQ-2's id is never present in `graph.requirements` (it stands in
+        // for an evidence id, or any other non-requirement endpoint) --
+        // `export_bundle` must drop R1 rather than emit a dangling
+        // `SPEC-OBJECT-REF`.
+        let graph = RequirementGraph {
+            baseline: baseline(),
+            requirements: vec![requirement("REQ-1", "Encrypt at rest", "Body text.")],
+            evidence: Vec::new(),
+            relations: vec![relation(
+                "R1",
+                "REQ-1",
+                "REQ-2",
+                RequirementRelationKind::Verifies,
+                RelationAuthority::Asserted,
+            )],
+        };
+        let bundle = super::export_bundle(&graph).expect("export should succeed");
+        let spec_relations = bundle
+            .core_content
+            .as_ref()
+            .and_then(|c| c.req_if_content.as_ref())
+            .and_then(|c| c.spec_relations.as_ref())
+            .expect("content must have a spec_relations field");
+        assert!(
+            spec_relations.is_empty(),
+            "expected the evidence-touching relation to be excluded, got: {spec_relations:?}"
+        );
     }
 }

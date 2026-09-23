@@ -49,9 +49,13 @@ toml = "0.8"
 # M2 (docs/TODO.md "ReqIF / ReqIFz adapter"): ReqIF 1.2 XML parsing + the
 # ReqIfBundle -> RequirementGraph adapter moved into `ufo_types::reqif`
 # (2026-09-20, `docs/DESIGN-NOTE-versioned-dialects-and-b00t-loader.md` §3) --
-# enabled via the `reqif` feature above. No direct `reqrs` dependency here
-# anymore; this crate only owns bounded-bytes acquisition (size/entry-count
-# limits, hashing, the HTTP/MCP envelope), not parsing.
+# enabled via the `reqif` feature above. `ufo_types::reqif` still needs no
+# direct `reqrs` dependency here for the *import* path; this crate's own
+# bytes-in boundary only owns bounded-bytes acquisition (size/entry-count
+# limits, hashing, the HTTP/MCP envelope), not parsing. As of M3, though,
+# `kr0ki_core::reqif_export` (src/reqif_export.rs) *does* need `reqrs`
+# directly for the *export* path -- see that dependency's own comment below
+# and reqif_export.rs's module doc comment for why.
 # ReqIFz is a ZIP container.  kr0ki reads archives in-memory so the import
 # boundary can enforce its own compressed and expanded byte limits before
 # retaining any attachment metadata.

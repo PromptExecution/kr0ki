@@ -43,10 +43,14 @@ promotes an existing transitive dependency to direct, so `kr0ki-core` can
 
 `kr0ki_core::reqif_export::export_bundle(graph: &RequirementGraph) ->
 Result<ReqIfBundle, ReqIfExportError>` maps each `Requirement` to a
-`reqrs::model::SpecObject` (title/text round-tripping through the same
-attribute-name convention `ufo_types::reqif`'s import side already uses:
-`title`/`name`/`key`, `text`/`description`) and each authoritative
-`RequirementRelation` to a `SpecRelation`. Only asserted relations
+`reqrs::model::SpecObject`: the title goes directly into
+`SpecObject.long_name` (ReqIF's own field for it), and the body text goes
+into a single synthesized `AttributeValue::String` keyed by one "Text"
+`AttributeDefinition` -- not the `title`/`name`/`key`, `text`/`description`
+multi-attribute convention `ufo_types::reqif`'s *import* side uses to
+recover a title from arbitrary vendor ReqIF (import has to guess at an
+unowned schema; export controls its own schema and has no need to). Each
+authoritative `RequirementRelation` maps to a `SpecRelation`. Only asserted relations
 (`RelationAuthority::Asserted`) round-trip — inferred/proposed edges are
 a kr0ki/ufo-types concept ReqIF itself has no field for, and exporting
 them would silently promote them, which is exactly what
@@ -70,13 +74,13 @@ source rather than guessing its shape:
 2. **`AttributeValue` carries no name/key/title string.** Every variant
    (String/Boolean/Integer/Real/Date/Xhtml/Enumeration) only carries
    `definition_ref: AttributeDefId` — an opaque id pointing at an
-   `AttributeDefinition`. The `title`/`name`/`key`, `text`/`description`
-   attribute-name convention this spec describes cannot attach directly to
-   an `AttributeValue`; `export_bundle` must first synthesize a
-   `SpecObjectType` (with two `AttributeDefinition`s in its
-   `spec_attributes`, one per convention name) and reference their ids via
-   `definition_ref` on each `SpecObject`'s values. This is new scope this
-   spec did not originally call out, not just a renamed field.
+   `AttributeDefinition`. There is no field to attach a `title`/`name`/`key`
+   convention to directly; as built, `export_bundle` puts the title in
+   `SpecObject.long_name` directly (no attribute involved) and synthesizes
+   just one `SpecObjectType` with a single "Text" `AttributeDefinition` for
+   the body, referencing its id via `definition_ref` on each `SpecObject`'s
+   one value. This is new scope this spec did not originally call out, not
+   just a renamed field.
 3. **`FormatMode` choice is an open decision, not a default.** `reqrs`
    offers `FormatMode::Passthrough` (relies on parser-captured
    self-closing/whitespace flags) and `FormatMode::Canonical`. A bundle
@@ -151,6 +155,12 @@ export equivalence" `docs/TODO.md` names explicitly.
 - No attachment round-tripping — `reqif_import` already only inventories
   attachment digests, never retains bytes; export has nothing to attach.
 - Does not touch `Playb00k` (M4) — that stays the next, separate item.
+- Not full OMG ReqIF-1.2-schema validity — the export is round-trip-grade
+  for kr0ki/reqrs only (proven against kr0ki's own import/export), and
+  omits `LAST-CHANGE`, a datatype `MAX-LENGTH`, several `REQ-IF-HEADER`
+  fields, and `<SPECIFICATIONS>` grouping rather than fabricate values for
+  them; third-party ReqIF tools are not guaranteed to accept the output
+  without further work (see `reqif_export.rs`'s module doc comment).
 
 ## 5. Testing
 
