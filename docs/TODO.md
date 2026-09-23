@@ -82,9 +82,7 @@ starting this stream. kr0ki's stateless view slice is on
 - [ ] **`reqif-opa-mcp` refactor** — retain its artifact → document graph → candidate
   → OPA → ReqIF pipeline; replace its private requirement DTO/relation/provenance and
   validation types with the upstream `ufo-types` contract.
-- [ ] **Flexo baseline adapter** — import validated ReqIF into versioned RDF, retain
-  original artifact and deterministic export per Flexo commit, then materialize the
-  same normalized graph. Prove commit ↔ graph ↔ export equivalence in contract tests.
+- [ ] **Flexo baseline adapter** — §1 (ReqIF export, `kr0ki_core::reqif_export`) ✓ implemented in PR #55. §2 (Flexo storage, `flexo_reqif_sync`) and §3 (round-trip contract test) blocked on PR #52 (`digital_thread_sync`); see docs/superpowers/specs/2026-09-23-flexo-baseline-adapter-design.md.
 - [ ] **Playb00k requirements workspace** — after M2/M3 contracts exist: import and
   validate, select baseline, browse hierarchy/provenance, run all five viewpoints,
   distinguish asserted/inferred/proposed edges, explicitly promote, and open cached

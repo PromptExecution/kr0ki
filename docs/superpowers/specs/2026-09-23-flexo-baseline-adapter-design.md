@@ -1,6 +1,6 @@
 # Flexo baseline adapter — design
 
-**Status:** proposed, pending approval.
+**Status:** §1 (ReqIF export) implemented. §2 (Flexo storage) and §3 (round-trip contract test) blocked on PR #52 (`digital_thread_sync`) merging -- see docs/superpowers/plans/2026-09-23-flexo-baseline-adapter.md.
 
 ## 0. Context
 
