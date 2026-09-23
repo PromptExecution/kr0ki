@@ -4,13 +4,13 @@
 //! serializes it back to XML. See
 //! docs/superpowers/specs/2026-09-23-flexo-baseline-adapter-design.md.
 
-use crate::requirements::RequirementGraph;
-use crate::requirements::RequirementRelationKind;
+use crate::requirements::{Requirement, RequirementGraph, RequirementRelationKind};
 use reqrs::model::{
-    AttributeDefCommon, AttributeDefinition, AttributeDefinitionString, DataType, DataTypeCommon,
-    DataTypeString, DefaultValuePresence, SpecRelationType, SpecType, SpecTypeCommon,
+    AttributeDefCommon, AttributeDefinition, AttributeDefinitionString, AttributeValue,
+    AttributeValueString, DataType, DataTypeCommon, DataTypeString, DefaultValuePresence,
+    SpecObject, SpecObjectType, SpecRelationType, SpecType, SpecTypeCommon,
 };
-use reqrs::{AttributeDefId, DataTypeId, SpecTypeId};
+use reqrs::{AttributeDefId, DataTypeId, SpecObjectId, SpecTypeId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReqIfExportError {
@@ -119,7 +119,7 @@ fn type_layer() -> TypeLayer {
         type_ref: DataTypeId::new(DATA_TYPE_STRING_ID),
         default_value: DefaultValuePresence::Absent,
     });
-    let spec_object_type = SpecType::SpecObject(reqrs::model::SpecObjectType {
+    let spec_object_type = SpecType::SpecObject(SpecObjectType {
         common: spec_type_common(
             SPEC_OBJECT_TYPE_ID,
             "Requirement",
@@ -142,9 +142,77 @@ fn type_layer() -> TypeLayer {
     }
 }
 
+fn requirement_to_spec_object(req: &Requirement, text_attr_def_id: &AttributeDefId) -> SpecObject {
+    SpecObject {
+        identifier: SpecObjectId::new(req.id.as_str()),
+        description: None,
+        last_change: None,
+        long_name: Some(req.title.clone()),
+        spec_object_type: SpecTypeId::new(SPEC_OBJECT_TYPE_ID),
+        attributes: vec![AttributeValue::String(AttributeValueString {
+            definition_ref: text_attr_def_id.clone(),
+            value: req.text.clone(),
+            comments_before: Vec::new(),
+        })],
+        children_order: Vec::new(),
+        comments_before: Vec::new(),
+        values_trailing_comments: Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::requirements::RequirementRelationKind;
+    use crate::requirements::{BaselineIdentity, Provenance, Requirement, RequirementRelationKind};
+    use std::collections::BTreeMap;
+    use reqrs::SpecTypeId;
+
+    fn baseline() -> BaselineIdentity {
+        BaselineIdentity {
+            id: "BL-1".to_string(),
+            revision: "r1".to_string(),
+            import_artifact_sha256: None,
+            exported_baseline_sha256: None,
+        }
+    }
+
+    fn provenance() -> Provenance {
+        Provenance {
+            source_uri: "test:fixture".to_string(),
+            artifact_sha256: None,
+            locator: None,
+        }
+    }
+
+    fn requirement(id: &str, title: &str, text: &str) -> Requirement {
+        Requirement {
+            id: id.to_string(),
+            title: title.to_string(),
+            text: text.to_string(),
+            baseline: baseline(),
+            provenance: provenance(),
+            attributes: BTreeMap::new(),
+            evidence: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn requirement_maps_title_to_long_name_and_text_to_the_text_attribute() {
+        let layer = super::type_layer();
+        let req = requirement("REQ-1", "Encrypt at rest", "System shall encrypt data at rest.");
+        let spec_object = super::requirement_to_spec_object(&req, &layer.text_attr_def_id);
+
+        assert_eq!(spec_object.identifier.as_str(), "REQ-1");
+        assert_eq!(spec_object.long_name.as_deref(), Some("Encrypt at rest"));
+        assert_eq!(spec_object.spec_object_type, SpecTypeId::new(super::SPEC_OBJECT_TYPE_ID));
+        assert_eq!(spec_object.attributes.len(), 1);
+        match &spec_object.attributes[0] {
+            reqrs::model::AttributeValue::String(v) => {
+                assert_eq!(v.definition_ref, layer.text_attr_def_id);
+                assert_eq!(v.value, "System shall encrypt data at rest.");
+            }
+            other => panic!("expected AttributeValue::String, got {other:?}"),
+        }
+    }
 
     #[test]
     fn type_layer_has_one_spec_object_type_and_ten_relation_types() {

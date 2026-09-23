@@ -1077,6 +1077,7 @@ dependencies = [
  "oxrdf",
  "oxttl",
  "quote",
+ "reqrs",
  "reqwest",
  "resvg",
  "serde",
