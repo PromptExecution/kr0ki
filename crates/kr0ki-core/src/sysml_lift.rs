@@ -90,6 +90,42 @@ pub fn lift_edges(edges: &[OntologicalEdge]) -> Vec<LiftedRelation> {
     edges.iter().map(lift_edge).collect()
 }
 
+/// Group lifted relations by their `view_kind`, preserving first-seen
+/// view-kind order and each group's relation order. `SysmlViewKind` has no
+/// `Ord` impl, so this returns an order-preserving `Vec` of groups rather
+/// than a `BTreeMap`.
+pub fn group_by_view_kind(lifted: Vec<LiftedRelation>) -> Vec<(SysmlViewKind, Vec<Relation>)> {
+    let mut groups: Vec<(SysmlViewKind, Vec<Relation>)> = Vec::new();
+    for item in lifted {
+        match groups.iter_mut().find(|(kind, _)| *kind == item.view_kind) {
+            Some((_, relations)) => relations.push(item.relation),
+            None => groups.push((item.view_kind, vec![item.relation])),
+        }
+    }
+    groups
+}
+
+/// Parse a `SysmlViewKind`'s snake_case slug (e.g. `"action_flow"`),
+/// matching `ufo_types::view::SysmlViewKind`'s serde wire form
+/// (`#[serde(rename_all = "snake_case")]`). `None` for an unrecognized
+/// slug. Mirrors `crate::cache::OutputKind::from_param`'s exact
+/// trim+lowercase convention.
+pub fn parse_view_kind_slug(s: &str) -> Option<SysmlViewKind> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "tree" => Some(SysmlViewKind::Tree),
+        "general" => Some(SysmlViewKind::General),
+        "interconnection" => Some(SysmlViewKind::Interconnection),
+        "action_flow" => Some(SysmlViewKind::ActionFlow),
+        "state_transition" => Some(SysmlViewKind::StateTransition),
+        "sequence" => Some(SysmlViewKind::Sequence),
+        "case" => Some(SysmlViewKind::Case),
+        "geometry" => Some(SysmlViewKind::Geometry),
+        "grid" => Some(SysmlViewKind::Grid),
+        "browser" => Some(SysmlViewKind::Browser),
+        _ => None,
+    }
+}
+
 fn lift_relation(
     relation: UfoRelation,
     source: ElementId,
@@ -391,5 +427,101 @@ mod tests {
         ));
         assert!(matches!(lifted[1].relation, Relation::Satisfy { .. }));
         assert!(matches!(lifted[2].relation, Relation::Domain { .. }));
+    }
+
+    #[test]
+    fn group_by_view_kind_preserves_first_seen_order_and_groups_same_kind() {
+        // HasPart -> Tree, HostedBy -> Interconnection, MemberOf -> Tree,
+        // Satisfies -> General. First-seen view-kind order should be
+        // Tree, Interconnection, General — and both Tree relations should
+        // land in the same group, in original relative order.
+        let edges = vec![
+            edge(UfoRelation::HasPart),
+            edge(UfoRelation::HostedBy),
+            edge(UfoRelation::MemberOf),
+            edge(UfoRelation::Satisfies),
+        ];
+        let lifted = lift_edges(&edges);
+        let groups = group_by_view_kind(lifted);
+
+        let kinds: Vec<SysmlViewKind> = groups.iter().map(|(k, _)| *k).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                SysmlViewKind::Tree,
+                SysmlViewKind::Interconnection,
+                SysmlViewKind::General,
+            ]
+        );
+
+        let tree_group = &groups
+            .iter()
+            .find(|(k, _)| *k == SysmlViewKind::Tree)
+            .unwrap()
+            .1;
+        assert_eq!(tree_group.len(), 2);
+        assert!(matches!(tree_group[0], Relation::FeatureMembership { .. }));
+        assert!(matches!(tree_group[1], Relation::FeatureMembership { .. }));
+        // HasPart lifts owner=src, MemberOf lifts owner=dst — confirm
+        // original per-relation lift logic survived the grouping.
+        assert_eq!(
+            tree_group[0],
+            Relation::FeatureMembership {
+                owner: ElementId::new("src"),
+                member: ElementId::new("dst"),
+            }
+        );
+        assert_eq!(
+            tree_group[1],
+            Relation::FeatureMembership {
+                owner: ElementId::new("dst"),
+                member: ElementId::new("src"),
+            }
+        );
+
+        let interconnection_group = &groups
+            .iter()
+            .find(|(k, _)| *k == SysmlViewKind::Interconnection)
+            .unwrap()
+            .1;
+        assert_eq!(interconnection_group.len(), 1);
+
+        let general_group = &groups
+            .iter()
+            .find(|(k, _)| *k == SysmlViewKind::General)
+            .unwrap()
+            .1;
+        assert_eq!(general_group.len(), 1);
+    }
+
+    #[test]
+    fn group_by_view_kind_on_empty_input_returns_empty() {
+        assert_eq!(group_by_view_kind(Vec::new()), Vec::new());
+    }
+
+    #[test]
+    fn parse_view_kind_slug_round_trips_all_variants() {
+        let cases = [
+            ("tree", SysmlViewKind::Tree),
+            ("general", SysmlViewKind::General),
+            ("interconnection", SysmlViewKind::Interconnection),
+            ("action_flow", SysmlViewKind::ActionFlow),
+            ("state_transition", SysmlViewKind::StateTransition),
+            ("sequence", SysmlViewKind::Sequence),
+            ("case", SysmlViewKind::Case),
+            ("geometry", SysmlViewKind::Geometry),
+            ("grid", SysmlViewKind::Grid),
+            ("browser", SysmlViewKind::Browser),
+        ];
+        for (slug, kind) in cases {
+            assert_eq!(parse_view_kind_slug(slug), Some(kind), "slug: {slug}");
+        }
+    }
+
+    #[test]
+    fn parse_view_kind_slug_rejects_garbage() {
+        assert_eq!(parse_view_kind_slug("not_a_view"), None);
+        assert_eq!(parse_view_kind_slug(""), None);
+        assert_eq!(parse_view_kind_slug("Tree "), Some(SysmlViewKind::Tree));
     }
 }

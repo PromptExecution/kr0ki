@@ -373,10 +373,27 @@ async fn render_sysmlv2_snapshot(
         Err(error) => return client_error_response(error),
     };
     let edges = kr0ki_core::ufo_graph::build_ufo_graph(&snapshot);
-    let relations: Vec<_> = kr0ki_core::sysml_lift::lift_edges(&edges)
-        .into_iter()
-        .map(|lifted| lifted.relation)
-        .collect();
+    let lifted = kr0ki_core::sysml_lift::lift_edges(&edges);
+    let relations: Vec<_> = match params.get("view") {
+        Some(view) => {
+            let kind = match kr0ki_core::sysml_lift::parse_view_kind_slug(view) {
+                Some(kind) => kind,
+                None => {
+                    return error_json(
+                        StatusCode::BAD_REQUEST,
+                        "unknown_view_kind",
+                        &format!("unrecognized view kind: {view}"),
+                    )
+                }
+            };
+            kr0ki_core::sysml_lift::group_by_view_kind(lifted)
+                .into_iter()
+                .find(|(k, _)| *k == kind)
+                .map(|(_, relations)| relations)
+                .unwrap_or_default()
+        }
+        None => lifted.into_iter().map(|l| l.relation).collect(),
+    };
     let d2 = kr0ki_core::sysml_render::to_d2(&relations);
     let output = params
         .get("output")
@@ -942,10 +959,27 @@ async fn render_k8s_topology(
 
     let recognizer = kr0ki_core::k8s_recognizer::KubernetesRecognizer::new();
     let edges = recognizer.recognize(&manifests);
-    let relations: Vec<_> = kr0ki_core::sysml_lift::lift_edges(&edges)
-        .into_iter()
-        .map(|lifted| lifted.relation)
-        .collect();
+    let lifted = kr0ki_core::sysml_lift::lift_edges(&edges);
+    let relations: Vec<_> = match params.get("view") {
+        Some(view) => {
+            let kind = match kr0ki_core::sysml_lift::parse_view_kind_slug(view) {
+                Some(kind) => kind,
+                None => {
+                    return error_json(
+                        StatusCode::BAD_REQUEST,
+                        "unknown_view_kind",
+                        &format!("unrecognized view kind: {view}"),
+                    )
+                }
+            };
+            kr0ki_core::sysml_lift::group_by_view_kind(lifted)
+                .into_iter()
+                .find(|(k, _)| *k == kind)
+                .map(|(_, relations)| relations)
+                .unwrap_or_default()
+        }
+        None => lifted.into_iter().map(|l| l.relation).collect(),
+    };
     let d2 = kr0ki_core::sysml_render::to_d2(&relations);
 
     let output = params

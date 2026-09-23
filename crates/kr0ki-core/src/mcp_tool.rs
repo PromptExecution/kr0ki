@@ -123,7 +123,8 @@ impl McpTool {
                 "required": ["manifest"],
                 "properties": {
                     "manifest": {"type": "string", "description": "Kubernetes multi-doc YAML manifest bundle."},
-                    "output": {"type": "string", "enum": ["svg", "png"], "default": "svg"}
+                    "output": {"type": "string", "enum": ["svg", "png"], "default": "svg"},
+                    "view": {"type": "string", "description": "Optional SysmlViewKind slug (e.g. \"interconnection\", \"action_flow\") to render only that view. Omit to render all relations together."}
                 }
             }),
             Self::RenderSysmlV2Snapshot => serde_json::json!({
@@ -132,7 +133,8 @@ impl McpTool {
                 "properties": {
                     "project_id": {"type": "string", "description": "SysML v2 project id."},
                     "commit_id": {"type": "string", "description": "Immutable SysML v2 commit id."},
-                    "output": {"type": "string", "enum": ["svg", "png"], "default": "svg"}
+                    "output": {"type": "string", "enum": ["svg", "png"], "default": "svg"},
+                    "view": {"type": "string", "description": "Optional SysmlViewKind slug (e.g. \"interconnection\", \"action_flow\") to render only that view. Omit to render all relations together."}
                 }
             }),
             Self::ImportReqIf => serde_json::json!({
@@ -225,6 +227,10 @@ impl McpTool {
                         name: "output",
                         placement: ArgPlacement::Query,
                     },
+                    ArgBinding {
+                        name: "view",
+                        placement: ArgPlacement::Query,
+                    },
                 ],
             },
             Self::RenderSysmlV2Snapshot => HttpBinding {
@@ -234,6 +240,7 @@ impl McpTool {
                     ArgBinding { name: "project_id", placement: ArgPlacement::Path },
                     ArgBinding { name: "commit_id", placement: ArgPlacement::Path },
                     ArgBinding { name: "output", placement: ArgPlacement::Query },
+                    ArgBinding { name: "view", placement: ArgPlacement::Query },
                 ],
             },
             Self::ImportReqIf => HttpBinding {
@@ -363,7 +370,7 @@ mod tests {
             binding.path_template,
             "/render/sysmlv2/projects/{project_id}/commits/{commit_id}"
         );
-        assert_eq!(binding.args.len(), 3);
+        assert_eq!(binding.args.len(), 4);
         assert!(binding
             .args
             .iter()
@@ -379,15 +386,26 @@ mod tests {
         assert!(binding
             .args
             .iter()
+            .any(|arg| arg.name == "view" && matches!(arg.placement, ArgPlacement::Query)));
+        assert!(binding
+            .args
+            .iter()
             .all(|arg| !matches!(arg.placement, ArgPlacement::Body)));
+        // `view` is optional, so it must not appear in the schema's `required`.
+        let schema = McpTool::RenderSysmlV2Snapshot.input_schema();
+        assert!(!schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("view")));
+        assert!(schema["properties"]["view"].is_object());
     }
 
     #[test]
-    fn render_k8s_topology_binds_manifest_to_body_output_to_query() {
+    fn render_k8s_topology_binds_manifest_to_body_output_and_view_to_query() {
         let binding = McpTool::RenderK8sTopology.http_binding();
         assert!(matches!(binding.method, HttpMethod::Post));
         assert_eq!(binding.path_template, "/render/k8s-topology");
-        assert_eq!(binding.args.len(), 2);
+        assert_eq!(binding.args.len(), 3);
         assert!(binding
             .args
             .iter()
@@ -396,6 +414,10 @@ mod tests {
             .args
             .iter()
             .any(|a| a.name == "output" && matches!(a.placement, ArgPlacement::Query)));
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "view" && matches!(a.placement, ArgPlacement::Query)));
         // Unlike RenderKubeDiagram (svg/dot_json, the vendored tool's own output
         // kinds), this route renders through kr0ki's own service, so its output
         // enum matches RenderDiagram's (svg/png).
@@ -404,6 +426,12 @@ mod tests {
             schema["properties"]["output"]["enum"],
             serde_json::json!(["svg", "png"])
         );
+        // `view` is optional, so it must not appear in the schema's `required`.
+        assert!(!schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("view")));
+        assert!(schema["properties"]["view"].is_object());
     }
 
     #[test]

@@ -965,6 +965,63 @@ async fn render_k8s_topology_valid_manifest_reaches_the_unreachable_backend() {
 }
 
 #[tokio::test]
+async fn render_k8s_topology_unrecognized_view_query_param_is_400() {
+    // The view-kind check happens after recognize/lift but before the
+    // (deliberately unreachable) backend is ever called, so this 400 is
+    // reachable even with test_state's fixed-unreachable backend.
+    let app = test_app(test_state("k8s-topology-badview"));
+    let manifest = "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: cfg\n";
+    let resp = app
+        .oneshot(
+            Request::post("/render/k8s-topology?view=not_a_real_view")
+                .body(Body::from(manifest))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("unknown_view_kind"), "body: {body}");
+}
+
+#[tokio::test]
+async fn render_k8s_topology_recognized_view_query_param_renders_only_that_view() {
+    // A ReplicaSet with an ownerReferences pointer to a Deployment lifts to
+    // exactly one HasPart edge (k8s_recognizer::tests::
+    // owner_reference_lifts_to_has_part_from_owner_to_owned), which
+    // sysml_lift maps to Relation::FeatureMembership in SysmlViewKind::Tree
+    // (sysml_lift.rs's mapping table). `?view=tree` should therefore reach
+    // the render backend instead of 400ing.
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/d2/svg"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_string("<svg/>"))
+        .mount(&server)
+        .await;
+
+    let mut state = test_state("k8s-topology-goodview");
+    state.service = Arc::new(RenderService::new(
+        HttpKrokiBackend::new(server.uri()),
+        FsCache::new(std::env::temp_dir().join(format!(
+            "kr0ki-http-test-{}-k8s-topology-goodview-backend",
+            std::process::id()
+        ))),
+    ));
+    let manifest = "apiVersion: apps/v1\nkind: ReplicaSet\nmetadata:\n  name: web-abc123\n  namespace: ns1\n  ownerReferences:\n    - kind: Deployment\n      name: web\n      apiVersion: apps/v1\n";
+    let resp = test_app(state)
+        .oneshot(
+            Request::post("/render/k8s-topology?view=tree")
+                .body(Body::from(manifest))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    assert_eq!(body, "<svg/>");
+}
+
+#[tokio::test]
 async fn auth_required_rejects_missing_token() {
     let app = router(test_state("authed"), Some("secret".to_string()));
     let resp = app

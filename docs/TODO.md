@@ -249,12 +249,18 @@ starting this stream. kr0ki's stateless view slice is on
   arm (`rust_recognizer.rs`) has no route yet — it only covers module
   containment/field types so far, not enough of a real codebase's structure to be
   worth wiring until the call-graph/trait-impl slices land (see Box 1 above).
-- [ ] **per-`ViewDefinition` rendering (FR4)** — box-4 constructs + `SysmlViewKind` →
-  notation. No longer blocked on boxes 2+3 (both done — see above) or box 3→4 (also
-  done, `sysml_lift.rs`, which already assigns a `SysmlViewKind` per lifted relation).
-  What's still missing: grouping `LiftedRelation`s by `view_kind` before calling
-  `sysml_render`, so each `ViewDefinition` renders as its own diagram rather than one
-  diagram with every relation mixed together.
+- [x] **per-`ViewDefinition` rendering (FR4)** — `sysml_lift::group_by_view_kind`
+  (order-preserving `Vec<(SysmlViewKind, Vec<Relation>)>`, since `SysmlViewKind` has
+  no `Ord`) plus `sysml_lift::parse_view_kind_slug`, wired into both
+  `render_sysmlv2_snapshot` and `render_k8s_topology` (`crates/kr0ki-server/src/app.rs`)
+  as an optional `?view=<slug>` query param — e.g. `?view=interconnection`. Absent, the
+  route renders every relation in one diagram exactly as before (backward-compatible
+  by construction: the `None` arm is the same `lift_edges(&edges).into_iter().map(|l|
+  l.relation).collect()` the old code ran). Present but unrecognized → 400
+  `unknown_view_kind`. Present and recognized-but-empty → an empty diagram, not an
+  error. Also exposed on both `McpTool::RenderSysmlV2Snapshot` and
+  `McpTool::RenderK8sTopology`'s `input_schema`/`http_binding` as an optional `view`
+  query arg.
 - [ ] **`systhread-core` isometric backend (FR3)** — call its `render.rs`; do not port
   or re-solve the Cassowary/kasuari layout.
 - [ ] ◑ **`KubeDiagramsBackend` — leaf feature, NOT the pipeline** — substantially
