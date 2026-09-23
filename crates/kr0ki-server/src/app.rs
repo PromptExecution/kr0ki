@@ -85,6 +85,7 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
                 kr0ki_core::reqif_import::DEFAULT_MAX_REQIF_IMPORT_BYTES,
             )),
         )
+        .route("/requirements/import/url", post(import_requirements_url))
         .route("/requirements/views", post(requirements_view))
         .route("/render/:format", post(render))
         .route("/render/requirements-view", post(render_requirements_view))
@@ -259,6 +260,77 @@ async fn import_requirements(body: Bytes) -> Response {
             StatusCode::PAYLOAD_TOO_LARGE,
             "reqif_import_too_large",
             "ReqIF import exceeds this deployment's size policy",
+        ),
+        Err(error) => error_json(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_reqif_import",
+            &error.to_string(),
+        ),
+    }
+}
+
+/// `POST /requirements/import/url` -- fetch a ReqIF/ReqIFz artifact from an
+/// HTTPS URL (SSRF-hardened, see kr0ki_core::reqif_fetch) and import it
+/// through the same bounded-byte boundary `/requirements/import` uses. The
+/// request body is the raw URL as UTF-8 text, not JSON -- this matches the
+/// ArgPlacement::Body convention every other MCP-bound POST route here uses.
+async fn import_requirements_url(body: Bytes) -> Response {
+    let url = match std::str::from_utf8(&body) {
+        Ok(s) => s.trim(),
+        Err(_) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_url_encoding",
+                "request body must be UTF-8",
+            )
+        }
+    };
+
+    let fetched = match kr0ki_core::reqif_fetch::fetch_reqif_url(
+        url,
+        &kr0ki_core::reqif_fetch::FetchConfig::default(),
+    )
+    .await
+    {
+        Ok(fetched) => fetched,
+        Err(
+            error @ (kr0ki_core::reqif_fetch::FetchError::UnsupportedScheme { .. }
+            | kr0ki_core::reqif_fetch::FetchError::InvalidUrl(_)
+            | kr0ki_core::reqif_fetch::FetchError::DisallowedAddress(_)
+            | kr0ki_core::reqif_fetch::FetchError::DisallowedRedirect(_)
+            | kr0ki_core::reqif_fetch::FetchError::TooManyRedirects { .. }
+            | kr0ki_core::reqif_fetch::FetchError::TooLarge { .. }),
+        ) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "reqif_fetch_rejected",
+                &error.to_string(),
+            )
+        }
+        Err(error) => {
+            return error_json(
+                StatusCode::BAD_GATEWAY,
+                "reqif_fetch_upstream_error",
+                &error.to_string(),
+            )
+        }
+    };
+
+    let config = kr0ki_core::reqif_import::ReqIfImportConfig {
+        source_uri: Some(fetched.final_url),
+        revision: fetched.etag.or(fetched.last_modified),
+        ..Default::default()
+    };
+
+    match kr0ki_core::reqif_import::import_reqif_artifact(&fetched.bytes, &config) {
+        Ok(imported) => Json(imported).into_response(),
+        Err(
+            kr0ki_core::reqif_import::ReqIfImportError::ArtifactTooLarge { .. }
+            | kr0ki_core::reqif_import::ReqIfImportError::ExpandedTooLarge { .. },
+        ) => error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "reqif_import_too_large",
+            "fetched ReqIF artifact exceeds this deployment's size policy",
         ),
         Err(error) => error_json(
             StatusCode::UNPROCESSABLE_ENTITY,

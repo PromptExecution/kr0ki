@@ -1310,3 +1310,33 @@ async fn docs_rustdoc_has_source_marker() {
     // The rustdoc format uses qualified_name in the header, not body text
     assert!(body.contains("/// `"));
 }
+
+#[tokio::test]
+async fn import_requirements_url_rejects_non_https_scheme() {
+    let response = test_app(test_state("reqif-url-scheme"))
+        .oneshot(
+            Request::post("/requirements/import/url")
+                .header("content-type", "text/plain")
+                .body(Body::from("http://example.com/doc.reqif"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body}");
+}
+
+#[tokio::test]
+async fn import_requirements_url_rejects_disallowed_address() {
+    let response = test_app(test_state("reqif-url-ssrf"))
+        .oneshot(
+            Request::post("/requirements/import/url")
+                .header("content-type", "text/plain")
+                .body(Body::from("https://127.0.0.1/doc.reqif"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body}");
+}
