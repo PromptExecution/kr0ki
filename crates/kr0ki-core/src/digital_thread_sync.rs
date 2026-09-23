@@ -65,14 +65,26 @@ pub(crate) fn build_changeset(fetched_elements: &[Element], graph: &SysGraph) ->
             }
             Some(existing) => {
                 if existing.name() != Some(label) {
-                    // update
+                    // update -- DataVersion.payload is a full replacement of the
+                    // element's data-resource state, not a patch: the OMG reference
+                    // implementation (JpaCommitDao.persist) never merges an incoming
+                    // payload with the element's prior version, so any field this
+                    // payload omits comes back null/empty on the new version. Start
+                    // from the element's current fields (already fetched for the
+                    // diff above) and only overwrite `name`, so ownership/other
+                    // attributes another tool set survive this sync untouched.
+                    let mut payload = existing.fields.clone();
+                    payload.insert(
+                        "@type".to_string(),
+                        serde_json::Value::String(existing.ty().to_string()),
+                    );
+                    payload.insert(
+                        "name".to_string(),
+                        serde_json::Value::String(label.to_string()),
+                    );
                     changes.push(DataVersion {
                         type_: "DataVersion",
-                        payload: Some(serde_json::json!({
-                            "@type": "PartUsage",
-                            "name": label,
-                            "identifier": identifier,
-                        })),
+                        payload: Some(serde_json::Value::Object(payload)),
                         identity: Some(Ref {
                             at_id: existing.id().to_string(),
                             extra: Default::default(),
@@ -229,6 +241,32 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].identity.as_ref().unwrap().at_id, "srv-1");
         assert_eq!(changes[0].payload.as_ref().unwrap()["name"], "A (staging)");
+    }
+
+    /// Regression guard: `DataVersion.payload` is a full replacement per the
+    /// OMG reference implementation (no merge-with-prior-version step), so an
+    /// update must carry forward every field the fetched element already had
+    /// -- not just `name`/`identifier` -- or another tool's data (ownership,
+    /// other attributes) silently disappears on the next sync.
+    #[test]
+    fn changed_label_update_preserves_other_existing_fields() {
+        let mut graph = SysGraph::new();
+        graph.push_node(node("dbt:model.a", "A (staging)"));
+        let mut existing = element("srv-1", "dbt:model.a", "A (marts)");
+        existing.fields.insert(
+            "owner".to_string(),
+            serde_json::Value::String("owner-team".to_string()),
+        );
+        let fetched = vec![existing];
+
+        let changes = build_changeset(&fetched, &graph);
+
+        assert_eq!(changes.len(), 1);
+        let payload = changes[0].payload.as_ref().unwrap();
+        assert_eq!(payload["name"], "A (staging)");
+        assert_eq!(payload["identifier"], "dbt:model.a");
+        assert_eq!(payload["@type"], "PartUsage");
+        assert_eq!(payload["owner"], "owner-team");
     }
 
     #[test]
