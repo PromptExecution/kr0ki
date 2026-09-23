@@ -83,6 +83,134 @@ pub(crate) fn is_disallowed_address(addr: IpAddr) -> bool {
     }
 }
 
+use futures_util::StreamExt;
+use reqwest::redirect::Policy;
+use reqwest::Client;
+
+/// Fetch a ReqIF/ReqIFz artifact from `url` under `config`'s policy. See
+/// this module's doc comment and the design spec for the full algorithm:
+/// scheme check, DNS pre-resolution with a full range check on every
+/// resolved address, a connection pinned to the validated address with
+/// redirects disabled and manually re-validated per hop, and a
+/// streaming size cap.
+pub async fn fetch_reqif_url(
+    url: &str,
+    config: &FetchConfig,
+) -> Result<FetchedArtifact, FetchError> {
+    let mut current = url.to_string();
+    let mut redirects = 0u8;
+
+    loop {
+        let parsed =
+            reqwest::Url::parse(&current).map_err(|e| FetchError::InvalidUrl(e.to_string()))?;
+        if parsed.scheme() != "https" {
+            return Err(FetchError::UnsupportedScheme {
+                scheme: parsed.scheme().to_string(),
+            });
+        }
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| FetchError::InvalidUrl("URL has no host".to_string()))?
+            .to_string();
+        let port = parsed.port_or_known_default().unwrap_or(443);
+
+        // `Url::host_str()` brackets IPv6 literals (e.g. `"[fc00::1]"`), which
+        // is not accepted by std/tokio's `ToSocketAddrs` impl for `&str` --
+        // it would silently fall through to DNS resolution and fail with a
+        // `Resolution` error instead of being recognized (and correctly
+        // rejected) as the literal address it is. Parse the un-bracketed
+        // host as an IP literal first; only fall back to hostname
+        // resolution when it isn't one.
+        let literal_ip = host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .ok();
+
+        let resolved: Vec<std::net::SocketAddr> = if let Some(ip) = literal_ip {
+            vec![std::net::SocketAddr::new(ip, port)]
+        } else {
+            tokio::net::lookup_host((host.as_str(), port))
+                .await
+                .map_err(|e| FetchError::Resolution(e.to_string()))?
+                .collect()
+        };
+        if resolved.is_empty() {
+            return Err(FetchError::Resolution(format!("no addresses for {host}")));
+        }
+        for addr in &resolved {
+            if is_disallowed_address(addr.ip()) {
+                return Err(FetchError::DisallowedAddress(addr.ip()));
+            }
+        }
+        let pinned = resolved[0];
+
+        let client = Client::builder()
+            .redirect(Policy::none())
+            .resolve(&host, pinned)
+            .timeout(config.timeout)
+            .build()?;
+
+        let response = match client.get(parsed.clone()).send().await {
+            Ok(r) => r,
+            Err(e) if e.is_timeout() => return Err(FetchError::Timeout),
+            Err(e) => return Err(FetchError::Http(e)),
+        };
+
+        if response.status().is_redirection() {
+            redirects += 1;
+            if redirects > config.max_redirects {
+                return Err(FetchError::TooManyRedirects {
+                    max: config.max_redirects,
+                });
+            }
+            let location = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|v| v.to_str().ok())
+                .ok_or_else(|| {
+                    FetchError::DisallowedRedirect("redirect with no Location header".to_string())
+                })?;
+            let next = parsed
+                .join(location)
+                .map_err(|e| FetchError::DisallowedRedirect(e.to_string()))?;
+            current = next.to_string();
+            continue;
+        }
+
+        let etag = response
+            .headers()
+            .get(reqwest::header::ETAG)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+        let last_modified = response
+            .headers()
+            .get(reqwest::header::LAST_MODIFIED)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from);
+        let final_url = response.url().to_string();
+
+        let mut body = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(FetchError::Http)?;
+            if body.len() + chunk.len() > config.max_bytes {
+                return Err(FetchError::TooLarge {
+                    maximum: config.max_bytes,
+                });
+            }
+            body.extend_from_slice(&chunk);
+        }
+
+        return Ok(FetchedArtifact {
+            bytes: body,
+            final_url,
+            etag,
+            last_modified,
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
