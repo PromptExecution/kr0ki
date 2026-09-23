@@ -99,8 +99,17 @@ pub async fn fetch_reqif_url(
 ) -> Result<FetchedArtifact, FetchError> {
     let mut current = url.to_string();
     let mut redirects = 0u8;
+    // A single deadline spanning the whole redirect chain -- without this,
+    // `config.timeout` gets applied fresh to each hop's `Client`, so worst
+    // case is `(max_redirects + 1) * timeout` on an attacker-chosen URL.
+    let deadline = std::time::Instant::now() + config.timeout;
 
     loop {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            return Err(FetchError::Timeout);
+        }
+
         let parsed =
             reqwest::Url::parse(&current).map_err(|e| FetchError::InvalidUrl(e.to_string()))?;
         if parsed.scheme() != "https" {
@@ -148,7 +157,7 @@ pub async fn fetch_reqif_url(
         let client = Client::builder()
             .redirect(Policy::none())
             .resolve(&host, pinned)
-            .timeout(config.timeout)
+            .timeout(remaining)
             .build()?;
 
         let response = match client.get(parsed.clone()).send().await {
@@ -193,7 +202,11 @@ pub async fn fetch_reqif_url(
         let mut body = Vec::new();
         let mut stream = response.bytes_stream();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(FetchError::Http)?;
+            let chunk = match chunk {
+                Ok(chunk) => chunk,
+                Err(e) if e.is_timeout() => return Err(FetchError::Timeout),
+                Err(e) => return Err(FetchError::Http(e)),
+            };
             if body.len() + chunk.len() > config.max_bytes {
                 return Err(FetchError::TooLarge {
                     maximum: config.max_bytes,

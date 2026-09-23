@@ -293,13 +293,44 @@ async fn import_requirements_url(body: Bytes) -> Response {
     .await
     {
         Ok(fetched) => fetched,
+        // `DisallowedAddress`'s `Display` includes the actual resolved
+        // private/internal IP address, and `Resolution`'s includes the raw
+        // DNS resolver error -- forwarding either verbatim into the HTTP
+        // response would turn this (unauthenticated-by-default, per
+        // AGENTS.md FR7) endpoint into an internal-network reconnaissance
+        // oracle. Log the real detail server-side; return a generic
+        // message to the caller.
+        Err(error @ kr0ki_core::reqif_fetch::FetchError::DisallowedAddress(_)) => {
+            tracing::warn!(%error, "reqif url fetch rejected by SSRF policy");
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "reqif_fetch_rejected",
+                "the URL's host resolves to an address this service will not connect to",
+            );
+        }
+        Err(error @ kr0ki_core::reqif_fetch::FetchError::Resolution(_)) => {
+            tracing::warn!(%error, "reqif url fetch: host resolution failed");
+            return error_json(
+                StatusCode::BAD_GATEWAY,
+                "reqif_fetch_upstream_error",
+                "could not resolve the URL's host",
+            );
+        }
+        // Same "too large" condition as `ReqIfImportError::ArtifactTooLarge`/
+        // `ExpandedTooLarge` below -- keep the status code consistent (413)
+        // rather than bucketing it with the other caller-controlled 400s.
+        Err(error @ kr0ki_core::reqif_fetch::FetchError::TooLarge { .. }) => {
+            return error_json(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "reqif_fetch_rejected",
+                &error.to_string(),
+            )
+        }
         Err(
             error @ (kr0ki_core::reqif_fetch::FetchError::UnsupportedScheme { .. }
             | kr0ki_core::reqif_fetch::FetchError::InvalidUrl(_)
-            | kr0ki_core::reqif_fetch::FetchError::DisallowedAddress(_)
             | kr0ki_core::reqif_fetch::FetchError::DisallowedRedirect(_)
-            | kr0ki_core::reqif_fetch::FetchError::TooManyRedirects { .. }
-            | kr0ki_core::reqif_fetch::FetchError::TooLarge { .. }),
+            | kr0ki_core::reqif_fetch::FetchError::TooManyRedirects { .. }),
         ) => {
             return error_json(
                 StatusCode::BAD_REQUEST,

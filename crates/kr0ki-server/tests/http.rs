@@ -1325,6 +1325,7 @@ async fn import_requirements_url_rejects_non_https_scheme() {
         .unwrap();
     let (status, body) = body_string(response).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body}");
+    assert!(body.contains("reqif_fetch_rejected"), "body: {body}");
 }
 
 #[tokio::test]
@@ -1340,4 +1341,5 @@ async fn import_requirements_url_rejects_disallowed_address() {
         .unwrap();
     let (status, body) = body_string(response).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body}");
+    assert!(body.contains("reqif_fetch_rejected"), "body: {body}");
 }
