@@ -56,6 +56,15 @@ toml = "0.8"
 # boundary can enforce its own compressed and expanded byte limits before
 # retaining any attachment metadata.
 zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
+# M3 (docs/superpowers/specs/2026-09-23-flexo-baseline-adapter-design.md):
+# reqif_export needs reqrs::{model, unparse} directly to build and
+# serialize a ReqIfBundle for the export direction -- ufo_types::reqif
+# deliberately narrows its own scope to the import lowering only (see
+# that module's doc comment). Promotes the existing transitive pull
+# (via ufo-types' `reqif` feature) to direct; adds no new supply-chain
+# surface. Unlike regorus (feat/requirements-rules-system), reqrs has
+# no [features] table at all -- nothing to disable.
+reqrs = "0.2.2"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "fs", "net", "rt-multi-thread"] }
