@@ -7,8 +7,9 @@
 use crate::requirements::{Requirement, RequirementGraph, RequirementRelationKind};
 use reqrs::model::{
     AttributeDefCommon, AttributeDefinition, AttributeDefinitionString, AttributeValue,
-    AttributeValueString, DataType, DataTypeCommon, DataTypeString, DefaultValuePresence,
-    SpecObject, SpecObjectType, SpecRelationType, SpecType, SpecTypeCommon,
+    AttributeValueString, CoreContent, DataType, DataTypeCommon, DataTypeString,
+    DefaultValuePresence, ListForms, NamespaceInfo, ObjectLookup, ReqIfBundle, ReqIfContent,
+    ReqIfHeader, SpecObject, SpecObjectType, SpecRelationType, SpecType, SpecTypeCommon,
 };
 use reqrs::{AttributeDefId, DataTypeId, SpecObjectId, SpecRelationId, SpecTypeId};
 
@@ -18,10 +19,57 @@ pub enum ReqIfExportError {
     Unparse(#[from] reqrs::ReqIfError),
 }
 
-pub fn export_bundle(
-    _graph: &RequirementGraph,
-) -> Result<reqrs::model::ReqIfBundle, ReqIfExportError> {
-    todo!("Task 5")
+pub fn export_bundle(graph: &RequirementGraph) -> Result<ReqIfBundle, ReqIfExportError> {
+    let layer = type_layer();
+
+    let spec_objects: Vec<SpecObject> = graph
+        .requirements
+        .iter()
+        .map(|r| requirement_to_spec_object(r, &layer.text_attr_def_id))
+        .collect();
+    let spec_relations = asserted_relations_to_spec_relations(&graph.relations);
+
+    let mut spec_types = vec![layer.spec_object_type];
+    spec_types.extend(layer.relation_types);
+
+    let content = ReqIfContent {
+        data_types: Some(vec![layer.data_type]),
+        spec_types: Some(spec_types),
+        spec_objects: Some(spec_objects),
+        spec_relations: Some(spec_relations),
+        specifications: None,
+        relation_groups: None,
+        list_forms: ListForms::default(),
+        data_types_trailing_comments: Vec::new(),
+        spec_types_trailing_comments: Vec::new(),
+        spec_objects_trailing_comments: Vec::new(),
+        spec_relations_trailing_comments: Vec::new(),
+        specifications_trailing_comments: Vec::new(),
+        relation_groups_trailing_comments: Vec::new(),
+    };
+    let lookup = ObjectLookup::build(&content);
+
+    let header = ReqIfHeader {
+        identifier: graph.baseline.id.clone(),
+        comment: None,
+        creation_time: None,
+        repository_id: None,
+        req_if_tool_id: None,
+        req_if_version: None,
+        source_tool_id: None,
+        title: None,
+    };
+
+    Ok(ReqIfBundle {
+        namespace_info: NamespaceInfo::default(),
+        header: Some(header),
+        core_content: Some(CoreContent {
+            req_if_content: Some(content),
+        }),
+        tool_extensions: Default::default(),
+        lookup,
+        exceptions: Vec::new(),
+    })
 }
 
 pub fn export_bundle_to_xml(graph: &RequirementGraph) -> Result<String, ReqIfExportError> {
@@ -187,11 +235,11 @@ fn asserted_relations_to_spec_relations(
 #[cfg(test)]
 mod tests {
     use crate::requirements::{
-        BaselineIdentity, ModelIdentity, NonAuthoritativeRelation, Provenance, Requirement,
-        RequirementRelation, RequirementRelationKind, RelationAuthority,
+        BaselineIdentity, ModelIdentity, NonAuthoritativeRelation, Provenance, RelationAuthority,
+        Requirement, RequirementGraph, RequirementRelation, RequirementRelationKind,
     };
-    use std::collections::BTreeMap;
     use reqrs::SpecTypeId;
+    use std::collections::BTreeMap;
 
     fn baseline() -> BaselineIdentity {
         BaselineIdentity {
@@ -243,12 +291,19 @@ mod tests {
     #[test]
     fn requirement_maps_title_to_long_name_and_text_to_the_text_attribute() {
         let layer = super::type_layer();
-        let req = requirement("REQ-1", "Encrypt at rest", "System shall encrypt data at rest.");
+        let req = requirement(
+            "REQ-1",
+            "Encrypt at rest",
+            "System shall encrypt data at rest.",
+        );
         let spec_object = super::requirement_to_spec_object(&req, &layer.text_attr_def_id);
 
         assert_eq!(spec_object.identifier.as_str(), "REQ-1");
         assert_eq!(spec_object.long_name.as_deref(), Some("Encrypt at rest"));
-        assert_eq!(spec_object.spec_object_type, SpecTypeId::new(super::SPEC_OBJECT_TYPE_ID));
+        assert_eq!(
+            spec_object.spec_object_type,
+            SpecTypeId::new(super::SPEC_OBJECT_TYPE_ID)
+        );
         assert_eq!(spec_object.attributes.len(), 1);
         match &spec_object.attributes[0] {
             reqrs::model::AttributeValue::String(v) => {
@@ -337,5 +392,30 @@ mod tests {
             spec_relations[0].relation_type,
             super::relation_type_id(RequirementRelationKind::Derives)
         );
+    }
+
+    #[test]
+    fn export_bundle_to_xml_produces_parseable_output_containing_the_requirement() {
+        let mut graph = RequirementGraph {
+            baseline: baseline(),
+            requirements: vec![requirement("REQ-1", "Encrypt at rest", "Body text.")],
+            evidence: Vec::new(),
+            relations: Vec::new(),
+        };
+        let xml = super::export_bundle_to_xml(&graph).expect("export should succeed");
+        assert!(xml.contains("REQ-1"));
+        assert!(xml.contains("Encrypt at rest"));
+        assert!(xml.contains("Body text."));
+
+        // Must be valid enough for reqrs itself to parse back.
+        let reparsed = reqrs::ReqIfParser::parse_str(&xml).expect("exported XML must re-parse");
+        let content = reparsed
+            .core_content
+            .as_ref()
+            .and_then(|c| c.req_if_content.as_ref())
+            .expect("re-parsed bundle must have content");
+        assert_eq!(content.spec_objects.as_ref().map(|v| v.len()), Some(1));
+
+        let _ = &mut graph; // silence unused_mut if the test grows
     }
 }
