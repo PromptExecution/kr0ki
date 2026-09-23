@@ -158,6 +158,11 @@ pub async fn fetch_reqif_url(
             .redirect(Policy::none())
             .resolve(&host, pinned)
             .timeout(remaining)
+            // Without this, reqwest auto-detects HTTP_PROXY/HTTPS_PROXY/ALL_PROXY
+            // env vars and CONNECT-tunnels through that proxy, which does its own
+            // DNS resolution on the plain hostname -- completely bypassing the
+            // .resolve() pin above and the SSRF protection this module exists for.
+            .no_proxy()
             .build()?;
 
         let response = match client.get(parsed.clone()).send().await {

@@ -51,6 +51,28 @@ async fn redirect_chain_is_followed_and_revalidated() {
 
 #[tokio::test]
 #[ignore = "requires network access to httpbin.org"]
+async fn redirect_to_disallowed_address_is_rejected() {
+    // A wiremock-hosted local server can't exercise this: it would itself
+    // bind to a loopback address, which fails the *initial* hop's DNS-range
+    // check before any request is even sent -- there's no way to reach the
+    // redirect-handling branch that way. httpbin.org's /redirect-to lets us
+    // prove the real property instead: a redirect Location pointing at a
+    // disallowed address gets caught by the same is_disallowed_address()
+    // check the loop in fetch_reqif_url reruns on every hop, not just the
+    // first -- see that function's `continue` branch.
+    let result = fetch_reqif_url(
+        "https://httpbin.org/redirect-to?url=https%3A%2F%2F169.254.169.254%2Flatest%2Fmeta-data%2F&status_code=302",
+        &FetchConfig::default(),
+    )
+    .await;
+    assert!(
+        matches!(result, Err(FetchError::DisallowedAddress(_))),
+        "expected redirect to cloud metadata endpoint to be rejected: {result:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires network access to httpbin.org"]
 async fn oversized_response_is_aborted_mid_stream() {
     let config = FetchConfig {
         max_bytes: 1024,
