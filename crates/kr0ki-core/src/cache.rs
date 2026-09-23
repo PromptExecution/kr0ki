@@ -112,6 +112,28 @@ pub fn model_cache_key(
     s
 }
 
+/// The cache key for one KubeDiagrams proxy-route render
+/// (`POST /render/kubediagram`).
+///
+/// `key = SHA256("kr0ki-kubediagram/v1" ‖ 0x1f ‖ output ‖ 0x1f ‖ manifest)`,
+/// lowercase hex. `manifest` is hashed as raw bytes, not decoded UTF-8 text --
+/// this route never validates its body is UTF-8 (it passes raw bytes straight
+/// to the worker), so the cache key must not assume that either.
+pub fn kubediagram_cache_key(output: &str, manifest: &[u8]) -> String {
+    let mut h = Sha256::new();
+    h.update(b"kr0ki-kubediagram/v1");
+    h.update([0x1f]);
+    h.update(output.as_bytes());
+    h.update([0x1f]);
+    h.update(manifest);
+    let digest = h.finalize();
+    let mut s = String::with_capacity(64);
+    for b in digest {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}
+
 /// Filesystem-backed origin cache. Layout: `<root>/<key[0..2]>/<key>.<ext>` — the
 /// two-char shard keeps directory fan-out sane at volume.
 #[derive(Debug, Clone)]
@@ -124,16 +146,17 @@ impl FsCache {
         Self { root: root.into() }
     }
 
-    fn path_for(&self, key: &str, output: OutputKind) -> PathBuf {
+    fn path_for_ext(&self, key: &str, ext: &str) -> PathBuf {
         let shard = &key[..2];
-        self.root
-            .join(shard)
-            .join(format!("{key}.{}", output.ext()))
+        self.root.join(shard).join(format!("{key}.{ext}"))
     }
 
-    /// Return the cached bytes for this key, or `None` on a miss.
-    pub async fn get(&self, key: &str, output: OutputKind) -> std::io::Result<Option<Vec<u8>>> {
-        let path = self.path_for(key, output);
+    /// Return the cached bytes for this key and extension, or `None` on a
+    /// miss. Lower-level than [`FsCache::get`] -- for callers whose output
+    /// isn't one of [`OutputKind`]'s two image variants (e.g. the
+    /// KubeDiagrams proxy route's `dot_json` output).
+    pub async fn get_raw(&self, key: &str, ext: &str) -> std::io::Result<Option<Vec<u8>>> {
+        let path = self.path_for_ext(key, ext);
         match tokio::fs::read(&path).await {
             Ok(bytes) => Ok(Some(bytes)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -141,17 +164,29 @@ impl FsCache {
         }
     }
 
-    /// Store bytes for this key. Write is atomic (temp file + rename) so a concurrent
-    /// `get` never sees a half-written artifact.
-    pub async fn put(&self, key: &str, output: OutputKind, bytes: &[u8]) -> std::io::Result<()> {
-        let path = self.path_for(key, output);
+    /// Store bytes for this key and extension. Write is atomic (temp file +
+    /// rename) so a concurrent `get`/`get_raw` never sees a half-written
+    /// artifact.
+    pub async fn put_raw(&self, key: &str, ext: &str, bytes: &[u8]) -> std::io::Result<()> {
+        let path = self.path_for_ext(key, ext);
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        let tmp = path.with_extension(format!("{}.tmp.{}", output.ext(), std::process::id()));
+        let tmp = path.with_extension(format!("{ext}.tmp.{}", std::process::id()));
         tokio::fs::write(&tmp, bytes).await?;
         tokio::fs::rename(&tmp, &path).await?;
         Ok(())
+    }
+
+    /// Return the cached bytes for this key, or `None` on a miss.
+    pub async fn get(&self, key: &str, output: OutputKind) -> std::io::Result<Option<Vec<u8>>> {
+        self.get_raw(key, output.ext()).await
+    }
+
+    /// Store bytes for this key. Write is atomic (temp file + rename) so a concurrent
+    /// `get` never sees a half-written artifact.
+    pub async fn put(&self, key: &str, output: OutputKind, bytes: &[u8]) -> std::io::Result<()> {
+        self.put_raw(key, output.ext(), bytes).await
     }
 
     pub fn root(&self) -> &Path {
@@ -228,7 +263,7 @@ mod tests {
             .put(&key, OutputKind::Png, b"\x89PNG\r\n")
             .await
             .unwrap();
-        let path = cache.path_for(&key, OutputKind::Png);
+        let path = cache.path_for_ext(&key, OutputKind::Png.ext());
         assert!(path.to_string_lossy().ends_with(".png"));
         assert_eq!(
             cache.get(&key, OutputKind::Png).await.unwrap(),
@@ -284,6 +319,48 @@ mod tests {
         assert_eq!(OutputKind::from_param("SVG"), Some(OutputKind::Svg));
         assert_eq!(OutputKind::from_param("png"), Some(OutputKind::Png));
         assert_eq!(OutputKind::from_param("pdf"), None);
+    }
+
+    #[test]
+    fn kubediagram_key_is_deterministic() {
+        let a = kubediagram_cache_key("svg", b"apiVersion: v1\nkind: Pod");
+        let b = kubediagram_cache_key("svg", b"apiVersion: v1\nkind: Pod");
+        assert_eq!(a, b);
+        assert_eq!(a.len(), 64);
+        assert!(a.bytes().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn kubediagram_key_varies_on_every_input_field() {
+        let base = kubediagram_cache_key("svg", b"apiVersion: v1\nkind: Pod");
+        assert_ne!(
+            base,
+            kubediagram_cache_key("dot_json", b"apiVersion: v1\nkind: Pod")
+        );
+        assert_ne!(
+            base,
+            kubediagram_cache_key("svg", b"apiVersion: v1\nkind: Service")
+        );
+    }
+
+    #[tokio::test]
+    async fn get_raw_put_raw_round_trip_and_miss_is_none() {
+        let dir = std::env::temp_dir().join(format!("kr0ki-cache-raw-test-{}", std::process::id()));
+        let cache = FsCache::new(&dir);
+        let key = kubediagram_cache_key("dot_json", b"apiVersion: v1\nkind: Pod");
+
+        assert_eq!(cache.get_raw(&key, "dot_json").await.unwrap(), None);
+
+        cache
+            .put_raw(&key, "dot_json", b"{\"nodes\":[]}")
+            .await
+            .unwrap();
+        assert_eq!(
+            cache.get_raw(&key, "dot_json").await.unwrap(),
+            Some(b"{\"nodes\":[]}".to_vec())
+        );
+
+        let _ = tokio::fs::remove_dir_all(&dir).await;
     }
 
     #[test]

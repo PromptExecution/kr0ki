@@ -277,9 +277,10 @@ starting this stream. kr0ki's stateless view slice is on
   (rootless), and `deploy/kr0ki-local.pod.yaml`'s `kr0ki-mcp` container sets
   `allowPrivilegeEscalation: false`, drops all capabilities, and
   `readOnlyRootFilesystem: true`. Pinned via the container's own `pip install` version
-  pins, not a floating `latest`. **Still open:** (1) no content-addressed caching —
-  every call re-runs `kube-diagrams` from scratch instead of hashing the normalised
-  `dot_json` and reusing `FsCache` the way every other format does; (2) no explicit
+  pins, not a floating `latest`. **Still open:** (1) ~~no content-addressed caching~~
+  **done** — `POST /render/kubediagram` now hashes `(output, manifest)` via
+  `kr0ki_core::cache::kubediagram_cache_key` and round-trips through
+  `FsCache::get_raw`/`put_raw` before proxying to the worker; (2) no explicit
   "no network" isolation declared (no `NetworkPolicy` in `deploy/`); (3) `-o` writes
   to a `tempfile.TemporaryDirectory()`, which is a fresh, not-attacker-writable path
   each call, but is not itself sandboxed against the rest of the container's `ro` FS

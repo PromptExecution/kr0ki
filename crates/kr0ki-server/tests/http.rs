@@ -823,6 +823,56 @@ async fn render_kubediagram_proxies_to_the_worker_and_returns_svg() {
 }
 
 #[tokio::test]
+async fn render_kubediagram_second_call_with_same_body_hits_cache_not_worker() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/render"))
+        .and(wiremock::matchers::query_param("output", "svg"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_bytes(b"<svg>ok</svg>".to_vec()),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let app = test_app(test_state_with_kubediagram_worker(
+        "kubediagram-cache-hit",
+        server.uri(),
+    ));
+
+    let manifest = "apiVersion: v1\nkind: Pod";
+
+    let resp1 = app
+        .clone()
+        .oneshot(
+            Request::post("/render/kubediagram")
+                .body(Body::from(manifest))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status1, body1) = body_string(resp1).await;
+    assert_eq!(status1, StatusCode::OK);
+
+    let resp2 = app
+        .oneshot(
+            Request::post("/render/kubediagram")
+                .body(Body::from(manifest))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status2, body2) = body_string(resp2).await;
+    assert_eq!(status2, StatusCode::OK);
+
+    assert_eq!(body1, body2);
+    assert_eq!(body1, "<svg>ok</svg>");
+
+    // wiremock's `.expect(1)` is verified on `server` drop -- if the second
+    // request had hit the worker again, this would panic.
+}
+
+#[tokio::test]
 async fn render_kubediagram_maps_worker_422_to_bad_manifest() {
     let server = wiremock::MockServer::start().await;
     wiremock::Mock::given(wiremock::matchers::method("POST"))
