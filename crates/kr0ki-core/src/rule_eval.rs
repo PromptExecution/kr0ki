@@ -177,4 +177,43 @@ violations := [v |
         assert_eq!(result.disposition, Disposition::Unknown);
         assert_eq!(result.confidence, 0.0);
     }
+
+    /// Regression guard for the `Cargo.toml` `default-features = false`
+    /// fix: `RuleDocument.rego_source` is untrusted, model-authored input
+    /// (anyone able to write a SysML v2 element can supply one), so the
+    /// `http` builtin (part of regorus's default/`full-opa` feature set,
+    /// which registers `http.send`) must not resolve -- otherwise a rule
+    /// doc could make kr0ki-server itself issue arbitrary outbound
+    /// requests on every recompute. Bypasses `RegorusBackend::evaluate`
+    /// (which maps every error, including a legitimate parse failure, to
+    /// the same `SatisfiesResult::unknown()`) to assert directly on
+    /// `regorus::Engine`'s own eval error, so this test actually proves
+    /// the builtin is unresolved rather than merely that *some* error
+    /// occurred.
+    #[test]
+    fn http_send_builtin_is_not_available() {
+        let mut engine = regorus::Engine::new();
+        engine
+            .add_policy(
+                "http-probe.rego".to_string(),
+                r#"
+package kr0ki
+
+response := http.send({"method": "get", "url": "https://169.254.169.254/"})
+"#
+                .to_string(),
+            )
+            .expect("add_policy only parses -- an unresolved builtin call is still valid Rego");
+        let err = engine
+            .eval_rule("data.kr0ki.response".to_string())
+            .expect_err(
+                "http.send must not resolve: the regorus \"http\" feature must stay disabled \
+                 in Cargo.toml (see the comment above the regorus dependency there)",
+            );
+        let message = err.to_string();
+        assert!(
+            message.contains("http.send") || message.to_lowercase().contains("unknown"),
+            "expected an unresolved-builtin error, got: {message}"
+        );
+    }
 }

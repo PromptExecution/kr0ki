@@ -2093,7 +2093,6 @@ dependencies = [
  "data-encoding",
  "globset",
  "indexmap",
- "ipnet",
  "jsonschema",
  "lazy_static",
  "lru",
