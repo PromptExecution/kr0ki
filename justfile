@@ -3,24 +3,30 @@
 default:
     @just --list
 
-# Build everything.
+# Build everything (Rust workspace + vendored @assistant-ui/vue).
 build:
     cargo build --workspace
+    just build-assistant-ui-vue
+
+# Build the vendored @assistant-ui/vue package from the assistant-ui submodule.
+build-assistant-ui-vue:
+    cd vendor/assistant-ui && pnpm install --frozen-lockfile && pnpm --filter @assistant-ui/vue build
 
 # Full test suite (unit + in-process HTTP). Live render tests stay ignored.
 test:
     cargo test --workspace
     cd containers/kr0ki-mcp && python3 test_bridge.py && python3 test_http_worker.py
     cd containers/kr0ki-storyb00k-agent && python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt && .venv/bin/python3 -m unittest discover -p 'test_*.py'
+    just build-assistant-ui-vue
     pnpm --dir playbook install --frozen-lockfile
     pnpm --dir playbook test
 
-# Live render test against a real Kroki (needs a backend URL).
-test-live backend="https://kroki.io":
+# Live render test against the private Kroki-compatible backend (needs it running).
+test-live backend="http://127.0.0.1:8010":
     KR0KI_TEST_BACKEND={{backend}} cargo test -p kr0ki-core --test live_render -- --ignored --nocapture
 
-# Live PNG render test against a real Kroki.
-test-live-png backend="https://kroki.io":
+# Live PNG render test against the private Kroki-compatible backend.
+test-live-png backend="http://127.0.0.1:8010":
     KR0KI_TEST_BACKEND={{backend}} cargo test -p kr0ki-core --test live_png -- --ignored --nocapture
 
 # Exercise every test-backed playb00k example through the deployed HTTP service.
@@ -42,14 +48,14 @@ fmt:
     cargo fmt --all
 
 # Render the b00t stack orchestration template diagram to SVG.
-# Uses the public Kroki endpoint by default; pass a local kr0ki-server URL if running.
-render-template kroki="https://kroki.io":
+# Uses the local kr0ki-server by default; its backend is private kroki-compat.
+render-template kroki="http://127.0.0.1:8787":
     ./scripts/render-template.sh {{kroki}} b00t-stack-orchestration.svg
 
-# Run the server. Point KR0KI_BACKEND_URL at a SECURE-mode Kroki.
+# Run the server against the private SECURE-mode Kroki-compatible backend.
 # Set KR0KI_AUTH_TOKEN to enable bearer-token auth (FR7 minimal).
 # Default bind is 0.0.0.0:8787 so the docs endpoint is reachable from the network.
-run bind="0.0.0.0:8787" backend="https://kroki.io":
+run bind="0.0.0.0:8787" backend="http://127.0.0.1:8010":
     KR0KI_BIND={{bind}} KR0KI_BACKEND_URL={{backend}} cargo run -p kr0ki-server
 
 # Print a LAN-reachable service URL. The host is explicit because automatic
