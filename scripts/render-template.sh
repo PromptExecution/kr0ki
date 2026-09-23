@@ -2,12 +2,12 @@
 # Render the b00t stack orchestration template diagram through kr0ki.
 # Usage: ./scripts/render-template.sh [kr0ki_url] [output.svg]
 #
-# Requires a running kr0ki-server (just run) or uses the public endpoint
-# https://kroki.io as fallback.
+# Requires a running kr0ki-server (just run) backed by the private
+# kroki-compat service.
 
 set -euo pipefail
 
-KR0KI_URL="${1:-https://kroki.io}"
+KR0KI_URL="${1:-http://127.0.0.1:8787}"
 OUTPUT="${2:-b00t-stack-orchestration.svg}"
 TEMPLATE="templates/b00t-stack-orchestration.d2"
 

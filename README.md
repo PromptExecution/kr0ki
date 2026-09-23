@@ -182,7 +182,7 @@ crates/
 ```
 
 **Verified:** `cargo test --workspace` (17 pass) · `cargo clippy -- -D warnings` clean ·
-live render against `https://kroki.io` (miss → SVG → byte-identical cache hit) · running
+live render against the private `kroki-compat` backend (miss → SVG → byte-identical cache hit) · running
 server smoke-tested end to end.
 
 **Now in P0+:** caller auth (FR7 minimal — `KR0KI_AUTH_TOKEN` env var gates all routes
@@ -214,7 +214,7 @@ entire SysML-model path.
 
 | Route | Method | Body | Response |
 |---|---|---|---|
-| `/health` | GET | — | `{status, service, llm_configured, active_threads, max_tool_rounds}` |
+| `/health` | GET | — | `{status, service, llm_configured, active_threads, max_model_tool_rounds, max_clarifying_questions}` |
 | `/run` | POST | AG-UI `RunAgentInput` | SSE event stream (AG-UI protocol): narration, tool calls, state deltas, usage; interrupts for draft proposals |
 | `/respond-to-interrupt` | POST | `{threadId, interruptId, approved}` | applies/declines a pending draft proposal |
 | `/threads/{id}` | GET | — | pending proposals + draft graph as Turtle |
@@ -290,6 +290,11 @@ then run `just pod-up`. That recipe creates or updates the local k0s
 sidecar host from the page host, so opening `http://<host>:8787/playbook/` reaches
 `http://<host>:8789` on the same machine.
 
+The model/tool-round safety ceiling (`KR0KI_STORYB00K_MAX_MODEL_TOOL_ROUNDS`,
+default 64) is independent of the per-project user clarification budget
+(`KR0KI_STORYB00K_MAX_CLARIFYING_QUESTIONS`, default 6). Candidate generation,
+rendering, and image inspection use internal rounds, not clarification questions.
+
 ### Fast local dev loop (no k0s)
 
 For format/fixture iteration, skip the podman-build → k0s-import → pod-recreate
@@ -343,14 +348,14 @@ just test-playbook
 
 Render the template:
 ```bash
-just render-template              # via public Kroki
-just render-template http://localhost:8787   # via local kr0ki-server
+just render-template              # via local kr0ki-server and private kroki-compat
+just render-template http://localhost:8787   # explicit local kr0ki-server URL
 ```
 
 The template is exercised in CI by `crates/kr0ki-core/tests/template_render.rs` (env-gated on `KR0KI_TEST_BACKEND`, same pattern as `live_render.rs`).
 
 ```bash
 just test          # unit + in-process HTTP
-just run           # default: bind 0.0.0.0:8787, backend https://kroki.io
-just run 127.0.0.1:8787 https://kroki.io
+just run           # default: bind 0.0.0.0:8787, backend http://127.0.0.1:8010
+just run 0.0.0.0:8787 http://127.0.0.1:8010
 ```

@@ -1,8 +1,8 @@
 """AG-UI SSE sidecar for read-only model storytelling and gated draft proposals.
 
 Robustness contract (2026-09-19):
-- Multi-round tool loop: the LLM may keep calling tools after seeing results
-  (bounded by MAX_TOOL_ROUNDS) instead of the old single round-trip.
+- Multi-round tool loop: internal model/tool turns have their own safety ceiling;
+  clarifying questions have a separate per-project user-facing budget.
 - Streaming narration: TEXT_MESSAGE_START/CONTENT/END emitted per assistant
   message, so the UI can render text as it arrives.
 - Full AG-UI event hygiene: RUN_STARTED → TEXT_MESSAGE_* / TOOL_CALL_* /
@@ -36,7 +36,11 @@ except ModuleNotFoundError:  # local source-tree tests; the image copies the mod
 
 KR0KI_URL = os.environ.get("KR0KI_URL", "http://127.0.0.1:8787")
 SKILLS_DIR = Path(__file__).parent / "skills"
-MAX_TOOL_ROUNDS = int(os.environ.get("KR0KI_STORYB00K_MAX_TOOL_ROUNDS", "6"))
+MAX_MODEL_TOOL_ROUNDS = int(os.environ.get("KR0KI_STORYB00K_MAX_MODEL_TOOL_ROUNDS", "64"))
+MAX_CLARIFYING_QUESTIONS = int(os.environ.get(
+    "KR0KI_STORYB00K_MAX_CLARIFYING_QUESTIONS",
+    os.environ.get("KR0KI_STORYB00K_MAX_TOOL_ROUNDS", "6"),
+))
 MAX_OUTPUT_CHARS = int(os.environ.get("KR0KI_STORYB00K_MAX_OUTPUT_CHARS", "20000"))
 THREAD_TTL_SECS = int(os.environ.get("KR0KI_STORYB00K_THREAD_TTL_SECS", str(6 * 3600)))
 _drafts = {}  # thread_id -> {"graph": DraftGraph, "last_used": epoch}
@@ -57,16 +61,21 @@ SYSTEM_PREAMBLE = (
     "WORKFLOW — every request goes through a planning stage first:\n"
     "1. THINK: use your thinking channel to restate the goal, list what you know, "
     "and list what is ambiguous (diagram type? scope? level of detail? naming? layout?).\n"
-    "2. ASK: if anything material is ambiguous, use the ask_user tool to put ONE "
-    "multiple-choice question to the user. Each answer refines the shared "
-    "understanding. Ask as many rounds as needed — but batch what you can and never "
-    "re-ask something already answered.\n"
-    "3. LOCK: once you can restate the user's desire precisely, summarize the "
+    "2. EXPLORE: internally develop plausible candidate diagrams. Use render tools "
+    "to render each useful candidate, request PNG output when supported, and inspect "
+    "the returned image before deciding what to refine. Tool calls, thinking, and "
+    "candidate comparisons are internal work; they do not count as user questions.\n"
+    "3. ASK: after exploring candidates, use ask_user only when a material user "
+    "preference or missing requirement remains. Ask one concise multiple-choice "
+    "question per interrupt, batch related choices, and never repeat an answered "
+    "question. The project-wide maximum is six questions.\n"
+    "4. LOCK: once you can restate the user's desire precisely, summarize the "
     "requirements in one short paragraph and call it 'Locked in:' — the user then "
     "sees exactly what will be built. Only after locking in, fetch model facts and "
     "render the diagram.\n"
-    "4. RENDER: use the tools to read the live model and render. Prefer tool "
-    "evidence over guessing: if you lack a fact, call a tool before answering.\n\n"
+    "5. FINALIZE: after reviewing candidate renders and applying user answers, "
+    "lock the requirements and present the selected result. Prefer tool evidence "
+    "over guessing: if you lack a fact, call a tool before answering.\n\n"
     "FAST-TRACK OVERRIDES (user-authorized best judgement — no more questions):\n"
     "- If PROJECT MEMORY contains 'Fast-track: diagram now', or the user's latest "
     "message says 'diagram now', you MUST NOT call ask_user or "
@@ -87,9 +96,10 @@ ask_user_tool = {
     "function": {
         "name": "ask_user",
         "description": (
-            "Ask the user ONE multiple-choice question to refine the project "
-            "requirements. Use this during planning whenever the goal is ambiguous; "
-            "keep asking until you can state the desire precisely (locked in)."
+        "Ask the user ONE multiple-choice question to refine the project "
+        "requirements. Prefer asking after internally rendering and inspecting "
+        "plausible candidates. The per-project question budget is supplied in "
+        "the system prompt."
         ),
         "parameters": {
             "type": "object",
@@ -116,8 +126,9 @@ recommend_diagram_type_tool = {
     "function": {
         "name": "recommend_diagram_type",
         "description": (
-            "Recommend diagram type(s) for the user's goal. Call this with "
-            "mode='confirm' AFTER the discovery questions are answered, offering "
+            "Recommend diagram type(s) for the user's goal. First render and inspect "
+            "plausible candidates using render tools; then call this with "
+            "mode='confirm' when the user should choose, offering "
             "exactly one primary and (optionally) one alternative type with a "
             "one-line rationale. The user can also pick 'show me both' to see "
             "sample renders of both types side by side."
@@ -364,7 +375,8 @@ class Handler(BaseHTTPRequestHandler):
                 "service": "kr0ki-storyb00k-agent",
                 "llm_configured": bool(os.environ.get("OPENAI_API_KEY") and os.environ.get("OPENAI_API_URL")),
                 "active_threads": len(_drafts),
-                "max_tool_rounds": MAX_TOOL_ROUNDS,
+                "max_model_tool_rounds": MAX_MODEL_TOOL_ROUNDS,
+                "max_clarifying_questions": MAX_CLARIFYING_QUESTIONS,
                 "debug_log_dir_writable": session_log._DIR_WRITABLE,
             })
         elif self.path == "/debug/sessions":
@@ -539,9 +551,12 @@ class Handler(BaseHTTPRequestHandler):
         manifest = fetch_manifest(KR0KI_URL)
         tools = [{"type": "function", "function": {"name": tool["name"], "description": tool["description"], "parameters": tool["inputSchema"]}} for tool in manifest]
         tools.append(local_draft_tool())
-        tools.append(ask_user_tool)
-        tools.append(recommend_diagram_type_tool)
         project = project_store.get_project(thread_id) or {}
+        questions_asked = int(project.get("questionsAsked", len(project.get("qa", []))))
+        questions_remaining = max(0, MAX_CLARIFYING_QUESTIONS - questions_asked)
+        if questions_remaining and not project.get("fastTrack"):
+            tools.append(ask_user_tool)
+            tools.append(recommend_diagram_type_tool)
         # Requirement memory: answered questions and any locked-in summary ride
         # in the system prompt. The client replays the same messages on resume
         # (and fresh sends may drop the answer context entirely), so without
@@ -551,9 +566,8 @@ class Handler(BaseHTTPRequestHandler):
             memory_lines.append(f"Locked in requirements (do not re-litigate): {project['requirements']}")
         for qa in project.get("qa", []):
             memory_lines.append(f"Already answered — Q: {qa['question']} A: {qa['answer']}")
-        # Plan 005 §2: two question modes. If the user hasn't named a syntax and
-        # no type is locked, discovery comes FIRST — intent → type, max 3
-        # questions, then recommend via the tool (never ask "which syntax?").
+        # Plan 005 §2: two question modes. If no type is locked, discover intent
+        # without spending model/tool rounds on user-facing questions.
         if project.get("lockedType"):
             memory_lines.append(f"Type chosen: {project['lockedType']} — do not switch without asking.")
         # Fast-track (Plan 005 UX): after 2+ answered questions the user can
@@ -587,12 +601,12 @@ class Handler(BaseHTTPRequestHandler):
             mode_rules = (
                 "\n\nQUESTION MODES — pick exactly one per run:\n"
                 "- DISCOVER MODE (active now): the user has NOT named a diagram syntax. "
-                "Ask what they want to CONVEY, not which syntax: audience/purpose first, "
-                "then which intent shape fits (use the vocabulary below), optionally "
-                "fidelity. Max 3 questions. Then you MUST call recommend_diagram_type with one "
-                "primary + one alternative type id and one-line rationales — locking in "
-                "without that tool call is a contract violation; the user confirms via "
-                "its interrupt or picks 'show me both' (render both samples). NEVER ask "
+                "Use the goal and catalog vocabulary to generate plausible candidate types, "
+                "render each useful candidate as PNG, and inspect the returned images "
+                "before asking the user to choose. If an important intent detail cannot "
+                "be inferred, ask about what they want to CONVEY, never which syntax. "
+                "After exploration, call recommend_diagram_type with one primary and "
+                "optionally one alternative, each with a concise rationale. NEVER ask "
                 "'which syntax/format do you want?'\n"
                 "- REFINE MODE: the type is already locked — refine participants, "
                 "scope, and level of detail only.\n"
@@ -604,7 +618,22 @@ class Handler(BaseHTTPRequestHandler):
                 "Refine only its participants, scope, and level of detail. Do NOT call "
                 "recommend_diagram_type and do not re-enter discovery unless the user asks to switch types."
             )
-        qa_memory += mode_rules
+        if questions_remaining:
+            question_budget_rules = (
+                f"\n\nCLARIFICATION BUDGET: {questions_remaining} of the project's "
+                f"{MAX_CLARIFYING_QUESTIONS} user-facing questions remain. Count only "
+                "ask_user and recommend_diagram_type interrupts. Thinking, generating "
+                "candidates, rendering, inspecting images, and other internal tool "
+                "rounds do not use this budget. Explore candidates before asking."
+            )
+        else:
+            question_budget_rules = (
+                "\n\nCLARIFICATION BUDGET EXHAUSTED: do not ask the user another "
+                "clarifying or type-confirmation question. Continue autonomously using "
+                "best judgement; you may keep generating, rendering, and inspecting "
+                "candidate diagrams before presenting the strongest result."
+            )
+        qa_memory += mode_rules + question_budget_rules
         # Plan 005 §3: per-type skill loaded ONLY when the type is locked —
         # replaces the generic skill dump so context stays small and the syntax
         # guidance matches the chosen diagram.
@@ -669,8 +698,8 @@ class Handler(BaseHTTPRequestHandler):
             calls = message.get("tool_calls") or []
             if not calls:
                 break
-            if rounds >= MAX_TOOL_ROUNDS:
-                stream.text_message(f"[tool budget exhausted after {rounds} rounds — stopping; ask me to continue]")
+            if rounds >= MAX_MODEL_TOOL_ROUNDS:
+                stream.text_message(f"[internal tool safety ceiling reached after {rounds} rounds]")
                 break
 
             for call in calls:
@@ -681,6 +710,27 @@ class Handler(BaseHTTPRequestHandler):
                     arguments = {}
                 tool_call_id = call.get("id", name)
                 parent_message_id = f"msg-tool-{tool_call_id}"
+                if name in {"ask_user", "recommend_diagram_type"}:
+                    if project.get("fastTrack"):
+                        allowed = False
+                        question_count = int(project.get("questionsAsked", len(project.get("qa", []))))
+                    else:
+                        allowed, question_count = project_store.record_clarifying_question(
+                            thread_id, MAX_CLARIFYING_QUESTIONS
+                        )
+                    if not allowed:
+                        content = "Fast-track is active. Do not ask the user; continue with best judgement." if project.get("fastTrack") else (
+                            "The project's clarifying-question budget is exhausted. "
+                            "Do not ask the user again; use best judgement and continue "
+                            "rendering or inspecting candidates."
+                        )
+                        stream.try_write({"type": "TOOL_CALL_START", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "toolCallName": name, "parentMessageId": parent_message_id})
+                        stream.try_write({"type": "TOOL_CALL_ARGS", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "delta": call["function"].get("arguments") or "{}"})
+                        stream.try_write({"type": "TOOL_CALL_END", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id})
+                        stream.try_write({"type": "TOOL_CALL_RESULT", "threadId": thread_id, "runId": stream.run_id, "messageId": parent_message_id, "toolCallId": tool_call_id, "content": content, "role": "tool"})
+                        messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": content})
+                        run_log.event("plan.question_budget_exhausted", {"tool": name, "questionsAsked": question_count})
+                        continue
                 if name == "recommend_diagram_type":
                     # Plan 005 §2.2: the agent commits to 1–2 type recommendations.
                     # The confirm answer locks the type into the project.
@@ -807,11 +857,13 @@ class Handler(BaseHTTPRequestHandler):
                 stream.try_write({"type": "TOOL_CALL_START", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "toolCallName": name, "parentMessageId": parent_message_id})
                 stream.try_write({"type": "TOOL_CALL_ARGS", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "delta": call["function"]["arguments"] or "{}"})
                 started = time.time()
+                tool_image_data_url = None
                 try:
                     method, url, body = apply_binding(tool, arguments, KR0KI_URL)
                     content_type, result = http_call(method, url, body)
                     panel = panel_from_tool_result(name, arguments, content_type, result)
                     tool_content = panel["content"] or "Rendered binary image."
+                    tool_image_data_url = panel.get("imageDataUrl")
                     tool_ok = True
                     run_log.tool_call(name, True, int((time.time() - started) * 1000))
                 except Exception as tool_error:  # noqa: BLE001 — feed the failure back to the LLM
@@ -823,9 +875,16 @@ class Handler(BaseHTTPRequestHandler):
                 stream.try_write({"type": "TOOL_CALL_RESULT", "threadId": thread_id, "runId": stream.run_id, "messageId": parent_message_id, "toolCallId": tool_call_id, "content": truncate(tool_content)[:2000], "role": "tool"})
                 if tool_ok:
                     stream.try_write({"type": "STATE_DELTA", "threadId": thread_id, "runId": stream.run_id, "delta": [{"op": "add", "path": "/panels/-", "value": panel}]})
-                    messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": tool_content})
-                else:
-                    messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": tool_content})
+                llm_tool_content = truncate(tool_content)[:2000]
+                messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": llm_tool_content})
+                if tool_image_data_url:
+                    messages.append({
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Internal candidate review: inspect this rendered image for structure, legibility, omissions, and fit to the user's requirements. Use those observations to refine or compare candidates; do not treat this as a new user question."},
+                            {"type": "image_url", "image_url": {"url": tool_image_data_url}},
+                        ],
+                    })
 
         stream.try_write({"type": "CUSTOM", "threadId": thread_id, "runId": stream.run_id, "name": "usage", "value": usage_total})
         finished = lifecycle_event("RUN_FINISHED", thread_id, stream.run_id)

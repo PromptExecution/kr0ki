@@ -3,7 +3,7 @@
 //! Config (env):
 //!   KR0KI_BIND                 default 0.0.0.0:8787
 //!   KR0KI_CACHE_DIR            default ./.kr0ki-cache
-//!   KR0KI_BACKEND_URL          default https://kroki.io   (point at a SECURE-mode Kroki)
+//!   KR0KI_BACKEND_URL          default http://127.0.0.1:8010 (private SECURE-mode Kroki)
 //!   KR0KI_AUTH_TOKEN           if set, require `Authorization: Bearer <token>` on every
 //!                              request except /health (FR7 minimal implementation).
 //!   B00T_GRAPH_ARTIFACTS_PATH  if set, enables GET /b00t-graph/:tag (kr0ki#13) —
@@ -48,7 +48,7 @@ async fn main() -> anyhow::Result<()> {
     let bind = std::env::var("KR0KI_BIND").unwrap_or_else(|_| "0.0.0.0:8787".into());
     let cache_dir = std::env::var("KR0KI_CACHE_DIR").unwrap_or_else(|_| "./.kr0ki-cache".into());
     let backend_url =
-        std::env::var("KR0KI_BACKEND_URL").unwrap_or_else(|_| "https://kroki.io".into());
+        std::env::var("KR0KI_BACKEND_URL").unwrap_or_else(|_| "http://127.0.0.1:8010".into());
     let auth_token = std::env::var("KR0KI_AUTH_TOKEN").ok();
     let playbook_dir = std::env::var("KR0KI_PLAYBOOK_DIR")
         .map(std::path::PathBuf::from)
