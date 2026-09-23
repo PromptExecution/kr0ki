@@ -10,7 +10,7 @@ use reqrs::model::{
     AttributeValueString, DataType, DataTypeCommon, DataTypeString, DefaultValuePresence,
     SpecObject, SpecObjectType, SpecRelationType, SpecType, SpecTypeCommon,
 };
-use reqrs::{AttributeDefId, DataTypeId, SpecObjectId, SpecTypeId};
+use reqrs::{AttributeDefId, DataTypeId, SpecObjectId, SpecRelationId, SpecTypeId};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReqIfExportError {
@@ -160,9 +160,36 @@ fn requirement_to_spec_object(req: &Requirement, text_attr_def_id: &AttributeDef
     }
 }
 
+fn asserted_relations_to_spec_relations(
+    relations: &[crate::requirements::RequirementRelation],
+) -> Vec<reqrs::model::SpecRelation> {
+    use crate::requirements::RelationAuthority;
+    use reqrs::model::SpecRelation;
+
+    relations
+        .iter()
+        .filter(|r| matches!(r.authority, RelationAuthority::Asserted))
+        .map(|r| SpecRelation {
+            identifier: SpecRelationId::new(r.id.as_str()),
+            description: None,
+            last_change: None,
+            long_name: None,
+            relation_type: relation_type_id(r.kind),
+            source: SpecObjectId::new(r.source.as_str()),
+            target: SpecObjectId::new(r.target.as_str()),
+            values: None,
+            children_order: Vec::new(),
+            comments_before: Vec::new(),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::requirements::{BaselineIdentity, Provenance, Requirement, RequirementRelationKind};
+    use crate::requirements::{
+        BaselineIdentity, ModelIdentity, NonAuthoritativeRelation, Provenance, Requirement,
+        RequirementRelation, RequirementRelationKind, RelationAuthority,
+    };
     use std::collections::BTreeMap;
     use reqrs::SpecTypeId;
 
@@ -192,6 +219,24 @@ mod tests {
             provenance: provenance(),
             attributes: BTreeMap::new(),
             evidence: Vec::new(),
+        }
+    }
+
+    fn relation(
+        id: &str,
+        source: &str,
+        target: &str,
+        kind: RequirementRelationKind,
+        authority: RelationAuthority,
+    ) -> RequirementRelation {
+        RequirementRelation {
+            id: id.to_string(),
+            source: source.to_string(),
+            target: target.to_string(),
+            kind,
+            authority,
+            provenance: provenance(),
+            promotion: None,
         }
     }
 
@@ -255,5 +300,42 @@ mod tests {
                 "relation_type_id({kind:?}) = {id:?} not in type_layer()"
             );
         }
+    }
+
+    #[test]
+    fn only_asserted_relations_are_exported() {
+        let relations = vec![
+            relation(
+                "R1",
+                "A",
+                "B",
+                RequirementRelationKind::Derives,
+                RelationAuthority::Asserted,
+            ),
+            relation(
+                "R2",
+                "C",
+                "D",
+                RequirementRelationKind::Traces,
+                RelationAuthority::Inferred(NonAuthoritativeRelation {
+                    confidence: 0.8,
+                    rationale: "test".into(),
+                    evidence: vec![],
+                    model: ModelIdentity {
+                        name: "test_model".into(),
+                        version: "1.0".into(),
+                    },
+                }),
+            ),
+        ];
+        let spec_relations = super::asserted_relations_to_spec_relations(&relations);
+        assert_eq!(spec_relations.len(), 1);
+        assert_eq!(spec_relations[0].identifier.as_str(), "R1");
+        assert_eq!(spec_relations[0].source.as_str(), "A");
+        assert_eq!(spec_relations[0].target.as_str(), "B");
+        assert_eq!(
+            spec_relations[0].relation_type,
+            super::relation_type_id(RequirementRelationKind::Derives)
+        );
     }
 }
