@@ -46,8 +46,8 @@ front-end semantic  recog-    constructs adapters
 | Box | What | Status | Blocked on |
 |---|---|---|---|
 | 1 | Source front-ends (SysML-v2 API client, Rust AST, k8s manifests) | **Client partial** — `kr0ki-sysmlv2-client` reads OMG-API servers; Rust/k8s front-ends named but not scoped | `ufo-types` graph builder (Box 2) |
-| 2 | Canonical UFO-typed semantic graph | **Design only** — `ufo-types` has `iso_ir`, `ontology`, `view` layers but no container type | `ufo-types` v0.15+ graph container |
-| 3 | Pattern recognizers (Kubernetes first) | **Design only** — `PATTERNS-kubernetes.md` has rule mapping; no code | Box 2 + `KubeDiagrams` oracle |
+| 2 | Canonical UFO-typed semantic graph | **Partial** — `ufo-types` ships the `SysGraph` container (`sysgraph` module); the SysML-v2 arm builds it (`ufo_graph.rs`). The dbt arm's builder (`PLAN-KR0KI-006` piece 1) is spec-only, not yet in `ufo-types` | dbt `SysGraph` builder (upstream, `ufo-types`) |
+| 3 | Pattern recognizers (Kubernetes first) | **✅ Kubernetes arm shipped** — `k8s_recognizer.rs` (955 lines), wired into `kr0ki-server`'s routes, oracle-tested against real KubeDiagrams. Rust arm's recognizer (`rust_recognizer.rs`, `PLAN-KR0KI-003`) is implemented but not yet wired to any route; its call-graph/trait-dispatch coverage is explicitly deferred | Rust arm: route/MCP wiring, call-graph coverage |
 | 4 | SysML v2 model constructs / view definitions | **Partial** — `ElementKind` (24), `Relation` (12), `SysmlViewKind` done; `ViewDefinition` as data not yet | Box 2 + Box 3 |
 | 5 | **Renderer adapters + HTTP service** | **✅ P0 implemented** — `kr0ki-core` + `kr0ki-server`, cache, auth, PNG, docgen | CDN tier (D5), artifact resolver (FR6) |
 

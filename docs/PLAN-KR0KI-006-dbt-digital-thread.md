@@ -31,15 +31,22 @@ function into `ufo_types::sysgraph::SysGraph`, zero-drift identity via a `dbt:`-
 acquisition-neutral, same split `kr0ki_core::reqif_import` already established.
 **Status: spec approved, ready for an implementation plan.**
 
-## 2. Piece 2 — the Flexo write path (tracked, not designed)
+## 2. Piece 2 — the Flexo write path (shipped)
 
-How `kr0ki-sysmlv2-client` — currently read-only (`ListModelProjects`,
+How `kr0ki-sysmlv2-client` — previously read-only (`ListModelProjects`,
 `ListModelCommits`, `GetModelSnapshot`) — commits a `SysGraph` (from piece 1, or any
 other box-1 front-end) into a live Flexo-backed SysML v2 project, and how the
 `dbt:`-prefixed `ElementId` convention from piece 1 lets a re-ingest reconcile against
 Flexo's commit history (diff, update, remove-stale) without ever touching an element
-it doesn't own. **Status: not designed. Needs its own brainstorm pass before either a
-spec or code.**
+it doesn't own. **Status: designed and implemented** — see
+`docs/superpowers/specs/2026-09-20-flexo-write-path-design.md`, the implementation
+plan at `docs/superpowers/plans/2026-09-20-flexo-write-path.md`, and
+[PR #52](https://github.com/PromptExecution/kr0ki/pull/52)
+(`kr0ki_core::digital_thread_sync::sync_dbt_graph`, generic over any `SysGraph` in
+practice, not dbt-specific). Includes `create_commit` on `SysmlV2Client` and a
+critical-review-confirmed fix (2026-09-23) for `DataVersion.payload`'s full-replace
+semantics (see that spec's own history) — not merged to `main` as of this note; check
+the PR's current state before assuming it landed.
 
 ## 3. Explicitly deferred, not forgotten
 
