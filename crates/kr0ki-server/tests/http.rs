@@ -12,6 +12,8 @@ use tower::ServiceExt; // oneshot
 // The server crate is a bin; pull the router module in via path.
 #[path = "../src/app.rs"]
 mod app;
+#[path = "../src/contract.rs"]
+mod contract;
 #[path = "../src/docs.rs"]
 mod docs;
 use app::{router, AppState};
@@ -36,11 +38,13 @@ fn test_state(tag: &str) -> AppState {
         started_at: std::time::Instant::now(),
         boot_wall_clock: std::time::SystemTime::now(),
         auth_token: None,
+        contract: Arc::new(contract::ContractReference::default()),
     }
 }
 
 fn test_app(state: AppState) -> axum::Router {
-    router(state, None)
+    let contract = state.contract.clone();
+    router(state, None, contract)
 }
 
 async fn body_string(resp: axum::response::Response) -> (StatusCode, String) {
@@ -73,6 +77,57 @@ async fn health_ok() {
     assert!(body.contains("\"llm\""));
     assert!(body.contains("\"configured\":false"));
     assert!(body.contains("\"model_count\""));
+}
+
+#[tokio::test]
+async fn contract_headers_present_on_all_responses() {
+    let app = test_app(test_state("contract-headers"));
+    let resp = app
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    
+    let headers = resp.headers();
+    assert!(headers.contains_key("x-kr0ki-contract"), "missing x-kr0ki-contract header");
+    assert!(headers.contains_key("x-kr0ki-request-id"), "missing x-kr0ki-request-id header");
+    
+    let contract = headers.get("x-kr0ki-contract").unwrap().to_str().unwrap();
+    assert_eq!(contract, "ledgrrr://state-machines/sysml-render/v1");
+    
+    let request_id = headers.get("x-kr0ki-request-id").unwrap().to_str().unwrap();
+    assert!(!request_id.is_empty(), "request-id should not be empty");
+    assert!(request_id.len() == 36, "request-id should be UUID v7 format (36 chars)");
+}
+
+#[tokio::test]
+async fn request_id_adopted_from_header() {
+    let app = test_app(test_state("request-id-adopted"));
+    let custom_id = "my-custom-correlation-id-12345";
+    let resp = app
+        .oneshot(
+            Request::get("/health")
+                .header("x-request-id", custom_id)
+                .body(Body::empty())
+                .unwrap()
+        )
+        .await
+        .unwrap();
+    
+    let returned_id = resp.headers().get("x-kr0ki-request-id").unwrap().to_str().unwrap();
+    assert_eq!(returned_id, custom_id, "should adopt caller-provided request-id");
+}
+
+#[tokio::test]
+async fn health_includes_contract_field() {
+    let app = test_app(test_state("health-contract"));
+    let resp = app
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("\"contract\":\"ledgrrr://state-machines/sysml-render/v1\""), 
+            "health should include contract field, body: {body}");
 }
 
 #[tokio::test]
@@ -122,7 +177,7 @@ async fn mcp_tools_lists_all_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 14);
+    assert_eq!(tools.len(), 15);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
@@ -1137,7 +1192,11 @@ async fn render_k8s_topology_recognized_view_query_param_renders_only_that_view(
 
 #[tokio::test]
 async fn auth_required_rejects_missing_token() {
-    let app = router(test_state("authed"), Some("secret".to_string()));
+    let app = router(
+        test_state("authed"),
+        Some("secret".to_string()),
+        Arc::new(contract::ContractReference::default()),
+    );
     let resp = app
         .oneshot(Request::get("/formats").body(Body::empty()).unwrap())
         .await
@@ -1149,7 +1208,11 @@ async fn auth_required_rejects_missing_token() {
 
 #[tokio::test]
 async fn auth_required_accepts_valid_bearer() {
-    let app = router(test_state("authed-ok"), Some("secret".to_string()));
+    let app = router(
+        test_state("authed-ok"),
+        Some("secret".to_string()),
+        Arc::new(contract::ContractReference::default()),
+    );
     let resp = app
         .oneshot(
             Request::get("/health")

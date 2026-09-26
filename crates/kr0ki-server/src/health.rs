@@ -26,6 +26,8 @@ pub struct HealthReport {
     pub started_at: String,
     /// Seconds since process start (== container uptime: kr0ki is PID 1).
     pub uptime_secs: u64,
+    /// Ledgrrr contract reference (DESIGN-NOTE-ledgrrr-state-contract-registry.md).
+    pub contract: String,
     pub checks: Checks,
 }
 
@@ -280,6 +282,7 @@ pub async fn collect(state: &AppState) -> HealthReport {
         version: env!("CARGO_PKG_VERSION"),
         started_at: humantime_or_fallback(state.boot_wall_clock),
         uptime_secs: uptime.as_secs(),
+        contract: state.contract.uri.clone(),
         checks: Checks {
             kroki_backend: to_dep(&backend_url, kroki),
             kubediagram_worker: kubediagram_url
