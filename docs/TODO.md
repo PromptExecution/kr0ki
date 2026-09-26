@@ -73,12 +73,15 @@ starting this stream. kr0ki's stateless view slice is on
     The current result is deliberately stateless inventory, not attachment
     retention or a durable baseline store.
   - [ ] **Validated source acquisition** — add callers over the bounded-byte
-    import seam, not new parser paths: browser/API uploads; a CLI/MCP local
-    loader confined to an allow-listed root; and an HTTPS-only fetcher with
-    DNS/IP SSRF checks, redirect policy, time/size limits, and URI/ETag/
-    Last-Modified provenance. Never expose arbitrary server-side `file://`
-    reads. Keep source/validator/graph/view-recipe digests together so a
-    derived SVG remains reproducible.
+    import seam, not new parser paths. Keep source/validator/graph/
+    view-recipe digests together so a derived SVG remains reproducible.
+    - [x] Browser/API uploads — `POST /requirements/import`.
+    - [x] HTTPS-only fetcher with DNS/IP SSRF checks, redirect policy,
+      time/size limits, and URI/ETag/Last-Modified provenance —
+      `kr0ki_core::reqif_fetch` + `POST /requirements/import/url`
+      (`feat/reqif-https-fetch`).
+    - [ ] CLI/MCP local loader confined to an allow-listed root. Never
+      expose arbitrary server-side `file://` reads.
 - [ ] **`reqif-opa-mcp` refactor** — retain its artifact → document graph → candidate
   → OPA → ReqIF pipeline; replace its private requirement DTO/relation/provenance and
   validation types with the upstream `ufo-types` contract.

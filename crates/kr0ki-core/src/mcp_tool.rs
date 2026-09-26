@@ -18,6 +18,7 @@ pub enum McpTool {
     RenderK8sTopology,
     RenderSysmlV2Snapshot,
     ImportReqIf,
+    ImportReqIfUrl,
     ListModelProjects,
     ListModelCommits,
     GetModelSnapshot,
@@ -36,6 +37,7 @@ impl McpTool {
         Self::RenderK8sTopology,
         Self::RenderSysmlV2Snapshot,
         Self::ImportReqIf,
+        Self::ImportReqIfUrl,
         Self::ListModelProjects,
         Self::ListModelCommits,
         Self::GetModelSnapshot,
@@ -54,6 +56,7 @@ impl McpTool {
             Self::RenderK8sTopology => "render_kubernetes_topology",
             Self::RenderSysmlV2Snapshot => "render_sysmlv2_snapshot",
             Self::ImportReqIf => "import_reqif",
+            Self::ImportReqIfUrl => "import_reqif_url",
             Self::ListModelProjects => "list_model_projects",
             Self::ListModelCommits => "list_model_commits",
             Self::GetModelSnapshot => "get_model_snapshot",
@@ -84,6 +87,9 @@ impl McpTool {
             }
             Self::ImportReqIf => {
                 "Validate and normalize a UTF-8 ReqIF document. For binary ReqIFz archives, use POST /requirements/import."
+            }
+            Self::ImportReqIfUrl => {
+                "Fetch a ReqIF/ReqIFz artifact from an HTTPS URL (SSRF-hardened: DNS-resolved and range-checked before connecting) and validate/normalize it."
             }
             Self::ListModelProjects => "List SysML v2 projects on the configured model server.",
             Self::ListModelCommits => "List commits (immutable model snapshots) for a project.",
@@ -152,6 +158,16 @@ impl McpTool {
                     "artifact": {
                         "type": "string",
                         "description": "UTF-8 ReqIF XML. Use the HTTP upload route for binary ReqIFz."
+                    }
+                }
+            }),
+            Self::ImportReqIfUrl => serde_json::json!({
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "HTTPS URL to fetch a ReqIF or ReqIFz artifact from. Only https:// is accepted."
                     }
                 }
             }),
@@ -266,6 +282,14 @@ impl McpTool {
                     placement: ArgPlacement::Body,
                 }],
             },
+            Self::ImportReqIfUrl => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/requirements/import/url",
+                args: &[ArgBinding {
+                    name: "url",
+                    placement: ArgPlacement::Body,
+                }],
+            },
             Self::ListModelProjects => HttpBinding { method: HttpMethod::Get, path_template: "/model/projects", args: &[] },
             Self::ListModelCommits => HttpBinding {
                 method: HttpMethod::Get, path_template: "/model/projects/{project_id}/commits",
@@ -376,6 +400,35 @@ mod tests {
     use super::*;
 
     #[test]
+    #[test]
+    fn recompute_and_evaluate_binds_to_the_post_recompute_route() {
+        let binding = McpTool::RecomputeAndEvaluate.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(
+            binding.path_template,
+            "/model/projects/{project_id}/recompute"
+        );
+        assert_eq!(binding.args.len(), 1);
+        assert_eq!(binding.args[0].name, "project_id");
+        assert!(matches!(binding.args[0].placement, ArgPlacement::Path));
+    }
+
+    #[test]
+    fn recompute_and_evaluate_is_listed_in_all() {
+        assert!(McpTool::ALL.contains(&McpTool::RecomputeAndEvaluate));
+    }
+
+    #[test]
+    fn import_reqif_url_binds_url_to_body_as_a_post() {
+        let binding = McpTool::ImportReqIfUrl.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(binding.path_template, "/requirements/import/url");
+        assert_eq!(binding.args.len(), 1);
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "url" && matches!(a.placement, ArgPlacement::Body)));
+    }
     fn all_tools_have_unique_names() {
         let mut names: Vec<&str> = McpTool::ALL.iter().map(|t| t.name()).collect();
         let before = names.len();
@@ -386,6 +439,35 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn recompute_and_evaluate_binds_to_the_post_recompute_route() {
+        let binding = McpTool::RecomputeAndEvaluate.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(
+            binding.path_template,
+            "/model/projects/{project_id}/recompute"
+        );
+        assert_eq!(binding.args.len(), 1);
+        assert_eq!(binding.args[0].name, "project_id");
+        assert!(matches!(binding.args[0].placement, ArgPlacement::Path));
+    }
+
+    #[test]
+    fn recompute_and_evaluate_is_listed_in_all() {
+        assert!(McpTool::ALL.contains(&McpTool::RecomputeAndEvaluate));
+    }
+
+    #[test]
+    fn import_reqif_url_binds_url_to_body_as_a_post() {
+        let binding = McpTool::ImportReqIfUrl.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(binding.path_template, "/requirements/import/url");
+        assert_eq!(binding.args.len(), 1);
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "url" && matches!(a.placement, ArgPlacement::Body)));
+    }
     fn render_sysmlv2_snapshot_binds_only_model_identity_and_output() {
         let binding = McpTool::RenderSysmlV2Snapshot.http_binding();
         assert!(matches!(binding.method, HttpMethod::Post));
@@ -424,6 +506,35 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn recompute_and_evaluate_binds_to_the_post_recompute_route() {
+        let binding = McpTool::RecomputeAndEvaluate.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(
+            binding.path_template,
+            "/model/projects/{project_id}/recompute"
+        );
+        assert_eq!(binding.args.len(), 1);
+        assert_eq!(binding.args[0].name, "project_id");
+        assert!(matches!(binding.args[0].placement, ArgPlacement::Path));
+    }
+
+    #[test]
+    fn recompute_and_evaluate_is_listed_in_all() {
+        assert!(McpTool::ALL.contains(&McpTool::RecomputeAndEvaluate));
+    }
+
+    #[test]
+    fn import_reqif_url_binds_url_to_body_as_a_post() {
+        let binding = McpTool::ImportReqIfUrl.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(binding.path_template, "/requirements/import/url");
+        assert_eq!(binding.args.len(), 1);
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "url" && matches!(a.placement, ArgPlacement::Body)));
+    }
     fn render_k8s_topology_binds_manifest_to_body_output_and_view_to_query() {
         let binding = McpTool::RenderK8sTopology.http_binding();
         assert!(matches!(binding.method, HttpMethod::Post));
@@ -458,6 +569,35 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn recompute_and_evaluate_binds_to_the_post_recompute_route() {
+        let binding = McpTool::RecomputeAndEvaluate.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(
+            binding.path_template,
+            "/model/projects/{project_id}/recompute"
+        );
+        assert_eq!(binding.args.len(), 1);
+        assert_eq!(binding.args[0].name, "project_id");
+        assert!(matches!(binding.args[0].placement, ArgPlacement::Path));
+    }
+
+    #[test]
+    fn recompute_and_evaluate_is_listed_in_all() {
+        assert!(McpTool::ALL.contains(&McpTool::RecomputeAndEvaluate));
+    }
+
+    #[test]
+    fn import_reqif_url_binds_url_to_body_as_a_post() {
+        let binding = McpTool::ImportReqIfUrl.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(binding.path_template, "/requirements/import/url");
+        assert_eq!(binding.args.len(), 1);
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "url" && matches!(a.placement, ArgPlacement::Body)));
+    }
     fn render_diagram_binds_format_to_path_source_to_body_output_to_query() {
         let binding = McpTool::RenderDiagram.http_binding();
         assert!(matches!(binding.method, HttpMethod::Post));
@@ -478,6 +618,35 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn recompute_and_evaluate_binds_to_the_post_recompute_route() {
+        let binding = McpTool::RecomputeAndEvaluate.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(
+            binding.path_template,
+            "/model/projects/{project_id}/recompute"
+        );
+        assert_eq!(binding.args.len(), 1);
+        assert_eq!(binding.args[0].name, "project_id");
+        assert!(matches!(binding.args[0].placement, ArgPlacement::Path));
+    }
+
+    #[test]
+    fn recompute_and_evaluate_is_listed_in_all() {
+        assert!(McpTool::ALL.contains(&McpTool::RecomputeAndEvaluate));
+    }
+
+    #[test]
+    fn import_reqif_url_binds_url_to_body_as_a_post() {
+        let binding = McpTool::ImportReqIfUrl.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(binding.path_template, "/requirements/import/url");
+        assert_eq!(binding.args.len(), 1);
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "url" && matches!(a.placement, ArgPlacement::Body)));
+    }
     fn list_formats_binds_to_a_plain_get_with_no_args() {
         let binding = McpTool::ListFormats.http_binding();
         assert!(matches!(binding.method, HttpMethod::Get));
@@ -486,6 +655,35 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn recompute_and_evaluate_binds_to_the_post_recompute_route() {
+        let binding = McpTool::RecomputeAndEvaluate.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(
+            binding.path_template,
+            "/model/projects/{project_id}/recompute"
+        );
+        assert_eq!(binding.args.len(), 1);
+        assert_eq!(binding.args[0].name, "project_id");
+        assert!(matches!(binding.args[0].placement, ArgPlacement::Path));
+    }
+
+    #[test]
+    fn recompute_and_evaluate_is_listed_in_all() {
+        assert!(McpTool::ALL.contains(&McpTool::RecomputeAndEvaluate));
+    }
+
+    #[test]
+    fn import_reqif_url_binds_url_to_body_as_a_post() {
+        let binding = McpTool::ImportReqIfUrl.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(binding.path_template, "/requirements/import/url");
+        assert_eq!(binding.args.len(), 1);
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "url" && matches!(a.placement, ArgPlacement::Body)));
+    }
     fn render_kube_diagram_binds_manifest_to_body_output_to_query() {
         let binding = McpTool::RenderKubeDiagram.http_binding();
         assert!(matches!(binding.method, HttpMethod::Post));
@@ -502,6 +700,35 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn recompute_and_evaluate_binds_to_the_post_recompute_route() {
+        let binding = McpTool::RecomputeAndEvaluate.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(
+            binding.path_template,
+            "/model/projects/{project_id}/recompute"
+        );
+        assert_eq!(binding.args.len(), 1);
+        assert_eq!(binding.args[0].name, "project_id");
+        assert!(matches!(binding.args[0].placement, ArgPlacement::Path));
+    }
+
+    #[test]
+    fn recompute_and_evaluate_is_listed_in_all() {
+        assert!(McpTool::ALL.contains(&McpTool::RecomputeAndEvaluate));
+    }
+
+    #[test]
+    fn import_reqif_url_binds_url_to_body_as_a_post() {
+        let binding = McpTool::ImportReqIfUrl.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(binding.path_template, "/requirements/import/url");
+        assert_eq!(binding.args.len(), 1);
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "url" && matches!(a.placement, ArgPlacement::Body)));
+    }
     fn to_manifest_json_carries_both_the_mcp_schema_and_the_http_binding() {
         let json = McpTool::RenderKubeDiagram.to_manifest_json();
         assert_eq!(json["name"], "render_kubernetes_manifest");
@@ -519,6 +746,35 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn recompute_and_evaluate_binds_to_the_post_recompute_route() {
+        let binding = McpTool::RecomputeAndEvaluate.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(
+            binding.path_template,
+            "/model/projects/{project_id}/recompute"
+        );
+        assert_eq!(binding.args.len(), 1);
+        assert_eq!(binding.args[0].name, "project_id");
+        assert!(matches!(binding.args[0].placement, ArgPlacement::Path));
+    }
+
+    #[test]
+    fn recompute_and_evaluate_is_listed_in_all() {
+        assert!(McpTool::ALL.contains(&McpTool::RecomputeAndEvaluate));
+    }
+
+    #[test]
+    fn import_reqif_url_binds_url_to_body_as_a_post() {
+        let binding = McpTool::ImportReqIfUrl.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(binding.path_template, "/requirements/import/url");
+        assert_eq!(binding.args.len(), 1);
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "url" && matches!(a.placement, ArgPlacement::Body)));
+    }
     fn model_tools_have_the_expected_get_bindings() {
         let commits = McpTool::ListModelCommits.http_binding();
         assert!(matches!(commits.method, HttpMethod::Get));
@@ -541,6 +797,7 @@ mod tests {
     }
 
     #[test]
+    #[test]
     fn recompute_and_evaluate_binds_to_the_post_recompute_route() {
         let binding = McpTool::RecomputeAndEvaluate.http_binding();
         assert!(matches!(binding.method, HttpMethod::Post));
@@ -556,5 +813,18 @@ mod tests {
     #[test]
     fn recompute_and_evaluate_is_listed_in_all() {
         assert!(McpTool::ALL.contains(&McpTool::RecomputeAndEvaluate));
+    }
+
+    #[test]
+    fn import_reqif_url_binds_url_to_body_as_a_post() {
+        let binding = McpTool::ImportReqIfUrl.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(binding.path_template, "/requirements/import/url");
+        assert_eq!(binding.args.len(), 1);
+        assert!(binding
+            .args
+            .iter()
+            .any(|a| a.name == "url" && matches!(a.placement, ArgPlacement::Body)));
+    }
     }
 }
