@@ -82,9 +82,7 @@ starting this stream. kr0ki's stateless view slice is on
 - [ ] **`reqif-opa-mcp` refactor** — retain its artifact → document graph → candidate
   → OPA → ReqIF pipeline; replace its private requirement DTO/relation/provenance and
   validation types with the upstream `ufo-types` contract.
-- [ ] **Flexo baseline adapter** — import validated ReqIF into versioned RDF, retain
-  original artifact and deterministic export per Flexo commit, then materialize the
-  same normalized graph. Prove commit ↔ graph ↔ export equivalence in contract tests.
+- [ ] **Flexo baseline adapter** — §1 (ReqIF export, `kr0ki_core::reqif_export`) ✓ implemented in PR #55. §2 (Flexo storage, `flexo_reqif_sync`) and §3 (round-trip contract test) blocked on PR #52 (`digital_thread_sync`); see docs/superpowers/specs/2026-09-23-flexo-baseline-adapter-design.md.
 - [ ] **Playb00k requirements workspace** — after M2/M3 contracts exist: import and
   validate, select baseline, browse hierarchy/provenance, run all five viewpoints,
   distinguish asserted/inferred/proposed edges, explicitly promote, and open cached
@@ -249,12 +247,18 @@ starting this stream. kr0ki's stateless view slice is on
   arm (`rust_recognizer.rs`) has no route yet — it only covers module
   containment/field types so far, not enough of a real codebase's structure to be
   worth wiring until the call-graph/trait-impl slices land (see Box 1 above).
-- [ ] **per-`ViewDefinition` rendering (FR4)** — box-4 constructs + `SysmlViewKind` →
-  notation. No longer blocked on boxes 2+3 (both done — see above) or box 3→4 (also
-  done, `sysml_lift.rs`, which already assigns a `SysmlViewKind` per lifted relation).
-  What's still missing: grouping `LiftedRelation`s by `view_kind` before calling
-  `sysml_render`, so each `ViewDefinition` renders as its own diagram rather than one
-  diagram with every relation mixed together.
+- [x] **per-`ViewDefinition` rendering (FR4)** — `sysml_lift::group_by_view_kind`
+  (order-preserving `Vec<(SysmlViewKind, Vec<Relation>)>`, since `SysmlViewKind` has
+  no `Ord`) plus `sysml_lift::parse_view_kind_slug`, wired into both
+  `render_sysmlv2_snapshot` and `render_k8s_topology` (`crates/kr0ki-server/src/app.rs`)
+  as an optional `?view=<slug>` query param — e.g. `?view=interconnection`. Absent, the
+  route renders every relation in one diagram exactly as before (backward-compatible
+  by construction: the `None` arm is the same `lift_edges(&edges).into_iter().map(|l|
+  l.relation).collect()` the old code ran). Present but unrecognized → 400
+  `unknown_view_kind`. Present and recognized-but-empty → an empty diagram, not an
+  error. Also exposed on both `McpTool::RenderSysmlV2Snapshot` and
+  `McpTool::RenderK8sTopology`'s `input_schema`/`http_binding` as an optional `view`
+  query arg.
 - [ ] **`systhread-core` isometric backend (FR3)** — call its `render.rs`; do not port
   or re-solve the Cassowary/kasuari layout.
 - [ ] ◑ **`KubeDiagramsBackend` — leaf feature, NOT the pipeline** — substantially
@@ -271,9 +275,10 @@ starting this stream. kr0ki's stateless view slice is on
   (rootless), and `deploy/kr0ki-local.pod.yaml`'s `kr0ki-mcp` container sets
   `allowPrivilegeEscalation: false`, drops all capabilities, and
   `readOnlyRootFilesystem: true`. Pinned via the container's own `pip install` version
-  pins, not a floating `latest`. **Still open:** (1) no content-addressed caching —
-  every call re-runs `kube-diagrams` from scratch instead of hashing the normalised
-  `dot_json` and reusing `FsCache` the way every other format does; (2) no explicit
+  pins, not a floating `latest`. **Still open:** (1) ~~no content-addressed caching~~
+  **done** — `POST /render/kubediagram` now hashes `(output, manifest)` via
+  `kr0ki_core::cache::kubediagram_cache_key` and round-trips through
+  `FsCache::get_raw`/`put_raw` before proxying to the worker; (2) no explicit
   "no network" isolation declared (no `NetworkPolicy` in `deploy/`); (3) `-o` writes
   to a `tempfile.TemporaryDirectory()`, which is a fresh, not-attacker-writable path
   each call, but is not itself sandboxed against the rest of the container's `ro` FS

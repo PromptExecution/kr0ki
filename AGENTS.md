@@ -14,13 +14,14 @@ is a CDN-cached artifact.
 ## 0. Quick start (copy-paste)
 
 ```bash
-just test          # unit + in-process HTTP (all pass)
+just build-assistant-ui-vue  # build vendored @assistant-ui/vue from the submodule
+just test          # unit + in-process HTTP (all pass, builds assistant-ui first)
 just check         # fmt + clippy gate
 just run           # binds 0.0.0.0:8787, logs hostname + docs URL
 # visit http://<hostname>:8787/docs  ← live docgen from kr0ki's own source
 ```
 
-Live render against Kroki (needs network):
+Live render against the private, air-gapped kroki-compatible backend:
 ```bash
 just test-live        # SVG template render
 curl -X POST http://localhost:8787/render/graphviz?output=png \
@@ -84,10 +85,10 @@ crates/
 | Env var | Default | Purpose |
 |---|---|---|
 | `KR0KI_BIND` | `0.0.0.0:8787` | TCP listen address |
-| `KR0KI_BACKEND_URL` | `https://kroki.io` | Kroki backend (SECURE-mode for local) |
+| `KR0KI_BACKEND_URL` | `http://127.0.0.1:8010` in dev; `http://127.0.0.1:8000` in the pod | Private kroki-compatible backend; never point production at the public Kroki service |
 | `KR0KI_CACHE_DIR` | `./.kr0ki-cache` | Filesystem cache root |
 | `KR0KI_AUTH_TOKEN` | unset | If set, require `Authorization: Bearer <token>` on all routes except `/health` |
-| `KR0KI_TEST_BACKEND` | unset | Live render test backend (e.g. `https://kroki.io`) |
+| `KR0KI_TEST_BACKEND` | unset | Live render test backend; use the local/private kroki-compatible service |
 | `KR0KI_SYSMLV2_BASE_URL` | unset | Live SysML-v2 client test target |
 
 ---
@@ -162,6 +163,13 @@ different cache keys (already implemented — `cache_key()` hashes `(format, out
 fails with handshake errors, it's an external MCP transport issue — not a kr0ki bug.
 Use direct HTTP or `b00t-cli` instead.
 
+🤓 **@assistant-ui/vue is a preview (not on npm).** The package is vendored as a
+git submodule at `vendor/assistant-ui/` (branch `b00t-vue-package`). It must be built
+before playbook tests can run: `just build-assistant-ui-vue` (or it runs as part of
+`just test` / `just build`). The built `dist/` is not committed — it lives in the
+submodule's `.gitignore`. If `just test` fails on playbook import, run
+`just build-assistant-ui-vue` then `pnpm --dir playbook install`.
+
 🚩 **Auth is FR7 minimal** — single shared bearer token via env var. No OAuth, no JWT,
 no per-key rate limiting. Suitable for localhost/trusted-proxy only until D4/D5 land.
 
@@ -178,6 +186,58 @@ kr0ki exposes a service surface; agent interaction should go through b00t conven
 
 Long-term: a `kr0ki.mcp.toml` datum or vendored `kroki-mcp` server for MCP-native
 render calls. P0 uses direct HTTP.
+
+## 8a. Agent communications and infrastructure squawks
+
+Agent-to-agent work is migrating to A2A semantics over NATS JetStream. NATS is the
+internal durable transport; A2A supplies the agent identity, capability, task,
+context, acknowledgement, and lifecycle envelope. This is an internal NATS
+adaptation, not a claim that raw NATS subjects are HTTP A2A wire-compatible. The
+HTTP Agent Card/API bridge remains a later edge concern.
+
+Every agent MUST register before doing shared or infrastructure work and MUST renew
+its lease/heartbeat. Registration includes a stable `agent_id`, host, process or
+session identifier, protocol version, capabilities, and the subjects it consumes.
+An agent that cannot register MUST remain read-only and report the condition.
+
+The durable stream is `B00T_A2A` with the following subject contract:
+
+| Subject | Purpose |
+|---|---|
+| `a2a.v1.registry.register` | Agent Card and capability registration |
+| `a2a.v1.registry.heartbeat` | Lease renewal; stale agents are not routable |
+| `a2a.v1.registry.leave` | Graceful deregistration |
+| `a2a.v1.msg.<agent_id>` | Point-to-point A2A messages/tasks |
+| `a2a.v1.task.<task_id>.events` | Durable task lifecycle events |
+| `a2a.v1.ack.<correlation_id>` | Transport and agent-level acknowledgements |
+| `a2a.v1.squawk.infra` | Common infrastructure activity/audit channel |
+| `a2a.v1.audit.>` | Immutable raw traffic for later emergence analysis |
+
+Infrastructure changes MUST squawk `PREPARE`, `START`, `COMPLETE`, `FAIL`, or
+`CANCEL` to `a2a.v1.squawk.infra`. Each event carries `event_id`,
+`correlation_id`, `agent_id`, host, action, scope, reason, risk/approval state,
+UTC timestamp, repository and git SHA, the `just`/b00t recipe or command, and a
+redacted result. Never put credentials, tokens, or private keys in a message.
+Other agents and the historian should consume this channel with durable consumers;
+it is the shared operational “squawk” log, not an ephemeral chat room.
+
+Use JetStream publish acknowledgements plus explicit consumer acknowledgements.
+Set a durable consumer, bounded redelivery (`MaxDeliver`), an acknowledgement
+deadline (`AckWait`), and a deduplication id (`Nats-Msg-Id` = `event_id`). A
+transport ACK only means NATS accepted the event; the sender must separately wait
+for an agent/task ACK and report timeout or failure. Handlers must be idempotent by
+`event_id`/`correlation_id`.
+
+During migration, `b00t agent` Redis messaging is a compatibility bridge only. Do
+not add new Redis-only protocols. Configure NATS with `NATS_URL` (use the private
+tailnet/service address for remote hosts such as fung1), and use `just`/b00t
+wrappers so registration, squawks, and historian capture are automatic. If a
+message is accepted but no agent ACK arrives, verify that the peer is registered,
+has a live heartbeat, and owns a durable consumer; do not infer that delivery means
+the remote Codex is online.
+
+Migration stages and acceptance criteria are recorded in
+`docs/DESIGN-NOTE-a2a-nats-durable.md`.
 
 ---
 

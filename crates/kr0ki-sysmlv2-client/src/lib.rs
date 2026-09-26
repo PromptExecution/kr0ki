@@ -4,23 +4,24 @@
 //! It targets the *generic* OMG PSM, not any one server. The endpoint subset here is
 //! the intersection that Flexo's `flexo-mms-sysmlv2` (v0.2.0), the OMG Java pilot
 //! `Systems-Modeling/SysML-v2-API-Services`, `Open-MBEE/OpenSysML`, and Eclipse SysON's
-//! `/api/rest/` all implement: **read-only** Project / Branch / Tag / Commit / Element
-//! / Relationship navigation, plus `roots`. No Diff/Merge, no Query POST, no mutation —
-//! those are either unimplemented or inconsistent across the target servers (see
-//! `docs/EVAL-flexo.md`, `docs/EVAL-syson.md`).
+//! `/api/rest/` all implement: primarily **read-only** Project / Branch / Tag / Commit /
+//! Element / Relationship navigation, plus `roots`, with limited write support for commit
+//! creation against servers that implement it (the OMG Java pilot does; Flexo's is currently
+//! stubbed — see `docs/EVAL-flexo.md` and `docs/EVAL-syson.md`). No Diff/Merge, no Query POST.
 //!
-//! ## Endpoints (all GET), paths per the OMG PSM
+//! ## Endpoints, paths per the OMG PSM
 //!
 //! | Method | Path |
 //! |---|---|
-//! | [`projects`](SysmlV2Client::projects) | `/projects` |
-//! | [`project`](SysmlV2Client::project) | `/projects/{id}` |
-//! | [`branches`](SysmlV2Client::branches) / [`branch`](SysmlV2Client::branch) | `/projects/{id}/branches[/{branchId}]` |
-//! | [`tags`](SysmlV2Client::tags) / [`tag`](SysmlV2Client::tag) | `/projects/{id}/tags[/{tagId}]` |
-//! | [`commits`](SysmlV2Client::commits) / [`commit`](SysmlV2Client::commit) | `/projects/{id}/commits[/{commitId}]` |
-//! | [`elements`](SysmlV2Client::elements) | `/projects/{id}/commits/{cid}/elements?page-after=&page-before=&page-size=` |
-//! | [`roots`](SysmlV2Client::roots) | `/projects/{id}/commits/{cid}/roots` |
-//! | [`relationships`](SysmlV2Client::relationships) | `/projects/{id}/commits/{cid}/elements/{eid}/relationships?direction=in\|out\|both` |
+//! | [`projects`](SysmlV2Client::projects) | `GET /projects` |
+//! | [`project`](SysmlV2Client::project) | `GET /projects/{id}` |
+//! | [`branches`](SysmlV2Client::branches) / [`branch`](SysmlV2Client::branch) | `GET /projects/{id}/branches[/{branchId}]` |
+//! | [`tags`](SysmlV2Client::tags) / [`tag`](SysmlV2Client::tag) | `GET /projects/{id}/tags[/{tagId}]` |
+//! | [`commits`](SysmlV2Client::commits) / [`commit`](SysmlV2Client::commit) | `GET /projects/{id}/commits[/{commitId}]` |
+//! | [`create_commit`](SysmlV2Client::create_commit) | `POST /projects/{id}/commits` |
+//! | [`elements`](SysmlV2Client::elements) | `GET /projects/{id}/commits/{cid}/elements?page-after=&page-before=&page-size=` |
+//! | [`roots`](SysmlV2Client::roots) | `GET /projects/{id}/commits/{cid}/roots` |
+//! | [`relationships`](SysmlV2Client::relationships) | `GET /projects/{id}/commits/{cid}/elements/{eid}/relationships?direction=in\|out\|both` |
 //!
 //! ## Paging heuristic
 //!
@@ -59,7 +60,8 @@ use serde::de::DeserializeOwned;
 pub use error::ClientError;
 pub use hash::{canonical_json, compute_content_hash};
 pub use model::{
-    Branch, Commit, Direction, Element, ElementPage, ModelSnapshot, Page, Project, Ref, Tag,
+    Branch, Commit, CommitRequest, DataVersion, Direction, Element, ElementPage, ModelSnapshot,
+    Page, Project, Ref, Tag,
 };
 pub use paging::PageParamStyle;
 
@@ -202,6 +204,36 @@ impl SysmlV2Client {
     pub async fn commit(&self, project_id: &str, commit_id: &str) -> Result<Commit, ClientError> {
         self.get_json(&format!("/projects/{project_id}/commits/{commit_id}"), &[])
             .await
+    }
+
+    /// `POST /projects/{project_id}/commits[?branchId={branch_id}]` — create a new
+    /// commit. An empty `request.change` is technically allowed by this method (it
+    /// will POST it) — callers that want to skip empty commits entirely (the digital-
+    /// thread sync's own policy) check for that before calling this.
+    pub async fn create_commit(
+        &self,
+        project_id: &str,
+        branch_id: Option<&str>,
+        request: CommitRequest,
+    ) -> Result<Commit, ClientError> {
+        let url = format!("{}/projects/{}/commits", self.base_url, project_id);
+        let mut req = self.http.post(&url).json(&request);
+        if let Some(branch_id) = branch_id {
+            req = req.query(&[("branchId", branch_id)]);
+        }
+        if let Some(token) = &self.token {
+            req = req.bearer_auth(token);
+        }
+        let resp = req.send().await?;
+        let status = resp.status();
+        let bytes = resp.bytes().await?;
+        if !status.is_success() {
+            return Err(ClientError::Status {
+                code: status.as_u16(),
+                body: truncate_body(&bytes),
+            });
+        }
+        Ok(serde_json::from_slice(&bytes)?)
     }
 
     // ---- Elements ------------------------------------------------------------

@@ -55,7 +55,7 @@ pub struct HttpKrokiBackend {
 }
 
 impl HttpKrokiBackend {
-    /// `base_url` e.g. `https://kroki.io` or `http://localhost:8000`. Trailing slash
+    /// `base_url` e.g. `http://127.0.0.1:8010` or `http://localhost:8000`. Trailing slash
     /// tolerated.
     pub fn new(base_url: impl Into<String>) -> Self {
         let base_url = base_url.into().trim_end_matches('/').to_string();
@@ -123,8 +123,8 @@ mod tests {
 
     #[test]
     fn base_url_trailing_slash_is_normalised() {
-        let b = HttpKrokiBackend::new("https://kroki.io/");
-        assert_eq!(b.base_url(), "https://kroki.io");
+        let b = HttpKrokiBackend::new("http://127.0.0.1:8010/");
+        assert_eq!(b.base_url(), "http://127.0.0.1:8010");
     }
 
     // A live render test against a real Kroki is an integration test, env-gated on

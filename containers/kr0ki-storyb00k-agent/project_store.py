@@ -7,6 +7,7 @@ A project is the conceptual unit the user works on within a session:
       "goal": the user's initial desire,
       "requirements": "Locked in:" summary the agent produced (None until locked),
       "qa": [ {"question", "answer", "ts"} ... ],   # refinement history
+      "questionsAsked": int,                # issued clarifying-question interrupts
       "prompts": [ {"role", "text", "ts", "run"} ... ],  # full prompt log
       "thinking": [ {"text", "ts", "run"} ... ],    # LLM reasoning captured server-side
       "createdAt", "updatedAt",
@@ -65,6 +66,7 @@ def get_project(thread_id, create=True):
                     "requirements": None,
                     "locked": False,
                     "qa": [],
+                    "questionsAsked": 0,
                     "prompts": [],
                     "thinking": [],
                     "createdAt": time.time(),
@@ -72,6 +74,7 @@ def get_project(thread_id, create=True):
                 }
             _memory[thread_id] = project
         assert project is not None
+        project.setdefault("questionsAsked", len(project.get("qa", [])))
         return project
 
 
@@ -130,6 +133,19 @@ def add_qa(thread_id, question, answer):
     return save_project(thread_id, project)
 
 
+def record_clarifying_question(thread_id, limit):
+    """Reserve one user-facing clarification, enforcing the per-project cap."""
+    project = get_project(thread_id)
+    with _lock:
+        asked = int(project.get("questionsAsked", len(project.get("qa", []))))
+        if asked >= limit:
+            return False, asked
+        project["questionsAsked"] = asked + 1
+        asked += 1
+    save_project(thread_id, project)
+    return True, asked
+
+
 def set_requirements(thread_id, requirements):
     project = get_project(thread_id)
     project["requirements"] = (requirements or "")[:MAX_TEXT]
@@ -158,6 +174,7 @@ def list_projects():
                     "goal": p.get("goal"),
                     "locked": p.get("locked", False),
                     "qaCount": len(p.get("qa", [])),
+                    "questionsAsked": p.get("questionsAsked", len(p.get("qa", []))),
                     "promptCount": len(p.get("prompts", [])),
                     "updatedAt": p.get("updatedAt"),
                 })

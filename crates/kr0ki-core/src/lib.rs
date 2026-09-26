@@ -36,6 +36,7 @@ pub mod k8s_recognizer;
 pub mod mcp_tool;
 pub mod probe;
 pub mod render;
+pub mod reqif_export;
 pub mod reqif_import;
 /// Canonical home is `ufo_types::mbse::requirements` (kr0ki M1,
 /// 2026-09-19) — re-exported here so existing `kr0ki_core::requirements::*`

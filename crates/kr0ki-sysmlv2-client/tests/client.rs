@@ -1,6 +1,8 @@
 //! Wiremock-backed tests for `SysmlV2Client`. No real network.
 
-use kr0ki_sysmlv2_client::{Direction, Page, PageParamStyle, SysmlV2Client};
+use kr0ki_sysmlv2_client::{
+    CommitRequest, DataVersion, Direction, Page, PageParamStyle, Ref, SysmlV2Client,
+};
 use serde_json::json;
 use wiremock::matchers::{header, method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -330,4 +332,64 @@ async fn content_hash_changes_when_a_field_value_changes() {
         h_base, h_mut,
         "a changed element field must change content_hash"
     );
+}
+
+#[tokio::test]
+async fn create_commit_posts_change_set_and_parses_response() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/projects/p1/commits"))
+        .and(query_param("branchId", "main"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "@id": "c2",
+            "@type": "Commit",
+            "owningProject": {"@id": "p1"}
+        })))
+        .mount(&server)
+        .await;
+
+    let client = SysmlV2Client::new(server.uri());
+    let request = CommitRequest {
+        type_: "Commit",
+        change: vec![DataVersion {
+            type_: "DataVersion",
+            payload: Some(
+                json!({"@type": "PartUsage", "name": "customers (marts)", "identifier": "dbt:model.jaffle_shop.customers"}),
+            ),
+            identity: None,
+        }],
+        previous_commit: Some(Ref {
+            at_id: "c1".to_string(),
+            extra: Default::default(),
+        }),
+    };
+
+    let commit = client
+        .create_commit("p1", Some("main"), request)
+        .await
+        .unwrap();
+
+    assert_eq!(commit.at_id, "c2");
+}
+
+#[tokio::test]
+async fn create_commit_omits_branch_id_query_param_when_none() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/projects/p1/commits"))
+        .and(query_param_is_missing("branchId"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"@id": "c1", "@type": "Commit"})),
+        )
+        .mount(&server)
+        .await;
+
+    let client = SysmlV2Client::new(server.uri());
+    let request = CommitRequest {
+        type_: "Commit",
+        change: vec![],
+        previous_commit: None,
+    };
+
+    client.create_commit("p1", None, request).await.unwrap();
 }

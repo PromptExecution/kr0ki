@@ -373,10 +373,27 @@ async fn render_sysmlv2_snapshot(
         Err(error) => return client_error_response(error),
     };
     let edges = kr0ki_core::ufo_graph::build_ufo_graph(&snapshot);
-    let relations: Vec<_> = kr0ki_core::sysml_lift::lift_edges(&edges)
-        .into_iter()
-        .map(|lifted| lifted.relation)
-        .collect();
+    let lifted = kr0ki_core::sysml_lift::lift_edges(&edges);
+    let relations: Vec<_> = match params.get("view") {
+        Some(view) => {
+            let kind = match kr0ki_core::sysml_lift::parse_view_kind_slug(view) {
+                Some(kind) => kind,
+                None => {
+                    return error_json(
+                        StatusCode::BAD_REQUEST,
+                        "unknown_view_kind",
+                        &format!("unrecognized view kind: {view}"),
+                    )
+                }
+            };
+            kr0ki_core::sysml_lift::group_by_view_kind(lifted)
+                .into_iter()
+                .find(|(k, _)| *k == kind)
+                .map(|(_, relations)| relations)
+                .unwrap_or_default()
+        }
+        None => lifted.into_iter().map(|l| l.relation).collect(),
+    };
     let d2 = kr0ki_core::sysml_render::to_d2(&relations);
     let output = params
         .get("output")
@@ -791,10 +808,12 @@ const MAX_MANIFEST_BYTES: usize = 1_048_576;
 
 /// `POST /render/kubediagram?output=svg|dot_json` — mcp-http-parity design,
 /// 2026-09-16. Body is a Kubernetes manifest (multi-doc YAML). Proxies to
-/// the `kr0ki-mcp` sidecar's internal `/render` listener — never through
-/// kr0ki-server's own content-addressed cache (backlog, see the design
-/// doc's §1 — kube-diagrams' output isn't itself Kroki-renderable text, so
-/// it needs its own cache-key derivation, deliberately deferred).
+/// the `kr0ki-mcp` sidecar's internal `/render` listener. Content-addressed
+/// via `FsCache::get_raw`/`put_raw` keyed by
+/// [`kr0ki_core::cache::kubediagram_cache_key`] — this route's `dot_json`
+/// output isn't one of `OutputKind`'s two image variants, so it bypasses
+/// `RenderService` and calls the raw cache methods directly instead of
+/// every other `/render/*` route's `state.service.render`.
 async fn render_kubediagram(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
@@ -833,6 +852,26 @@ async fn render_kubediagram(
         );
     }
 
+    // `output` was validated above to be exactly "svg" or "dot_json" -- reuse it
+    // directly as the cache file extension.
+    let cache_ext = output;
+    let key = kr0ki_core::cache::kubediagram_cache_key(output, &body);
+    // A cache read error is treated as a miss, not a hard failure -- caching
+    // must never make this route less reliable than it already is.
+    if let Ok(Some(cached)) = state.service.cache().get_raw(&key, cache_ext).await {
+        let content_type = if output == "svg" {
+            "image/svg+xml"
+        } else {
+            "application/json"
+        };
+        return (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, content_type)],
+            cached,
+        )
+            .into_response();
+    }
+
     let client = reqwest::Client::new();
     let resp = client
         .post(format!("{worker_url}/render?output={output}"))
@@ -848,12 +887,17 @@ async fn render_kubediagram(
                 "application/json"
             };
             match r.bytes().await {
-                Ok(bytes) => (
-                    StatusCode::OK,
-                    [(header::CONTENT_TYPE, content_type)],
-                    bytes,
-                )
-                    .into_response(),
+                Ok(bytes) => {
+                    // Non-fatal on a cache write error (e.g. disk full) -- the
+                    // response still succeeds even if the write fails.
+                    let _ = state.service.cache().put_raw(&key, cache_ext, &bytes).await;
+                    (
+                        StatusCode::OK,
+                        [(header::CONTENT_TYPE, content_type)],
+                        bytes,
+                    )
+                        .into_response()
+                }
                 Err(e) => error_json(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "kubediagram_worker_read_failed",
@@ -942,10 +986,27 @@ async fn render_k8s_topology(
 
     let recognizer = kr0ki_core::k8s_recognizer::KubernetesRecognizer::new();
     let edges = recognizer.recognize(&manifests);
-    let relations: Vec<_> = kr0ki_core::sysml_lift::lift_edges(&edges)
-        .into_iter()
-        .map(|lifted| lifted.relation)
-        .collect();
+    let lifted = kr0ki_core::sysml_lift::lift_edges(&edges);
+    let relations: Vec<_> = match params.get("view") {
+        Some(view) => {
+            let kind = match kr0ki_core::sysml_lift::parse_view_kind_slug(view) {
+                Some(kind) => kind,
+                None => {
+                    return error_json(
+                        StatusCode::BAD_REQUEST,
+                        "unknown_view_kind",
+                        &format!("unrecognized view kind: {view}"),
+                    )
+                }
+            };
+            kr0ki_core::sysml_lift::group_by_view_kind(lifted)
+                .into_iter()
+                .find(|(k, _)| *k == kind)
+                .map(|(_, relations)| relations)
+                .unwrap_or_default()
+        }
+        None => lifted.into_iter().map(|l| l.relation).collect(),
+    };
     let d2 = kr0ki_core::sysml_render::to_d2(&relations);
 
     let output = params

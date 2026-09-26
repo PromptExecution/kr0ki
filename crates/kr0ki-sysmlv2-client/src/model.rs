@@ -82,6 +82,30 @@ pub struct Commit {
     pub extra: Map<String, Value>,
 }
 
+/// One element change within a [`CommitRequest`]. `Some(payload)` with no
+/// `identity` creates a new element (server assigns its `@id`); `Some(payload)`
+/// with `identity` set updates that element; `None` payload with `identity` set
+/// deletes it.
+#[derive(Debug, Clone, Serialize)]
+pub struct DataVersion {
+    #[serde(rename = "@type")]
+    pub type_: &'static str,
+    pub payload: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub identity: Option<Ref>,
+}
+
+/// Request body for `POST /projects/{id}/commits`. `previous_commit` is omitted
+/// for a project's first-ever commit.
+#[derive(Debug, Clone, Serialize)]
+pub struct CommitRequest {
+    #[serde(rename = "@type")]
+    pub type_: &'static str,
+    pub change: Vec<DataVersion>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "previousCommit")]
+    pub previous_commit: Option<Ref>,
+}
+
 /// A single model element. `@id` and `@type` are lifted out; everything else the
 /// element carries stays in `fields`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
