@@ -61,11 +61,17 @@ pub struct AppState {
     pub boot_wall_clock: std::time::SystemTime,
     /// Caller-auth token presence for /health reporting (material never echoed).
     pub auth_token: Option<String>,
+    /// Ledgrrr contract reference for response headers.
+    pub contract: Arc<super::contract::ContractReference>,
 }
 
 /// If `auth_token` is Some, inject a `RequireAuth` layer that rejects requests
 /// missing `Authorization: Bearer <token>`.
-pub fn router(state: AppState, auth_token: Option<String>) -> Router {
+pub fn router(
+    state: AppState,
+    auth_token: Option<String>,
+    contract: Arc<super::contract::ContractReference>,
+) -> Router {
     let r = Router::new()
         .route("/", get(root))
         .route("/welcome", get(welcome))
@@ -125,6 +131,11 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
         .route("/cache/:key", get(cache_get))
         .merge(crate::docs::routes())
         .with_state(state);
+
+    // Add contract middleware first (before auth, so all responses get headers)
+    let r = r.layer(axum::middleware::from_fn(move |req, next| {
+        super::contract::contract_middleware(req, next, contract.clone())
+    }));
 
     if let Some(token) = auth_token {
         r.layer(axum::middleware::from_fn(move |req, next| {
@@ -764,15 +775,17 @@ async fn render(
     State(state): State<AppState>,
     Path(format): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Extension(request_id): axum::extract::Extension<super::contract::RequestId>,
     body: Bytes,
 ) -> Response {
     let format = match DiagramFormat::from_str(&format) {
         Ok(f) => f,
         Err(e) => {
-            return error_json(
+            return error_json_with_id(
                 StatusCode::BAD_REQUEST,
                 "unsupported_format",
                 &e.to_string(),
+                &request_id,
             )
         }
     };
@@ -780,17 +793,19 @@ async fn render(
     let source = match std::str::from_utf8(&body) {
         Ok(s) if !s.trim().is_empty() => s,
         Ok(_) => {
-            return error_json(
+            return error_json_with_id(
                 StatusCode::BAD_REQUEST,
                 "empty_source",
                 "diagram source is empty",
+                &request_id,
             )
         }
         Err(_) => {
-            return error_json(
+            return error_json_with_id(
                 StatusCode::BAD_REQUEST,
                 "invalid_utf8",
                 "diagram source is not UTF-8",
+                &request_id,
             )
         }
     };
@@ -1237,6 +1252,23 @@ pub(crate) fn error_json(status: StatusCode, code: &str, message: &str) -> Respo
     (
         status,
         Json(serde_json::json!({ "error": code, "message": message })),
+    )
+        .into_response()
+}
+
+/// Extract request ID from request extensions (set by contract middleware).
+/// Returns a default "unknown" if not present (shouldn't happen in normal flow).
+pub(crate) fn error_json_with_id(
+    status: StatusCode,
+    code: &str,
+    message: &str,
+    request_id: &super::contract::RequestId,
+) -> Response {
+    (
+        status,
+        Json(super::contract::error_with_request_id(
+            code, message, request_id,
+        )),
     )
         .into_response()
 }

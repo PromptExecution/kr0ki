@@ -18,6 +18,8 @@ use tower::ServiceExt;
 
 #[path = "../src/app.rs"]
 mod app;
+#[path = "../src/contract.rs"]
+mod contract;
 #[path = "../src/docs.rs"]
 mod docs;
 use app::{router, AppState};
@@ -37,6 +39,7 @@ async fn kr0ki_renders_its_own_deployment_manifest() {
         HttpKrokiBackend::new("http://127.0.0.1:1"), // this route never uses the Kroki backend
         FsCache::new(&dir),
     );
+    let contract = Arc::new(contract::ContractReference::default());
     let state = AppState {
         service: Arc::new(service),
         playbook_dir: std::env::temp_dir().join("kr0ki-no-playbook-assets"),
@@ -51,8 +54,9 @@ async fn kr0ki_renders_its_own_deployment_manifest() {
         started_at: std::time::Instant::now(),
         boot_wall_clock: std::time::SystemTime::now(),
         auth_token: None,
+        contract: contract.clone(),
     };
-    let app = router(state, None);
+    let app = router(state, None, contract);
 
     let resp = app
         .oneshot(

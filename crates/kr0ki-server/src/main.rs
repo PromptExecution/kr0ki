@@ -24,6 +24,7 @@
 //!   KR0KI_SYSMLV2_TOKEN         optional bearer token for that model server.
 
 mod app;
+pub mod contract;
 mod dev_session;
 mod docs;
 mod phase0_fixture;
@@ -105,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
         HttpKrokiBackend::new(&backend_url),
         FsCache::new(&cache_dir),
     );
+    let contract = Arc::new(contract::ContractReference::from_env());
     let state = AppState {
         service: Arc::new(service),
         playbook_dir,
@@ -119,6 +121,7 @@ async fn main() -> anyhow::Result<()> {
         started_at: std::time::Instant::now(),
         boot_wall_clock: std::time::SystemTime::now(),
         auth_token: auth_token.clone(),
+        contract: contract.clone(),
     };
 
     let listener = tokio::net::TcpListener::bind(&bind)
@@ -130,7 +133,7 @@ async fn main() -> anyhow::Result<()> {
         local_addr.port()
     );
 
-    axum::serve(listener, router(state, auth_token))
+    axum::serve(listener, router(state, auth_token, contract))
         .await
         .context("server error")?;
     Ok(())

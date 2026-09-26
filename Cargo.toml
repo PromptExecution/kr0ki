@@ -26,6 +26,7 @@ license = "MIT"
 repository = "https://github.com/PromptExecution/kr0ki"
 
 [workspace.dependencies]
+uuid = { version = "1.10", features = ["v4", "v7"] }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
