@@ -25,6 +25,7 @@ pub enum McpTool {
     GetModelRoots,
     QueryModelRelationships,
     QueryModelGraph,
+    RecomputeAndEvaluate,
 }
 
 impl McpTool {
@@ -42,6 +43,7 @@ impl McpTool {
         Self::GetModelRoots,
         Self::QueryModelRelationships,
         Self::QueryModelGraph,
+        Self::RecomputeAndEvaluate,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -59,6 +61,7 @@ impl McpTool {
             Self::GetModelRoots => "get_model_roots",
             Self::QueryModelRelationships => "query_model_relationships",
             Self::QueryModelGraph => "query_model_graph",
+            Self::RecomputeAndEvaluate => "recompute_and_evaluate",
         }
     }
 
@@ -94,6 +97,11 @@ impl McpTool {
             }
             Self::QueryModelGraph => {
                 "Query kr0ki-server's in-memory RDF graph (bounded query shapes, not SPARQL)."
+            }
+            Self::RecomputeAndEvaluate => {
+                "Recompute a project's canonical graph from its latest commit, evaluate every \
+                 RuleDocument element against it, and fold violations into its requirements \
+                 graph as inferred, promotable Satisfies relations."
             }
         }
     }
@@ -171,6 +179,13 @@ impl McpTool {
                 "properties": {
                     "shape": {"type": "string", "enum": ["triples_about", "related_via"]},
                     "subject": {"type": "string", "description": "Element id (IRI local name) to query about."}
+                }
+            }),
+            Self::RecomputeAndEvaluate => serde_json::json!({
+                "type": "object",
+                "required": ["project_id"],
+                "properties": {
+                    "project_id": {"type": "string", "description": "SysML v2 project id."}
                 }
             }),
         }
@@ -285,6 +300,14 @@ impl McpTool {
                     ArgBinding { name: "subject", placement: ArgPlacement::Query },
                 ],
             },
+            Self::RecomputeAndEvaluate => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/model/projects/{project_id}/recompute",
+                args: &[ArgBinding {
+                    name: "project_id",
+                    placement: ArgPlacement::Path,
+                }],
+            },
         }
     }
 
@@ -353,13 +376,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_thirteen_tools_have_unique_names() {
+    fn all_tools_have_unique_names() {
         let mut names: Vec<&str> = McpTool::ALL.iter().map(|t| t.name()).collect();
         let before = names.len();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), before, "duplicate McpTool name in ALL");
-        assert_eq!(McpTool::ALL.len(), 13);
+        assert_eq!(McpTool::ALL.len(), 14);
     }
 
     #[test]
@@ -515,5 +538,23 @@ mod tests {
         let graph = McpTool::QueryModelGraph.http_binding();
         assert_eq!(graph.path_template, "/model/graph/query");
         assert_eq!(graph.args.len(), 2);
+    }
+
+    #[test]
+    fn recompute_and_evaluate_binds_to_the_post_recompute_route() {
+        let binding = McpTool::RecomputeAndEvaluate.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(
+            binding.path_template,
+            "/model/projects/{project_id}/recompute"
+        );
+        assert_eq!(binding.args.len(), 1);
+        assert_eq!(binding.args[0].name, "project_id");
+        assert!(matches!(binding.args[0].placement, ArgPlacement::Path));
+    }
+
+    #[test]
+    fn recompute_and_evaluate_is_listed_in_all() {
+        assert!(McpTool::ALL.contains(&McpTool::RecomputeAndEvaluate));
     }
 }

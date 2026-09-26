@@ -61,7 +61,9 @@
 
 use kr0ki_sysmlv2_client::{Element, ModelSnapshot};
 use serde_json::Value;
-use ufo_types::ontology::{OntologicalEdge, UfoRelation};
+use ufo_types::ontology::{OntologicalEdge, SourceAnchor, UfoRelation};
+use ufo_types::stereotype::UfoStereotype;
+use ufo_types::sysgraph::{OntologicalNode, SysGraph};
 use ufo_types::sysml_model::ElementId;
 
 /// Build the canonical UFO semantic graph for one `ModelSnapshot`.
@@ -77,7 +79,47 @@ pub fn build_ufo_graph(snapshot: &ModelSnapshot) -> Vec<OntologicalEdge> {
         .elements
         .iter()
         .filter_map(ontological_edge_for)
+        .map(|mut edge| {
+            edge.provenance = vec![
+                SourceAnchor::KermlQualifiedName(edge.id.clone()),
+                SourceAnchor::Vcs {
+                    repo: None,
+                    commit: snapshot.commit_id.clone(),
+                    path: None,
+                },
+            ];
+            edge
+        })
         .collect()
+}
+
+/// Box 2's `SysGraph`-envelope boundary for the SysML-v2 arm (`docs/TODO.md`'s
+/// open "is adopting the envelope worth it" question, resolved here: yes, at
+/// this one serialization/evaluation boundary, not by changing
+/// [`build_ufo_graph`]'s own signature or its callers).
+///
+/// Pushes a node for **every** element in the snapshot, deliberately
+/// including relationship elements (`FeatureMembership`, `Specialization`,
+/// etc. -- these are also separately lifted into edges by
+/// [`build_ufo_graph`], so they end up represented as both a node and an
+/// edge) and `RuleDocument` elements themselves. This is intentional, not a
+/// bug: a rule evaluator (`RuleBackend`) receiving this `SysGraph` as its
+/// Rego input needs to be able to see and reason about relationship and
+/// rule-document elements as nodes too, not just the "business" elements.
+pub fn build_sysgraph(snapshot: &ModelSnapshot) -> SysGraph {
+    let mut graph = SysGraph::new();
+    for el in &snapshot.elements {
+        let id = ElementId::new(el.id());
+        let stereotype = UfoStereotype::Kind(el.ty().to_string());
+        graph.push_node(match el.name() {
+            Some(name) => OntologicalNode::with_label(id, stereotype, name),
+            None => OntologicalNode::new(id, stereotype),
+        });
+    }
+    for edge in build_ufo_graph(snapshot) {
+        graph.push_edge(edge);
+    }
+    graph
 }
 
 fn ontological_edge_for(el: &Element) -> Option<OntologicalEdge> {
@@ -193,7 +235,7 @@ mod tests {
     fn snapshot(elements: Vec<Element>) -> ModelSnapshot {
         ModelSnapshot {
             project_id: "p1".into(),
-            commit_id: "c1".into(),
+            commit_id: "test".into(),
             roots: Vec::new(),
             content_hash: "test".into(),
             elements,
@@ -349,5 +391,50 @@ mod tests {
         assert_eq!(graph.len(), 2);
         assert_eq!(graph[0].id, "rel1");
         assert_eq!(graph[1].id, "rel2");
+    }
+
+    #[test]
+    fn build_ufo_graph_populates_source_anchor_provenance() {
+        let snap = snapshot(vec![element(json!({
+            "@id": "fm-1",
+            "@type": "FeatureMembership",
+            "owner": {"@id": "pkg-1"},
+            "member": {"@id": "part-1"}
+        }))]);
+        let edges = build_ufo_graph(&snap);
+        assert_eq!(edges.len(), 1);
+        let edge = &edges[0];
+        assert!(edge.is_attested());
+        assert!(edge
+            .provenance
+            .iter()
+            .any(|a| matches!(a, SourceAnchor::KermlQualifiedName(qn) if qn == "fm-1")));
+        assert!(edge
+            .provenance
+            .iter()
+            .any(|a| matches!(a, SourceAnchor::Vcs { commit, .. } if commit == "test")));
+    }
+
+    #[test]
+    fn build_sysgraph_includes_one_node_per_element_and_all_edges() {
+        let snap = snapshot(vec![
+            element(json!({"@id": "pkg-1", "@type": "Package", "name": "Root"})),
+            element(json!({"@id": "part-1", "@type": "PartUsage"})),
+            element(json!({
+                "@id": "fm-1",
+                "@type": "FeatureMembership",
+                "owner": {"@id": "pkg-1"},
+                "member": {"@id": "part-1"}
+            })),
+        ]);
+        let graph = build_sysgraph(&snap);
+        assert_eq!(graph.nodes.len(), 3);
+        let root = graph.node(&ElementId::new("pkg-1")).expect("root node");
+        assert_eq!(root.label.as_deref(), Some("Root"));
+        assert!(matches!(&root.stereotype, UfoStereotype::Kind(k) if k == "Package"));
+        let part = graph.node(&ElementId::new("part-1")).expect("part node");
+        assert_eq!(part.label, None);
+        assert_eq!(graph.edges.len(), 1);
+        assert!(graph.dangling_edges().is_empty());
     }
 }

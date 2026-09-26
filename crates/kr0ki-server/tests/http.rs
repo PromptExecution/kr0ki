@@ -113,7 +113,7 @@ async fn formats_lists_supported_slugs_only() {
 }
 
 #[tokio::test]
-async fn mcp_tools_lists_all_thirteen_tools_with_bindings() {
+async fn mcp_tools_lists_all_tools_with_bindings() {
     let app = test_app(test_state("mcp-tools"));
     let resp = app
         .oneshot(Request::get("/mcp/tools").body(Body::empty()).unwrap())
@@ -122,7 +122,7 @@ async fn mcp_tools_lists_all_thirteen_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 13);
+    assert_eq!(tools.len(), 14);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
@@ -131,6 +131,7 @@ async fn mcp_tools_lists_all_thirteen_tools_with_bindings() {
     assert!(names.contains(&"render_sysmlv2_snapshot"));
     assert!(names.contains(&"import_reqif"));
     assert!(names.contains(&"query_model_graph"));
+    assert!(names.contains(&"recompute_and_evaluate"));
 
     let render = tools
         .iter()
@@ -403,6 +404,68 @@ async fn model_projects_proxy_and_snapshot_materializes_the_graph() {
         )
         .iter()
         .any(|(_, predicate, object)| predicate == "name" && object == "Engine"));
+}
+
+#[tokio::test]
+async fn model_recompute_evaluates_rule_docs_and_returns_violations() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/projects/p1/commits"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {"@id": "c1", "@type": "Commit"}
+            ])),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path(
+            "/projects/p1/commits/c1/elements",
+        ))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!([
+            {"@id": "elem-1", "@type": "PartUsage", "name": "BadPart"},
+            {
+                "@id": "rule:no-bad-parts",
+                "@type": "RuleDocument",
+                "name": "No BadPart allowed",
+                "rego": "package kr0ki\n\nviolations := [v |\n    some n\n    input.nodes[n].label == \"BadPart\"\n    v := {\"element_id\": input.nodes[n].id, \"reason\": \"BadPart is not allowed\"}\n]\n"
+            }
+        ])))
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/projects/p1/commits/c1/roots"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!(["elem-1"])),
+        )
+        .mount(&server)
+        .await;
+
+    let response = test_app(test_state_with_sysmlv2_client("recompute", server.uri()))
+        .oneshot(
+            Request::post("/model/projects/p1/recompute")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.contains("\"disposition\""));
+    assert!(body.contains("BadPart is not allowed"));
+}
+
+#[tokio::test]
+async fn model_recompute_without_a_configured_client_is_503() {
+    let response = test_app(test_state("recompute-unconfigured"))
+        .oneshot(
+            Request::post("/model/projects/p1/recompute")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
 #[tokio::test]

@@ -69,6 +69,41 @@ zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
 # surface. Unlike regorus (feat/requirements-rules-system), reqrs has
 # no [features] table at all -- nothing to disable.
 reqrs = "0.2.2"
+# docs/superpowers/specs/2026-09-22-requirements-rules-system-design.md §4:
+# embedded, pure-Rust Rego/OPA evaluation for rule documents (RuleBackend /
+# RegorusBackend, rule_eval.rs) -- no Python sidecar, same "direct Rust
+# dependency" precedent the ReqIF work already set.
+#
+# default-features is deliberately OFF: regorus's "default"/"full-opa"
+# features include "http" (registers the http.send builtin) and "net".
+# rule_eval.rs evaluates RuleDocument.rego_source, which is untrusted,
+# model-authored input written by anyone able to create a SysML v2
+# element -- an unsandboxed http.send builtin would let such a rule make
+# kr0ki-server itself issue arbitrary outbound requests on every
+# recompute (SSRF). The feature list below is full-opa's list minus
+# "http" and "net"; nothing in this crate's Rego usage needs either.
+regorus = { version = "0.12.0", default-features = false, features = [
+    "std",
+    "arc",
+    "rvm",
+    "opa-runtime",
+    "regex",
+    "cache",
+    "semver",
+    "time",
+    "uuid",
+    "urlquery",
+    "base64",
+    "base64url",
+    "hex",
+    "glob",
+    "graph",
+    "jsonschema",
+    "jsonpatch",
+    "coverage",
+    "yaml",
+] }
+
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros", "fs", "net", "rt-multi-thread"] }

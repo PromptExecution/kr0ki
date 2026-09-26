@@ -126,6 +126,17 @@ pub fn extract_rule_docs(snapshot: &ModelSnapshot) -> Vec<RuleDoc>;
 Mirrors how `ufo_graph.rs` already walks a `ModelSnapshot` — no new
 traversal primitives needed.
 
+**Revision note (post-implementation, Task 8):** this section's opening
+paragraph described rule documents as carrying "a `rule:<slug>` identity
+prefix." That convention was dropped during Task 8's fix round: the OMG
+SysML v2 API assigns `@id` server-side on `create_commit`, so a
+client-chosen `rule:`-prefixed id can never survive a real round-trip
+against a real server — `extract_rule_docs`'s filter on it was therefore
+unreachable dead weight, not a working discriminator. The shipped
+`extract_rule_docs` (`crates/kr0ki-core/src/rule_docs.rs`) matches on
+`@type == "RuleDocument"` alone; a rule doc's id is opaque and
+server-assigned, never asserted by the client.
+
 ## 4. Evaluation engine
 
 `kr0ki-core` takes [`regorus`](https://github.com/microsoft/regorus)
@@ -179,6 +190,24 @@ id back into actual provenance is Section 5's job, done once at the
 `RequirementGraph`-integration boundary, not here — `RegorusBackend` stays
 ignorant of `SourceAnchor`/`Provenance` entirely.
 
+**Revision note (known limitation, disclosed not fixed):** because
+`Disposition::Violated` carries a single `reason: String` field (matching
+the `ufo_types::satisfies::Satisfies<C>` idiom this design deliberately
+reuses rather than forks), `RegorusBackend::evaluate` joins every violation
+entry's `reason` into one `"; "`-delimited string across the whole
+`data.kr0ki.violations` array. Section 5's `register_violations` then
+attaches that same joined string as the `rationale` on *every* per-node
+relation it creates from that result — so if one rule flags three elements,
+each element's relation carries all three reasons, not just its own. This
+is real, disclosed lossiness that falls directly out of mapping a whole
+`violations` array onto one `SatisfiesResult` (as this section already
+describes), not an implementation bug, and it is not fixed here: reshaping
+`SatisfiesResult`/`RuleBackend` to carry a reason per evidence node would
+fight the adopted `Satisfies<C>` idiom for a v1-scope problem. A future
+revision could pair `evidence_nodes` with per-entry reasons (e.g. a
+parallel `Vec<String>` or a richer evidence type) if this proves confusing
+in practice — noted here as a candidate follow-up, not committed to.
+
 ## 5. Graph integration — feeding the requirements graph
 
 The good-faith review pass on this spec's first draft found two real gaps
@@ -213,8 +242,10 @@ to already resolve to an id present in `requirements` or `evidence` — a
 recompute registers both sides explicitly before creating the relation:
 
 1. **Rule doc → `Requirement`.** Each `RuleDoc`, on first use, becomes a
-   `Requirement` in the graph: `id = doc.id` (already `rule:<slug>`),
-   `title = doc.name`, `text = doc.rego_source`, `baseline =
+   `Requirement` in the graph: `id = doc.id` (opaque, server-assigned by the
+   OMG API on create — see Section 3's revision note; no `rule:<slug>`
+   prefix is assumed), `title = doc.name`, `text = doc.rego_source`,
+   `baseline =
    graph.baseline` (the rule doc shares the same commit-derived baseline as
    everything else in this recompute — it is not a separate baseline),
    `provenance = Provenance{ source_uri: format!("kerml:{}", doc.id),
