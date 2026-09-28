@@ -17,6 +17,20 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
   },
+  server: {
+    proxy: {
+      // Proxy /api and /playbook/api requests to the kr0ki server (port 8787)
+      '/api': {
+        target: 'http://192.168.1.137:8787',
+        changeOrigin: true,
+      },
+      '/playbook/api': {
+        target: 'http://192.168.1.137:8787',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/playbook/, '').replace(/\.json$/, ''),
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     // CI doesn't build the vendored @assistant-ui/vue package (a `file:`
