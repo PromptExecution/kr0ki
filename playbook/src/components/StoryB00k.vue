@@ -10,7 +10,7 @@ import {
 
 // Preserve the browser-visible host so LAN users reach this pod's sidecar instead
 // of their own workstation's localhost.
-const agentUrl = import.meta.env.VITE_STORYB00K_AGENT_URL || `${window.location.protocol}//${window.location.hostname}:8789`
+const agentUrl = props.agentUrl || import.meta.env.VITE_STORYB00K_AGENT_URL || `${window.location.protocol}//${window.location.hostname}:8789`
 
 // crypto.randomUUID() is secure-context-only (HTTPS or localhost). This pod
 // serves plain HTTP on a LAN IP, so the browser hides it and the ag-ui client
@@ -33,10 +33,15 @@ const props = defineProps({
   // composer starts with. The user edits/sends it — never auto-sent.
   prefill: { type: String, default: '' },
   lockedType: { type: String, default: '' },
+  llmUrl: { type: String, default: '' },
+  llmKey: { type: String, default: '' },
+  llmModel: { type: String, default: 'gpt-4o' },
+  agentUrl: { type: String, default: '' },
 })
 
 const input = ref(props.prefill)
 const comparisonPanels = ref([])
+const currentOrigin = ref(typeof window !== 'undefined' ? window.location.origin : '')
 // Fresh handoffs replace a still-untouched composer; a half-typed draft wins.
 watch(() => props.prefill, (next) => {
   if (next && (!input.value.trim() || input.value === props.prefill)) input.value = next
@@ -69,6 +74,72 @@ const threadId = chat.threadId
 const panels = computed(() => [...(chat.state.value?.panels || []), ...comparisonPanels.value])
 const drafts = computed(() => chat.state.value?.drafts || [])
 const busy = computed(() => status.value === 'submitted' || status.value === 'streaming')
+const agentConnectionStatus = ref('unknown') // 'unknown', 'checking', 'connected', 'failed'
+const agentConnectionError = ref('')
+
+// Test agent connection on mount and provide detailed diagnostics
+async function testAgentConnection() {
+  agentConnectionStatus.value = 'checking'
+  agentConnectionError.value = ''
+  
+  const currentOrigin = window.location.origin
+  
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+    
+    const response = await fetch(`${agentUrl}/health`, {
+      method: 'GET',
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    
+    if (response.ok) {
+      agentConnectionStatus.value = 'connected'
+      console.info('[storyb00k] ✓ Agent server connected:', agentUrl)
+    } else {
+      agentConnectionStatus.value = 'failed'
+      agentConnectionError.value = `Agent server returned HTTP ${response.status}`
+      console.error('[storyb00k] ✗ Agent server error:', agentUrl, 'HTTP', response.status)
+    }
+  } catch (err) {
+    agentConnectionStatus.value = 'failed'
+    
+    if (err.name === 'AbortError') {
+      agentConnectionError.value = `Connection timeout (5s) - agent server at ${agentUrl} is not responding`
+    } else if (err.message.includes('Failed to fetch')) {
+      // This could be a network error OR a CORS error
+      // Try to detect CORS by checking if we can reach the server at all
+      try {
+        // Try a no-cors request to see if the server is reachable
+        const testResponse = await fetch(`${agentUrl}/health`, {
+          method: 'GET',
+          mode: 'no-cors',
+        })
+        
+        // If we got here with no-cors, the server is reachable but CORS is blocking
+        agentConnectionError.value = `CORS error: Agent server at ${agentUrl} is reachable, but does not allow requests from ${currentOrigin}. ` +
+          `Update KR0KI_STORYB00K_ALLOWED_ORIGINS to include ${currentOrigin}`
+        console.error('[storyb00k] ✗ CORS error detected:', {
+          agentUrl,
+          currentOrigin,
+          suggestion: `Add ${currentOrigin} to KR0KI_STORYB00K_ALLOWED_ORIGINS`
+        })
+      } catch (testErr) {
+        // Server is not reachable at all
+        agentConnectionError.value = `Cannot reach agent server at ${agentUrl} - is it running? ` +
+          `Check that the server is started and the URL is correct.`
+        console.error('[storyb00k] ✗ Network error:', agentUrl, testErr.message)
+      }
+    } else {
+      agentConnectionError.value = `Connection failed: ${err.message}`
+      console.error('[storyb00k] ✗ Agent connection failed:', agentUrl, err.message)
+    }
+  }
+}
+
+// Test connection on mount
+testAgentConnection()
 const toolActivity = computed(() => Array.from(toolCallTrackers.value?.values() || []).map(t => ({
   id: t.toolCallId,
   name: t.toolName,
@@ -251,6 +322,18 @@ async function regeneratePrompt(item, editedText) {
 async function sendMessage() {
   const text = input.value.trim()
   if (!text || busy.value) return
+  
+  // Check agent connection before sending
+  if (agentConnectionStatus.value !== 'connected') {
+    console.warn('[storyb00k] Attempting to send message but agent connection status is:', agentConnectionStatus.value)
+    // Try to reconnect
+    await testAgentConnection()
+    if (agentConnectionStatus.value !== 'connected') {
+      console.error('[storyb00k] Cannot send message - agent server not available at', agentUrl)
+      return
+    }
+  }
+  
   input.value = ''
   console.info('[storyb00k] send →', text, '| thread:', threadId.value, '| agent:', agentUrl)
   try {
@@ -265,7 +348,17 @@ async function sendMessage() {
     console.info('[storyb00k] run finished | new messages:', result?.newMessages?.length ?? 0,
       '| usage:', usage.value.at(-1) ?? 'none reported')
   } catch (err) {
-    console.error('[storyb00k] run failed:', err?.message ?? err)
+    const errorMsg = err?.message ?? String(err)
+    console.error('[storyb00k] run failed:', errorMsg, '| agent:', agentUrl)
+    // Enhance error with connection details
+    if (errorMsg.includes('Failed to fetch')) {
+      console.error(`[storyb00k] Network error - cannot reach agent at ${agentUrl}`)
+      console.error('[storyb00k] LLM config:', {
+        url: props.llmUrl,
+        model: props.llmModel,
+        hasKey: !!props.llmKey
+      })
+    }
   }
 }
 
@@ -389,6 +482,12 @@ function formatTokens(u) {
         <h2>storyb00k</h2>
         <span class="storyb00k__status" :data-status="status">{{ statusLabel }}</span>
         <span v-if="formatTokens(usage[usage.length - 1])" class="storyb00k__usage">{{ formatTokens(usage[usage.length - 1]) }}</span>
+        <span class="storyb00k__agent-status" :data-status="agentConnectionStatus" :title="agentConnectionError || `Agent: ${agentUrl}`">
+          {{ agentConnectionStatus === 'connected' ? '✓ agent' : agentConnectionStatus === 'checking' ? '… agent' : '✗ agent' }}
+        </span>
+        <button v-if="agentConnectionStatus === 'failed'" class="storyb00k__retry-connection" @click="testAgentConnection" title="Retry agent connection">
+          ↻
+        </button>
       </header>
 
       <!-- Project banner: the conceptual unit of work in this session -->
@@ -505,7 +604,21 @@ function formatTokens(u) {
       </div>
 
       <p v-if="error" class="storyb00k__error" data-testid="run-error">
-        {{ error.message }}
+        <strong>Error:</strong> {{ error.message }}
+        <span v-if="agentConnectionStatus === 'failed'" class="storyb00k__error-detail">
+          <br>Agent server: <code>{{ agentUrl }}</code>
+          <br>Browser origin: <code>{{ currentOrigin }}</code>
+          <br v-if="agentConnectionError">{{ agentConnectionError }}
+          <span v-if="agentConnectionError && agentConnectionError.includes('CORS')" class="storyb00k__error-hint">
+            <strong>Fix:</strong> Restart the agent server with:<br>
+            <code>export KR0KI_STORYB00K_ALLOWED_ORIGINS="{{ currentOrigin }},http://127.0.0.1:8787"</code>
+          </span>
+        </span>
+        <span v-else class="storyb00k__error-detail">
+          <br>Agent: <code>{{ agentUrl }}</code>
+          <br>LLM: <code>{{ llmUrl || 'not configured' }}</code>
+          <br>Model: {{ llmModel || 'not configured' }}
+        </span>
         <button class="storyb00k__retry" @click="reloadLast">Retry</button>
       </p>
 
@@ -576,6 +689,12 @@ function formatTokens(u) {
 .storyb00k__status[data-status='streaming'], .storyb00k__status[data-status='submitted'] { background: #fef3c7; }
 .storyb00k__status[data-status='error'] { background: #fee2e2; }
 .storyb00k__usage { font-size: .75rem; opacity: .65; }
+.storyb00k__agent-status { font-size: .7rem; padding: .1rem .4rem; border-radius: 999px; background: #e2e8f0; margin-left: auto; }
+.storyb00k__agent-status[data-status='connected'] { background: #10b981; color: #fff; }
+.storyb00k__agent-status[data-status='checking'] { background: #fbbf24; color: #000; }
+.storyb00k__agent-status[data-status='failed'] { background: #ef4444; color: #fff; cursor: help; }
+.storyb00k__retry-connection { background: none; border: 1px solid #ef4444; color: #ef4444; border-radius: .3rem; padding: .1rem .4rem; font-size: .75rem; cursor: pointer; margin-left: .3rem; }
+.storyb00k__retry-connection:hover { background: #ef4444; color: #fff; }
 .storyb00k__lede { margin: 0; font-size: .9rem; opacity: .75; }
 .storyb00k__messages { max-height: 55vh; overflow-y: auto; display: flex; flex-direction: column; gap: .4rem; padding-right: .25rem; }
 .storyb00k__message { margin: 0; }
@@ -585,7 +704,11 @@ function formatTokens(u) {
 .storyb00k__step-status--error { color: #fca5a5; font-weight: 700; }
 .storyb00k__interrupt { border-left: 3px solid #b57700; padding-left: .75rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; background: #1c1830; border-radius: .3rem; padding-top: .3rem; padding-bottom: .3rem; }
 .storyb00k__interrupt p { margin: 0; flex: 1 1 auto; }
-.storyb00k__error { color: #fca5a5; margin: 0; }
+.storyb00k__error { color: #fca5a5; margin: 0; padding: .5rem; background: #450a0a; border-radius: .3rem; font-size: .85rem; }
+.storyb00k__error code { background: #1e293b; padding: .1rem .3rem; border-radius: .2rem; font-size: .8rem; }
+.storyb00k__error-detail { display: block; margin-top: .3rem; font-size: .75rem; opacity: .85; }
+.storyb00k__error-hint { display: block; margin-top: .5rem; padding: .4rem; background: #1e293b; border-radius: .3rem; font-size: .75rem; opacity: 1; }
+.storyb00k__error-hint code { display: block; margin-top: .3rem; padding: .3rem; background: #0f172a; word-break: break-all; }
 .storyb00k__empty { opacity: .65; font-size: .9rem; }
 .storyb00k__composer { display: grid; gap: .4rem; }
 .storyb00k__input { width: 100%; resize: vertical; font: inherit; border: 1px solid #3b4d7d; border-radius: .45rem; background: #091127; color: #edf5ff; padding: .55rem .65rem; }

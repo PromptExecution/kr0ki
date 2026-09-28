@@ -56,7 +56,7 @@ render-template kroki="http://127.0.0.1:8787":
 # Set KR0KI_AUTH_TOKEN to enable bearer-token auth (FR7 minimal).
 # Default bind is 0.0.0.0:8787 so the docs endpoint is reachable from the network.
 run bind="0.0.0.0:8787" backend="http://127.0.0.1:8010":
-    KR0KI_BIND={{bind}} KR0KI_BACKEND_URL={{backend}} cargo run -p kr0ki-server
+    KR0KI_BIND={{bind}} KR0KI_BACKEND_URL={{backend}} ./target/debug/kr0ki
 
 # Print a LAN-reachable service URL. The host is explicit because automatic
 # interface selection is ambiguous on multihomed hosts.
@@ -101,7 +101,7 @@ dev-kroki-down:
 # output elsewhere if needed.
 dev bind="0.0.0.0:8787" playbook_dir="playbook/dist":
     curl -fsS http://127.0.0.1:{{dev_kroki_port}}/health >/dev/null 2>&1 || just dev-kroki-up
-    KR0KI_BIND={{bind}} KR0KI_BACKEND_URL=http://127.0.0.1:{{dev_kroki_port}} KR0KI_PLAYBOOK_DIR={{playbook_dir}} cargo run -p kr0ki-server
+    KR0KI_BIND={{bind}} KR0KI_BACKEND_URL=http://127.0.0.1:{{dev_kroki_port}} KR0KI_PLAYBOOK_DIR={{playbook_dir}} ./target/debug/kr0ki
 
 # Discover which of a Kroki backend's registered converters are companion-free
 # and not yet in DiagramFormat::ALL (kr0ki#18). Defaults to our own local
@@ -151,3 +151,213 @@ pod-up: pod-build
 
 pod-down:
     kubectl --context Default delete --ignore-not-found -f deploy/kr0ki-local.pod.yaml
+
+# ============================================================================
+# Local server lifecycle (start/stop with validation)
+# ============================================================================
+
+# Check if kr0ki server is currently running on the specified port.
+# Returns 0 if running, 1 if not. Used by other recipes for conditional logic.
+check-server-running port="8787":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if curl -fsS http://127.0.0.1:{{port}}/health >/dev/null 2>&1; then
+        echo "✓ kr0ki server is running on port {{port}}"
+        exit 0
+    else
+        echo "✗ kr0ki server is not running on port {{port}}"
+        exit 1
+    fi
+
+# Check if the Kroki backend is available.
+# Returns 0 if available, 1 if not.
+check-backend-available port="8010":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if curl -fsS http://127.0.0.1:{{port}}/health >/dev/null 2>&1; then
+        echo "✓ Kroki backend is available on port {{port}}"
+        exit 0
+    else
+        echo "✗ Kroki backend is not available on port {{port}}"
+        exit 1
+    fi
+
+# Wait for the kr0ki server to become ready (with timeout).
+# Polls the health endpoint until it responds or timeout is reached.
+wait-for-server port="8787" timeout="30":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Waiting for kr0ki server to become ready (timeout: {{timeout}}s)..."
+    for i in $(seq 1 {{timeout}}); do
+        if curl -fsS http://127.0.0.1:{{port}}/health >/dev/null 2>&1; then
+            echo "✓ kr0ki server is ready after ${i}s"
+            exit 0
+        fi
+        sleep 1
+    done
+    echo "✗ kr0ki server did not become ready within {{timeout}}s" >&2
+    exit 1
+
+# Validate that the server is working correctly.
+# Checks health endpoint and contract headers (issue #57).
+validate-server port="8787":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Validating kr0ki server..."
+    
+    # Check health endpoint
+    health=$(curl -fsS http://127.0.0.1:{{port}}/health)
+    if echo "$health" | grep -q '"status"'; then
+        echo "✓ Health endpoint responding"
+    else
+        echo "✗ Health endpoint not responding correctly" >&2
+        exit 1
+    fi
+    
+    # Check contract headers (issue #57)
+    headers=$(curl -fsSI http://127.0.0.1:{{port}}/health)
+    if echo "$headers" | grep -qi "x-kr0ki-contract"; then
+        echo "✓ Contract header present"
+    else
+        echo "✗ Contract header missing" >&2
+        exit 1
+    fi
+    
+    if echo "$headers" | grep -qi "x-kr0ki-request-id"; then
+        echo "✓ Request ID header present"
+    else
+        echo "✗ Request ID header missing" >&2
+        exit 1
+    fi
+    
+    echo "✓ All validations passed"
+
+# Start the kr0ki server in the background with full validation.
+# Checks prerequisites, starts the server, waits for readiness, and validates.
+# Usage: just start [port] [backend_port]
+start port="8787" backend_port="8010":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # Check if already running
+    if curl -fsS http://127.0.0.1:{{port}}/health >/dev/null 2>&1; then
+        echo "✗ kr0ki server is already running on port {{port}}"
+        echo "  Use 'just stop {{port}}' to stop it first"
+        exit 1
+    fi
+    
+    # Check backend availability
+    if ! curl -fsS http://127.0.0.1:{{backend_port}}/health >/dev/null 2>&1; then
+        echo "⚠ Kroki backend not available on port {{backend_port}}"
+        echo "  Starting backend container..."
+        just dev-kroki-up
+    else
+        echo "✓ Kroki backend available on port {{backend_port}}"
+    fi
+    
+    # Create PID file directory
+    mkdir -p .kr0ki-run
+    
+    # Start server in background
+    echo "Starting kr0ki server on port {{port}}..."
+    KR0KI_BIND=0.0.0.0:{{port}} \
+    KR0KI_BACKEND_URL=http://127.0.0.1:{{backend_port}} \
+    ./target/debug/kr0ki > .kr0ki-run/server.log 2>&1 &
+    SERVER_PID=$!
+    echo $SERVER_PID > .kr0ki-run/server.pid
+    echo "✓ Server started with PID $SERVER_PID"
+    
+    # Wait for server to be ready
+    just wait-for-server {{port}} 30
+    
+    # Validate server
+    just validate-server {{port}}
+    
+    echo ""
+    echo "✓ kr0ki server is running and validated"
+    echo "  Docs: http://127.0.0.1:{{port}}/docs"
+    echo "  Health: http://127.0.0.1:{{port}}/health"
+    echo "  Logs: .kr0ki-run/server.log"
+    echo "  PID: $SERVER_PID"
+
+# Stop the kr0ki server gracefully.
+# Checks if running, stops the process, and verifies it stopped.
+# Usage: just stop [port]
+stop port="8787":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    # Check if running
+    if ! curl -fsS http://127.0.0.1:{{port}}/health >/dev/null 2>&1; then
+        echo "✗ kr0ki server is not running on port {{port}}"
+        # Clean up stale PID file if it exists
+        rm -f .kr0ki-run/server.pid
+        exit 1
+    fi
+    
+    echo "Stopping kr0ki server..."
+    
+    # Try to stop using PID file first
+    if [ -f .kr0ki-run/server.pid ]; then
+        PID=$(cat .kr0ki-run/server.pid)
+        if kill -0 $PID 2>/dev/null; then
+            echo "  Sending SIGTERM to PID $PID..."
+            kill $PID
+            
+            # Wait for graceful shutdown
+            for i in $(seq 1 10); do
+                if ! kill -0 $PID 2>/dev/null; then
+                    echo "✓ Server stopped gracefully"
+                    rm -f .kr0ki-run/server.pid
+                    exit 0
+                fi
+                sleep 1
+            done
+            
+            # Force kill if still running
+            echo "  Server did not stop gracefully, sending SIGKILL..."
+            kill -9 $PID 2>/dev/null || true
+            sleep 1
+        fi
+        rm -f .kr0ki-run/server.pid
+    else
+        # Fallback: find process by port (less reliable)
+        echo "  No PID file found, attempting to find process by port..."
+        PIDS=$(lsof -ti :{{port}} 2>/dev/null || true)
+        if [ -n "$PIDS" ]; then
+            for PID in $PIDS; do
+                echo "  Killing PID $PID..."
+                kill $PID 2>/dev/null || true
+            done
+            sleep 2
+        fi
+    fi
+    
+    # Verify it stopped
+    if curl -fsS http://127.0.0.1:{{port}}/health >/dev/null 2>&1; then
+        echo "✗ Failed to stop kr0ki server" >&2
+        exit 1
+    else
+        echo "✓ kr0ki server stopped successfully"
+    fi
+
+# Show kr0ki server status (running/stopped, PID, logs location).
+status port="8787":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    
+    if curl -fsS http://127.0.0.1:{{port}}/health >/dev/null 2>&1; then
+        echo "✓ kr0ki server is running on port {{port}}"
+        if [ -f .kr0ki-run/server.pid ]; then
+            PID=$(cat .kr0ki-run/server.pid)
+            if kill -0 $PID 2>/dev/null; then
+                echo "  PID: $PID"
+            else
+                echo "  PID file exists but process is not running (stale PID file)"
+            fi
+        fi
+        echo "  Logs: .kr0ki-run/server.log"
+        echo "  Docs: http://127.0.0.1:{{port}}/docs"
+    else
+        echo "✗ kr0ki server is not running on port {{port}}"
+    fi

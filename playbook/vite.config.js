@@ -1,12 +1,22 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { configDefaults } from 'vitest/config'
+import { readFileSync } from 'fs'
+import { resolve } from 'path'
+
+// Read version from Cargo.toml
+const cargoToml = readFileSync(resolve(__dirname, '../Cargo.toml'), 'utf-8')
+const versionMatch = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)
+const appVersion = versionMatch ? versionMatch[1] : '0.0.0'
 
 // Relative assets work when the same build is served at /playbook/ locally and
 // under /kr0ki/playbook/ on GitHub Pages.
 export default defineConfig({
   base: './',
   plugins: [vue()],
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   test: {
     environment: 'jsdom',
     // CI doesn't build the vendored @assistant-ui/vue package (a `file:`

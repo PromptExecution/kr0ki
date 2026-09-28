@@ -1,5 +1,13 @@
 {
   "mcpServers": {
+    "chrome-devtools-mcp": {
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--browser-url=http://192.168.1.150:9222"
+      ],
+      "command": "npx"
+    },
     "kr0ki-mcp": {
       "args": [
         "--context",

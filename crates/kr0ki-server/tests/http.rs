@@ -86,17 +86,26 @@ async fn contract_headers_present_on_all_responses() {
         .oneshot(Request::get("/health").body(Body::empty()).unwrap())
         .await
         .unwrap();
-    
+
     let headers = resp.headers();
-    assert!(headers.contains_key("x-kr0ki-contract"), "missing x-kr0ki-contract header");
-    assert!(headers.contains_key("x-kr0ki-request-id"), "missing x-kr0ki-request-id header");
-    
+    assert!(
+        headers.contains_key("x-kr0ki-contract"),
+        "missing x-kr0ki-contract header"
+    );
+    assert!(
+        headers.contains_key("x-kr0ki-request-id"),
+        "missing x-kr0ki-request-id header"
+    );
+
     let contract = headers.get("x-kr0ki-contract").unwrap().to_str().unwrap();
     assert_eq!(contract, "ledgrrr://state-machines/sysml-render/v1");
-    
+
     let request_id = headers.get("x-kr0ki-request-id").unwrap().to_str().unwrap();
     assert!(!request_id.is_empty(), "request-id should not be empty");
-    assert!(request_id.len() == 36, "request-id should be UUID v7 format (36 chars)");
+    assert!(
+        request_id.len() == 36,
+        "request-id should be UUID v7 format (36 chars)"
+    );
 }
 
 #[tokio::test]
@@ -108,13 +117,21 @@ async fn request_id_adopted_from_header() {
             Request::get("/health")
                 .header("x-request-id", custom_id)
                 .body(Body::empty())
-                .unwrap()
+                .unwrap(),
         )
         .await
         .unwrap();
-    
-    let returned_id = resp.headers().get("x-kr0ki-request-id").unwrap().to_str().unwrap();
-    assert_eq!(returned_id, custom_id, "should adopt caller-provided request-id");
+
+    let returned_id = resp
+        .headers()
+        .get("x-kr0ki-request-id")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert_eq!(
+        returned_id, custom_id,
+        "should adopt caller-provided request-id"
+    );
 }
 
 #[tokio::test]
@@ -126,8 +143,10 @@ async fn health_includes_contract_field() {
         .unwrap();
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("\"contract\":\"ledgrrr://state-machines/sysml-render/v1\""), 
-            "health should include contract field, body: {body}");
+    assert!(
+        body.contains("\"contract\":\"ledgrrr://state-machines/sysml-render/v1\""),
+        "health should include contract field, body: {body}"
+    );
 }
 
 #[tokio::test]

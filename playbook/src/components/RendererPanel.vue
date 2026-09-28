@@ -9,19 +9,34 @@ const props = defineProps({
   // (e.g. /render/k8s-topology) when the source isn't a plain /render/{format}.
   overrideSource: { type: String, default: undefined },
   overrideRoute: { type: String, default: undefined },
+  // Renderer URL from Setup (persisted to localStorage). Falls back to query param or current origin.
+  rendererUrl: { type: String, default: '' },
 })
 const emit = defineEmits(['select-example'])
 
 const source = ref(props.overrideSource ?? props.example.source)
 const output = ref(props.example.outputs[0])
-const rendererUrl = ref(
-  window.location.port === '8787'
-    ? window.location.origin
-    : new URLSearchParams(window.location.search).get('renderer') || '',
+// Use prop if provided, otherwise fall back to query param or current origin
+const localRendererUrl = ref(
+  props.rendererUrl || (
+    window.location.port === '8787'
+      ? window.location.origin
+      : new URLSearchParams(window.location.search).get('renderer') || ''
+  )
 )
 const artifactUrl = ref('')
 const result = ref('Ready')
 const busy = ref(false)
+
+// Watch for prop changes from Setup
+watch(
+  () => props.rendererUrl,
+  (newVal) => {
+    if (newVal) {
+      localRendererUrl.value = newVal
+    }
+  },
+)
 
 const outputChoices = computed(() => props.example.outputs)
 
@@ -77,13 +92,13 @@ function onFileSelected(event) {
 }
 
 const renderEndpoint = computed(() => {
-  if (!rendererUrl.value.trim()) return ''
+  if (!localRendererUrl.value.trim()) return ''
   // See Gallery.vue's endpointFor: a custom-route example (e.g.
   // POST /render/k8s-topology) isn't reachable via /render/{format}.
   // An EDIT override may carry its own route (agent k8s renders hosted on a
   // different-format example must still hit their own endpoint).
   const path = props.overrideRoute || props.example.route || `/render/${props.example.format}`
-  return `${rendererUrl.value.trim().replace(/\/$/, '')}${path}?output=${output.value}`
+  return `${localRendererUrl.value.trim().replace(/\/$/, '')}${path}?output=${output.value}`
 })
 
 async function render() {
@@ -132,7 +147,7 @@ async function render() {
     <div class="controls">
       <label>
         Renderer URL
-        <input v-model="rendererUrl" aria-label="Renderer URL" placeholder="http://kr0ki-host:8787" />
+        <input v-model="localRendererUrl" aria-label="Renderer URL" placeholder="http://kr0ki-host:8787" />
       </label>
       <label>
         Output
