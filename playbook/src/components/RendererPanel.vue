@@ -18,15 +18,14 @@ const source = ref(props.overrideSource ?? props.example.source)
 const output = ref(props.example.outputs[0])
 // Use prop if provided, otherwise fall back to query param or current origin
 const localRendererUrl = ref(
-  props.rendererUrl || (
-    window.location.port === '8787'
-      ? window.location.origin
-      : new URLSearchParams(window.location.search).get('renderer') || ''
-  )
+  props.rendererUrl || (window.location.port === '8787' ? window.location.origin : '') ||
+  new URLSearchParams(window.location.search).get('renderer') ||
+  `${window.location.protocol}//${window.location.hostname}:8787`
 )
 const artifactUrl = ref('')
 const result = ref('Ready')
 const busy = ref(false)
+const autoRender = ref(true)
 
 // Watch for prop changes from Setup
 watch(
@@ -60,6 +59,17 @@ watch(
       artifactUrl.value = ''
       result.value = 'Ready'
     }
+  },
+)
+
+// Auto-render: when source/output/endpoint changes and autoRender is on, re-render.
+let autoRenderTimer = null
+watch(
+  () => [source.value, output.value, localRendererUrl.value],
+  () => {
+    if (!autoRender.value || busy.value) return
+    if (autoRenderTimer) clearTimeout(autoRenderTimer)
+    autoRenderTimer = setTimeout(() => render(), 500)
   },
 )
 
@@ -156,6 +166,10 @@ async function render() {
         </select>
       </label>
       <button :disabled="busy" @click="render">{{ busy ? 'Rendering…' : 'Render' }}</button>
+      <label class="auto-render">
+        <input type="checkbox" v-model="autoRender" />
+        Auto Render
+      </label>
       <button type="button" class="secondary" @click="resetToExample">Reset to example</button>
       <button type="button" class="secondary" @click="clearSource">Start blank</button>
       <label class="upload">
