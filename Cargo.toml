@@ -20,7 +20,7 @@ resolver = "2"
 members = ["crates/kr0ki-core", "crates/kr0ki-server", "crates/kr0ki-sysmlv2-client"]
 
 [workspace.package]
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/PromptExecution/kr0ki"

@@ -1289,7 +1289,7 @@ dependencies = [
 
 [[package]]
 name = "kr0ki-core"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -1322,7 +1322,7 @@ dependencies = [
 
 [[package]]
 name = "kr0ki-server"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "anyhow",
  "axum",
@@ -1345,7 +1345,7 @@ dependencies = [
 
 [[package]]
 name = "kr0ki-sysmlv2-client"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "reqwest",
  "serde",
