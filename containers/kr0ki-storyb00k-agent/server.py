@@ -471,7 +471,35 @@ class Handler(BaseHTTPRequestHandler):
             question = _pending_questions.get(thread_id)
             is_answer = question is not None and payload.get("interruptId") == question.get("id")
             if draft is None and not is_answer:
-                return self._json(404, {"error": "draft_session_not_found"})
+                # Check if this question was already answered (prevents 404 on retry)
+                project = project_store.get_project(thread_id)
+                interrupt_id = payload.get("interruptId")
+                already_answered = False
+                if project:
+                    for qa in project.get("qa", []):
+                        # Check if this interrupt ID matches a previously answered question
+                        if qa.get("interruptId") == interrupt_id:
+                            already_answered = True
+                            break
+                if already_answered:
+                    # Question was already answered, return success
+                    return self._json(200, {"status": "ok", "already_answered": True})
+                # Log the 404 for debugging
+                run_log_event = {
+                    "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "thread": thread_id,
+                    "level": "warning",
+                    "kind": "interrupt.404",
+                    "error": "draft_session_not_found",
+                    "has_draft": draft is not None,
+                    "has_pending_question": question is not None,
+                    "is_answer": is_answer,
+                    "payload_interrupt_id": payload.get("interruptId"),
+                    "pending_question_id": question.get("id") if question else None,
+                }
+                import sys
+                print(f"WARNING: {json.dumps(run_log_event)}", file=sys.stderr)
+                return self._json(404, {"error": "draft_session_not_found", "details": run_log_event})
             if is_answer and question is not None:
                 # Planning refinement / type-confirm answer: record it in the
                 # project QA history, hand it back to the caller (the UI
@@ -485,7 +513,19 @@ class Handler(BaseHTTPRequestHandler):
                 if not answer:
                     return self._json(400, {"error": "answer_required"})
                 _pending_questions.pop(thread_id, None)
-                project_store.add_qa(thread_id, question.get("question", ""), answer)
+                # Store interrupt ID in QA for deduplication
+                qa_entry = {"question": question.get("question", ""), "answer": answer, "ts": time.time()}
+                if question.get("id"):
+                    qa_entry["interruptId"] = question["id"]
+                project_store.add_qa(thread_id, qa_entry["question"], qa_entry["answer"])
+                # Update the stored QA entry with interrupt ID
+                project = project_store.get_project(thread_id)
+                if project and project.get("qa"):
+                    for qa in project["qa"]:
+                        if qa.get("question") == qa_entry["question"] and qa.get("answer") == qa_entry["answer"]:
+                            qa["interruptId"] = question.get("id")
+                            break
+                    project_store.save_project(thread_id, project)
                 if question.get("kind") == "type-confirm":
                     recommendations = question.get("recommendations") or []
                     if normalize_type_id(answer) == "show-me-both":
@@ -634,6 +674,11 @@ class Handler(BaseHTTPRequestHandler):
                 "candidate diagrams before presenting the strongest result."
             )
         qa_memory += mode_rules + question_budget_rules
+        # Add list of already-asked questions to prevent repetition
+        qa_history = project.get("qa", [])
+        if qa_history:
+            asked_list = "\n".join(f"  {i+1}. {qa['question']}" for i, qa in enumerate(qa_history))
+            qa_memory += f"\n\nALREADY ASKED QUESTIONS (do NOT repeat these):\n{asked_list}"
         # Plan 005 §3: per-type skill loaded ONLY when the type is locked —
         # replaces the generic skill dump so context stays small and the syntax
         # guidance matches the chosen diagram.
@@ -658,16 +703,24 @@ class Handler(BaseHTTPRequestHandler):
             messages.append({"role": "user", "content": user_prompt})
         # Also inject the answers as an explicit tool-result conversation turn so
         # the model sees them in the message flow, not only the system prompt.
+        # Track which questions have been answered to prevent repetition.
+        asked_questions = set()
         for qa in project.get("qa", []):
-            already = any(
-                isinstance(m.get("content"), str) and qa["answer"] in m["content"]
-                for m in messages if m.get("role") == "user"
-            )
-            if not already:
-                messages.append({
-                    "role": "user",
-                    "content": f"(answer to your question \"{qa['question']}\"): {qa['answer']}",
-                })
+            question_text = qa.get("question", "")
+            answer_text = qa.get("answer", "")
+            asked_questions.add(question_text.lower().strip())
+            # Always inject the QA pair so the model sees the full history
+            messages.append({
+                "role": "user",
+                "content": f"(answer to your question \"{question_text}\"): {answer_text}",
+            })
+        # Add explicit instruction about already-asked questions
+        if asked_questions:
+            questions_list = "\n".join(f"- {q}" for q in asked_questions)
+            messages.append({
+                "role": "user",
+                "content": f"IMPORTANT: You have already asked these questions and received answers. Do NOT ask them again:\n{questions_list}\n\nIf you need more information, ask NEW questions that haven't been asked yet.",
+            })
         client = llm_client.OpenAICompatibleClient.from_env()
 
         usage_total = {"promptTokens": 0, "completionTokens": 0}
@@ -783,6 +836,20 @@ class Handler(BaseHTTPRequestHandler):
                     }))
                     return
                 if name == "ask_user":
+                    # Check if this question has already been asked
+                    question_text = arguments.get("question", "")
+                    project = project_store.get_project(thread_id)
+                    already_asked = False
+                    if project:
+                        for qa in project.get("qa", []):
+                            if qa.get("question", "").lower().strip() == question_text.lower().strip():
+                                already_asked = True
+                                break
+                    if already_asked:
+                        # Question already asked, skip it and continue
+                        messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": f"Question already asked: {question_text}"})
+                        run_log.event("plan.question_skipped", {"question": question_text, "reason": "already_asked"})
+                        continue
                     # Planning refinement: surface the question as an interrupt.
                     # The client answers via /respond-to-interrupt; the answer
                     # lands in _pending_answers so the next /run call (which
