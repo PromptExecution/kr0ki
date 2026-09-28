@@ -16,12 +16,15 @@ const emit = defineEmits(['select-example'])
 
 const source = ref(props.overrideSource ?? props.example.source)
 const output = ref(props.example.outputs[0])
-// Use prop if provided, otherwise fall back to query param or current origin
-const localRendererUrl = ref(
-  props.rendererUrl || (window.location.port === '8787' ? window.location.origin : '') ||
-  new URLSearchParams(window.location.search).get('renderer') ||
-  `${window.location.protocol}//${window.location.hostname}:8787`
-)
+// Use prop if provided, otherwise fall back to query param or current hostname:8787
+const getFallbackUrl = () => {
+  if (props.rendererUrl) return props.rendererUrl
+  const queryParam = new URLSearchParams(window.location.search).get('renderer')
+  if (queryParam) return queryParam
+  if (window.location.port === '8787') return window.location.origin
+  return `${window.location.protocol}//${window.location.hostname}:8787`
+}
+const localRendererUrl = ref(getFallbackUrl())
 const artifactUrl = ref('')
 const result = ref('Ready')
 const busy = ref(false)
