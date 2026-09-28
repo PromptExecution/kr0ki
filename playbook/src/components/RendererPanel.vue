@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
   example: { type: Object, required: true },
@@ -11,11 +11,19 @@ const props = defineProps({
   overrideRoute: { type: String, default: undefined },
   // Renderer URL from Setup (persisted to localStorage). Falls back to query param or current origin.
   rendererUrl: { type: String, default: '' },
+  // Output format from Setup (persisted to localStorage). Defaults to 'svg'.
+  outputFormat: { type: String, default: 'svg' },
 })
-const emit = defineEmits(['select-example'])
+const emit = defineEmits(['select-example', 'send-to-agent'])
 
 const source = ref(props.overrideSource ?? props.example.source)
-const output = ref(props.example.outputs[0])
+// Use outputFormat from Setup, but respect example.outputs if the format doesn't support the chosen output
+const getInitialOutput = () => {
+  const preferred = props.outputFormat || 'svg'
+  const available = props.example.outputs || ['svg']
+  return available.includes(preferred) ? preferred : available[0]
+}
+const output = ref(getInitialOutput())
 // Use prop if provided, otherwise fall back to query param or current hostname:8787
 const getFallbackUrl = () => {
   if (props.rendererUrl) return props.rendererUrl
@@ -40,13 +48,24 @@ watch(
   },
 )
 
+watch(
+  () => props.outputFormat,
+  (newVal) => {
+    const available = props.example.outputs || ['svg']
+    if (newVal && available.includes(newVal)) {
+      output.value = newVal
+    }
+  },
+)
+
 const outputChoices = computed(() => props.example.outputs)
 
 watch(
   () => props.example,
   (example) => {
     source.value = props.overrideSource ?? example.source
-    output.value = example.outputs[0]
+    const available = example.outputs || ['svg']
+    output.value = available.includes(props.outputFormat) ? props.outputFormat : available[0]
     artifactUrl.value = ''
     result.value = 'Ready'
   },
@@ -75,6 +94,13 @@ watch(
     autoRenderTimer = setTimeout(() => render(), 500)
   },
 )
+
+// Auto-render on mount when autoRender is enabled
+onMounted(() => {
+  if (autoRender.value && source.value) {
+    render()
+  }
+})
 
 function resetToExample() {
   source.value = props.example.source
@@ -135,6 +161,72 @@ async function render() {
     busy.value = false
   }
 }
+
+// Diagram type detection (best-guess regex)
+function detectDiagramType(code) {
+  if (!code) return 'unknown'
+  const trimmed = code.trim()
+  
+  // D2: starts with declarations or has D2-specific syntax
+  if (/^\s*\w+\s*:\s*\{/m.test(trimmed) || /^\s*\w+\s*->\s*\w+/m.test(trimmed)) {
+    // Check for PlantUML markers first (more specific)
+    if (/^@startuml/m.test(trimmed)) return 'plantuml'
+    return 'd2'
+  }
+  
+  // PlantUML
+  if (/^@startuml/m.test(trimmed) || /@enduml/.test(trimmed)) return 'plantuml'
+  
+  // C4PlantUML (subset of PlantUML with C4 keywords)
+  if (/C4_Context|C4Person|C4Container|C4Component|C4Deployment/i.test(trimmed)) return 'c4plantuml'
+  
+  // Mermaid
+  if (/^(graph|sequenceDiagram|classDiagram|stateDiagram|erDiagram|flowchart|gantt|pie|gitGraph)/m.test(trimmed)) return 'mermaid'
+  
+  // Graphviz/DOT
+  if (/^(digraph|graph|strict digraph|strict graph)\s*\{/m.test(trimmed)) return 'graphviz'
+  
+  // Structurizr DSL
+  if (/^workspace\s*\{/m.test(trimmed) || /^model\s*\{/m.test(trimmed)) return 'structurizr'
+  
+  // Nomnoml
+  if (/^#\[.*\]/m.test(trimmed) || /\[.*\|.*\]/.test(trimmed)) return 'nomnoml'
+  
+  // Erd (Entity Relationship)
+  if (/^\s*\w+\s*\{[^}]*\}/m.test(trimmed) && /\s+\w+\s+\w+/m.test(trimmed)) return 'erd'
+  
+  // SVG (already rendered)
+  if (/^<\?xml.*<svg/m.test(trimmed) || /^<svg/m.test(trimmed)) return 'svg'
+  
+  // BPMN (XML-based)
+  if (/<bpmn:/m.test(trimmed) || /definitions.*bpmn/m.test(trimmed)) return 'bpmn'
+  
+  // Bytefield
+  if (/^\s*\(defdsl\s/m.test(trimmed) || /\(entry\s/m.test(trimmed)) return 'bytefield'
+  
+  // Pikchr (Tcl-like)
+  if (/^\s*(box|line|arrow|circle)\s/m.test(trimmed)) return 'pikchr'
+  
+  // WaveDrom
+  if (/^\s*\{\s*"signal"/m.test(trimmed) || /"reg"\s*:/m.test(trimmed)) return 'wavedrom'
+  
+  // K8s (YAML with k8s-specific fields)
+  if (/^apiVersion:\s*v1$/m.test(trimmed) || /kind:\s*(Pod|Service|Deployment|ConfigMap|Namespace)/m.test(trimmed)) return 'k8s'
+  
+  return 'unknown'
+}
+
+function sendToAgent() {
+  const detectedType = detectDiagramType(source.value)
+  emit('send-to-agent', {
+    source: source.value,
+    format: props.example.format,
+    detectedType,
+    output: output.value,
+    artifactUrl: artifactUrl.value,
+    title: props.example.title,
+  })
+}
 </script>
 
 <template>
@@ -158,21 +250,14 @@ async function render() {
     </div>
 
     <div class="controls">
-      <label>
-        Renderer URL
-        <input v-model="localRendererUrl" aria-label="Renderer URL" placeholder="http://kr0ki-host:8787" />
-      </label>
-      <label>
-        Output
-        <select v-model="output">
-          <option v-for="kind in outputChoices" :key="kind" :value="kind">{{ kind.toUpperCase() }}</option>
-        </select>
-      </label>
       <button :disabled="busy" @click="render">{{ busy ? 'Rendering…' : 'Render' }}</button>
       <label class="auto-render">
         <input type="checkbox" v-model="autoRender" />
         Auto Render
       </label>
+      <button type="button" class="send-to-agent" @click="sendToAgent" title="Send diagram to Agent for collaborative editing">
+        Send to Agent
+      </button>
       <button type="button" class="secondary" @click="resetToExample">Reset to example</button>
       <button type="button" class="secondary" @click="clearSource">Start blank</button>
       <label class="upload">

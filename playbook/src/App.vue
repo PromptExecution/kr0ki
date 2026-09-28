@@ -25,6 +25,7 @@ const rendererUrl = ref(
       ? `${window.location.protocol}//${window.location.hostname}:8787`
       : 'http://127.0.0.1:8787')
 )
+const outputFormat = ref(localStorage.getItem('kr0ki:outputFormat') || 'svg')
 const llmUrl = ref(localStorage.getItem('kr0ki:llmUrl') || `http://${window.location.hostname}:8002/v1`)
 const llmKey = ref(localStorage.getItem('kr0ki:llmKey') || '')
 const llmModel = ref(localStorage.getItem('kr0ki:llmModel') || 'gpt-4o')
@@ -32,6 +33,11 @@ const llmModel = ref(localStorage.getItem('kr0ki:llmModel') || 'gpt-4o')
 function updateRendererUrl(url) {
   rendererUrl.value = url
   localStorage.setItem('kr0ki:rendererUrl', url)
+}
+
+function updateOutputFormat(format) {
+  outputFormat.value = format
+  localStorage.setItem('kr0ki:outputFormat', format)
 }
 
 function updateLlmUrl(url) {
@@ -62,10 +68,38 @@ function updateAgentUrl(url) {
 }
 const agentPrefill = ref('')
 const agentTypeId = ref('')
+// Editor → Agent handoff: diagram source with detected type
+const editorHandoff = ref(null)
 
 function agentHandoff({ prompt, typeId }) {
   agentPrefill.value = prompt
   agentTypeId.value = typeId
+  editorHandoff.value = null
+  viewMode.value = 'storyb00k'
+}
+
+function editorToAgentHandoff({ source, format, detectedType, output, artifactUrl, title }) {
+  editorHandoff.value = {
+    source,
+    format,
+    detectedType,
+    output,
+    artifactUrl,
+    title,
+  }
+  // Build a prompt that includes the diagram source and detected type
+  const typeLabel = detectedType !== 'unknown' ? detectedType : format
+  agentPrefill.value = `I have a ${typeLabel} diagram called "${title}". Please review it and suggest improvements.
+
+Here's the diagram source:
+\`\`\`
+${source}
+\`\`\`
+
+Detected type: ${detectedType}
+Format: ${format}
+Output: ${output}`
+  agentTypeId.value = detectedType !== 'unknown' ? detectedType : ''
   viewMode.value = 'storyb00k'
 }
 
@@ -205,6 +239,7 @@ onMounted(async () => {
         @update:llm-url="updateLlmUrl"
         @update:llm-key="updateLlmKey"
         @update:llm-model="updateLlmModel"
+        @update:output-format="updateOutputFormat"
       />
       <Gallery
         v-else-if="viewMode === 'gallery'"
@@ -213,7 +248,7 @@ onMounted(async () => {
         @open-in-editor="openInEditor"
         @agent-handoff="agentHandoff"
       />
-      <StoryB00k v-else-if="viewMode === 'storyb00k'" :prefill="agentPrefill" :locked-type="agentTypeId" :llm-url="llmUrl" :llm-key="llmKey" :llm-model="llmModel" :agent-url="agentUrl" @edit-in-editor="editInEditor" />
+      <StoryB00k v-else-if="viewMode === 'storyb00k'" :prefill="agentPrefill" :locked-type="agentTypeId" :llm-url="llmUrl" :llm-key="llmKey" :llm-model="llmModel" :agent-url="agentUrl" :editor-handoff="editorHandoff" @edit-in-editor="editInEditor" />
       <RendererPanel
         v-else-if="selectedExample"
         :example="selectedExample"
@@ -221,7 +256,9 @@ onMounted(async () => {
         :override-source="editedSourcePending ? editedSource : undefined"
         :override-route="editedSourcePending ? editedRoute : undefined"
         :renderer-url="rendererUrl"
+        :output-format="outputFormat"
         @select-example="onSelectExample"
+        @send-to-agent="editorToAgentHandoff"
       />
       <p v-else class="loading">Loading test-backed examples…</p>
     </section>

@@ -17,6 +17,8 @@ const props = defineProps({
   llmKey: { type: String, default: '' },
   llmModel: { type: String, default: 'gpt-4o' },
   agentUrl: { type: String, default: '' },
+  // Editor → Agent handoff: full diagram data from the editor
+  editorHandoff: { type: Object, default: null },
 })
 
 // Preserve the browser-visible host so LAN users reach this pod's sidecar instead

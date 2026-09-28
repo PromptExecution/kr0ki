@@ -6,7 +6,7 @@ const props = defineProps({
   agentUrl: { type: String, default: '' },
 })
 
-const emit = defineEmits(['update:rendererUrl', 'update:llmUrl', 'update:llmKey', 'update:llmModel', 'update:agentUrl'])
+const emit = defineEmits(['update:rendererUrl', 'update:llmUrl', 'update:llmKey', 'update:llmModel', 'update:agentUrl', 'update:outputFormat'])
 
 // Local state for form inputs
 const localRendererUrl = ref(props.rendererUrl)
@@ -25,6 +25,7 @@ const llmTestMessage = ref('')
 const agentTestStatus = ref('')
 const agentTestMessage = ref('')
 const availableModels = ref([])
+const outputFormat = ref('svg')
 
 // Computed for template access to window
 const defaultLlmPlaceholder = ref('')
@@ -40,6 +41,7 @@ onMounted(() => {
   llmKey.value = localStorage.getItem('kr0ki:llmKey') || ''
   llmModel.value = localStorage.getItem('kr0ki:llmModel') || 'gpt-4o'
   localAgentUrl.value = localStorage.getItem('kr0ki:agentUrl') || defaultAgentUrl
+  outputFormat.value = localStorage.getItem('kr0ki:outputFormat') || 'svg'
 })
 
 // Watch for prop changes
@@ -54,6 +56,7 @@ function saveSettings() {
   localStorage.setItem('kr0ki:llmKey', llmKey.value)
   localStorage.setItem('kr0ki:llmModel', llmModel.value)
   localStorage.setItem('kr0ki:agentUrl', localAgentUrl.value)
+  localStorage.setItem('kr0ki:outputFormat', outputFormat.value)
   
   // Emit updates
   emit('update:rendererUrl', localRendererUrl.value)
@@ -61,6 +64,7 @@ function saveSettings() {
   emit('update:llmKey', llmKey.value)
   emit('update:llmModel', llmModel.value)
   emit('update:agentUrl', localAgentUrl.value)
+  emit('update:outputFormat', outputFormat.value)
   
   // Show saved indicator
   saved.value = true
@@ -219,6 +223,14 @@ async function testAgent() {
             class="setup__input"
           />
           <span class="setup__hint">The kr0ki server that renders diagrams. Defaults to the current host.</span>
+        </label>
+        <label class="setup__field">
+          <span class="setup__label">Default Output Format</span>
+          <select v-model="outputFormat" class="setup__input">
+            <option value="svg">SVG</option>
+            <option value="png">PNG</option>
+          </select>
+          <span class="setup__hint">Default output format for rendered diagrams. Some formats (e.g. D2) only support SVG.</span>
         </label>
         <div class="setup__actions">
           <button type="button" class="setup__btn setup__btn--secondary" @click="testRenderer" :disabled="rendererTestStatus === 'testing'">
