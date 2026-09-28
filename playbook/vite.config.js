@@ -20,9 +20,11 @@ export default defineConfig({
   server: {
     proxy: {
       // Proxy /api and /playbook/api requests to the kr0ki server (port 8787)
+      // The kr0ki server serves /api/examples (no .json suffix), so strip it.
       '/api': {
         target: 'http://192.168.1.137:8787',
         changeOrigin: true,
+        rewrite: (path) => path.replace(/\.json$/, ''),
       },
       '/playbook/api': {
         target: 'http://192.168.1.137:8787',
