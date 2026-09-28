@@ -346,6 +346,32 @@ async function sendMessage() {
     }
   }
   
+  // If there's an editor handoff, store the diagram context first
+  if (props.editorHandoff) {
+    try {
+      const contextRes = await fetch(`${agentUrl}/projects/set-diagram-context`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threadId: threadId.value,
+          source: props.editorHandoff.source,
+          format: props.editorHandoff.format,
+          detectedType: props.editorHandoff.detectedType,
+          output: props.editorHandoff.output,
+          imageData: props.editorHandoff.imageData,
+          title: props.editorHandoff.title,
+        }),
+      })
+      if (!contextRes.ok) {
+        console.warn('[storyb00k] Failed to set diagram context:', contextRes.status)
+      } else {
+        console.info('[storyb00k] Diagram context set for thread:', threadId.value)
+      }
+    } catch (err) {
+      console.error('[storyb00k] Error setting diagram context:', err)
+    }
+  }
+  
   input.value = ''
   handoffImage.value = null
   console.info('[storyb00k] send →', text, '| thread:', threadId.value, '| agent:', agentUrl)

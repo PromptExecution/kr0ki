@@ -87,19 +87,8 @@ function editorToAgentHandoff({ source, format, detectedType, output, imageData,
     imageData,
     title,
   }
-  // Build a prompt that includes the diagram source and detected type
-  const typeLabel = detectedType !== 'unknown' ? detectedType : format
-  const hasImage = imageData ? ' and rendered image' : ''
-  agentPrefill.value = `I have a ${typeLabel} diagram called "${title}". Please review the diagram source${hasImage} and suggest improvements.
-
-Here's the diagram source:
-\`\`\`
-${source}
-\`\`\`
-
-Detected type: ${detectedType}
-Format: ${format}
-Output: ${output}`
+  // Simple prompt - the source will be sent separately
+  agentPrefill.value = `Review this ${detectedType !== 'unknown' ? detectedType : format} diagram and suggest improvements.`
   agentTypeId.value = detectedType !== 'unknown' ? detectedType : ''
   viewMode.value = 'storyb00k'
 }

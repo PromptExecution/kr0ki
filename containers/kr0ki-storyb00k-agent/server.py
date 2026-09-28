@@ -465,6 +465,21 @@ class Handler(BaseHTTPRequestHandler):
             project["lockedType"] = type_id
             project_store.save_project(thread_id, project)
             return self._json(200, project)
+        if self.path == "/projects/set-diagram-context":
+            # Store diagram context from Code Editor handoff
+            thread_id = payload.get("threadId", "default")
+            project = project_store.get_project(thread_id) or {"threadId": thread_id}
+            project["diagramContext"] = {
+                "source": payload.get("source", ""),
+                "format": payload.get("format", ""),
+                "detectedType": payload.get("detectedType", ""),
+                "output": payload.get("output", ""),
+                "imageData": payload.get("imageData"),
+                "title": payload.get("title", ""),
+                "timestamp": time.time(),
+            }
+            project_store.save_project(thread_id, project)
+            return self._json(200, {"status": "ok", "threadId": thread_id})
         if self.path == "/respond-to-interrupt":
             thread_id = payload.get("threadId", "default")
             draft = _drafts.get(thread_id)
@@ -689,6 +704,24 @@ class Handler(BaseHTTPRequestHandler):
         else:
             skills_text = "\n\n".join(load_skills().values())
         messages = [{"role": "system", "content": SYSTEM_PREAMBLE + qa_memory + "\n\n" + skills_text}]
+        # Inject diagram context from Code Editor handoff if available
+        diagram_context = project.get("diagramContext")
+        if diagram_context and diagram_context.get("source"):
+            ctx = diagram_context
+            context_msg = (
+                f"DIAGRAM CONTEXT (from Code Editor handoff):\n"
+                f"Title: {ctx.get('title', 'Untitled')}\n"
+                f"Format: {ctx.get('format', 'unknown')}\n"
+                f"Detected Type: {ctx.get('detectedType', 'unknown')}\n"
+                f"Output: {ctx.get('output', 'svg')}\n"
+                f"\nDiagram Source Code:\n```\n{ctx['source']}\n```\n"
+                f"\nThe user wants you to review this diagram and suggest improvements. "
+                f"Analyze both the code structure and suggest specific improvements."
+            )
+            messages.append({"role": "user", "content": context_msg})
+            # Clear the context after injecting it (one-time use)
+            project.pop("diagramContext", None)
+            project_store.save_project(thread_id, project)
         messages += messages_from_payload(payload)
         # Ensure there's at least one user message for the LLM's Jinja template
         if not any(m.get("role") == "user" for m in messages):
