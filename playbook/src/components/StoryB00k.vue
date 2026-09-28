@@ -8,6 +8,17 @@ import {
   checkoutNode, forkFrom, serialize as serializeGraph,
 } from '../lib/revisionGraph.js'
 
+const props = defineProps({
+  // Gallery → Agent handoff: a sample prompt (names the diagram type) the
+  // composer starts with. The user edits/sends it — never auto-sent.
+  prefill: { type: String, default: '' },
+  lockedType: { type: String, default: '' },
+  llmUrl: { type: String, default: '' },
+  llmKey: { type: String, default: '' },
+  llmModel: { type: String, default: 'gpt-4o' },
+  agentUrl: { type: String, default: '' },
+})
+
 // Preserve the browser-visible host so LAN users reach this pod's sidecar instead
 // of their own workstation's localhost.
 const agentUrl = props.agentUrl || import.meta.env.VITE_STORYB00K_AGENT_URL || `${window.location.protocol}//${window.location.hostname}:8789`
@@ -28,16 +39,6 @@ if (!globalThis.crypto?.randomUUID) {
   })
   console.warn('[storyb00k] crypto.randomUUID unavailable (insecure context) — installed prototype fallback')
 }
-const props = defineProps({
-  // Gallery → Agent handoff: a sample prompt (names the diagram type) the
-  // composer starts with. The user edits/sends it — never auto-sent.
-  prefill: { type: String, default: '' },
-  lockedType: { type: String, default: '' },
-  llmUrl: { type: String, default: '' },
-  llmKey: { type: String, default: '' },
-  llmModel: { type: String, default: 'gpt-4o' },
-  agentUrl: { type: String, default: '' },
-})
 
 const input = ref(props.prefill)
 const comparisonPanels = ref([])
