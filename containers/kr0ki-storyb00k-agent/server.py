@@ -645,6 +645,17 @@ class Handler(BaseHTTPRequestHandler):
             skills_text = "\n\n".join(load_skills().values())
         messages = [{"role": "system", "content": SYSTEM_PREAMBLE + qa_memory + "\n\n" + skills_text}]
         messages += messages_from_payload(payload)
+        # Ensure there's at least one user message for the LLM's Jinja template
+        if not any(m.get("role") == "user" for m in messages):
+            # Extract user prompt from payload if available
+            user_prompt = ""
+            for msg in payload.get("messages") or []:
+                if msg.get("role") == "user" and msg.get("content"):
+                    user_prompt = msg["content"]
+                    break
+            if not user_prompt:
+                user_prompt = "Hello"
+            messages.append({"role": "user", "content": user_prompt})
         # Also inject the answers as an explicit tool-result conversation turn so
         # the model sees them in the message flow, not only the system prompt.
         for qa in project.get("qa", []):
