@@ -43,11 +43,20 @@ if (!globalThis.crypto?.randomUUID) {
 }
 
 const input = ref(props.prefill)
+const handoffImage = ref(null)
 const comparisonPanels = ref([])
 const currentOrigin = ref(typeof window !== 'undefined' ? window.location.origin : '')
 // Fresh handoffs replace a still-untouched composer; a half-typed draft wins.
 watch(() => props.prefill, (next) => {
   if (next && (!input.value.trim() || input.value === props.prefill)) input.value = next
+})
+// Editor handoff: capture the rendered image for display
+watch(() => props.editorHandoff, (handoff) => {
+  if (handoff?.imageData) {
+    handoffImage.value = handoff.imageData
+  } else {
+    handoffImage.value = null
+  }
 })
 const autoScroll = ref(true)
 const transcriptEl = ref(null)
@@ -338,6 +347,7 @@ async function sendMessage() {
   }
   
   input.value = ''
+  handoffImage.value = null
   console.info('[storyb00k] send →', text, '| thread:', threadId.value, '| agent:', agentUrl)
   try {
     if (props.lockedType) {
@@ -626,6 +636,10 @@ function formatTokens(u) {
       </p>
 
       <div class="storyb00k__composer">
+        <div v-if="handoffImage" class="storyb00k__handoff-preview">
+          <img :src="handoffImage" alt="Diagram from Code Editor" />
+          <button class="storyb00k__handoff-dismiss" @click="handoffImage = null" title="Dismiss">×</button>
+        </div>
         <textarea
           v-model="input"
           class="storyb00k__input"
@@ -714,6 +728,10 @@ function formatTokens(u) {
 .storyb00k__error-hint code { display: block; margin-top: .3rem; padding: .3rem; background: #0f172a; word-break: break-all; }
 .storyb00k__empty { opacity: .65; font-size: .9rem; }
 .storyb00k__composer { display: grid; gap: .4rem; }
+.storyb00k__handoff-preview { position: relative; display: inline-block; max-width: 300px; max-height: 200px; border: 2px solid #38bdf8; border-radius: .45rem; overflow: hidden; background: #091127; }
+.storyb00k__handoff-preview img { display: block; max-width: 100%; max-height: 200px; object-fit: contain; }
+.storyb00k__handoff-dismiss { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border: none; border-radius: 50%; background: rgba(0,0,0,0.7); color: #fff; font-size: 16px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.storyb00k__handoff-dismiss:hover { background: rgba(239, 68, 68, 0.9); }
 .storyb00k__input { width: 100%; resize: vertical; font: inherit; border: 1px solid #3b4d7d; border-radius: .45rem; background: #091127; color: #edf5ff; padding: .55rem .65rem; }
 .storyb00k__edit-box textarea, .storyb00k__freetext, .storyb00k__project-title input { font: inherit; border: 1px solid #3b4d7d; border-radius: .45rem; background: #091127; color: #edf5ff; padding: .4rem .5rem; }
 .storyb00k__project-title input { font-weight: 700; }

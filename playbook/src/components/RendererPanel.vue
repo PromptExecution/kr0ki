@@ -216,14 +216,32 @@ function detectDiagramType(code) {
   return 'unknown'
 }
 
-function sendToAgent() {
+async function sendToAgent() {
   const detectedType = detectDiagramType(source.value)
+  
+  // Convert rendered image to base64 data URI
+  let imageData = null
+  if (artifactUrl.value) {
+    try {
+      const response = await fetch(artifactUrl.value)
+      const blob = await response.blob()
+      const reader = new FileReader()
+      imageData = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = reject
+        reader.readAsDataURL(blob)
+      })
+    } catch (error) {
+      console.warn('Failed to capture rendered image:', error)
+    }
+  }
+  
   emit('send-to-agent', {
     source: source.value,
     format: props.example.format,
     detectedType,
     output: output.value,
-    artifactUrl: artifactUrl.value,
+    imageData,
     title: props.example.title,
   })
 }

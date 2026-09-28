@@ -78,18 +78,19 @@ function agentHandoff({ prompt, typeId }) {
   viewMode.value = 'storyb00k'
 }
 
-function editorToAgentHandoff({ source, format, detectedType, output, artifactUrl, title }) {
+function editorToAgentHandoff({ source, format, detectedType, output, imageData, title }) {
   editorHandoff.value = {
     source,
     format,
     detectedType,
     output,
-    artifactUrl,
+    imageData,
     title,
   }
   // Build a prompt that includes the diagram source and detected type
   const typeLabel = detectedType !== 'unknown' ? detectedType : format
-  agentPrefill.value = `I have a ${typeLabel} diagram called "${title}". Please review it and suggest improvements.
+  const hasImage = imageData ? ' and rendered image' : ''
+  agentPrefill.value = `I have a ${typeLabel} diagram called "${title}". Please review the diagram source${hasImage} and suggest improvements.
 
 Here's the diagram source:
 \`\`\`
@@ -179,7 +180,7 @@ onMounted(async () => {
           Gallery
         </button>
         <button class="view-tab" :class="{ active: viewMode === 'editor' }" @click="viewMode = 'editor'">
-          Editor
+          Code Editor
         </button>
         <button class="view-tab" :class="{ active: viewMode === 'storyb00k' }" @click="viewMode = 'storyb00k'">
           Agent
