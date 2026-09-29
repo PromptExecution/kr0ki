@@ -3,6 +3,8 @@
 /.serena
 /.claude/
 /package-lock.json
+/node_modules
+/test-results
 /playbook/node_modules
 /playbook/dist
 /playbook/.vite

@@ -24,6 +24,13 @@
         "/opt/kr0ki-mcp/bridge.py"
       ],
       "command": "kubectl"
+    },
+    "playwright": {
+      "command": "sh",
+      "args": [
+        "-c",
+        "ver=$(npx -y playwright --version 2>/dev/null | sed \"s/^Version //\"); exec podman run -i --rm \"mcr.microsoft.com/playwright:v${ver}-noble\" npx -y @executeautomation/playwright-mcp-server"
+      ]
     }
   }
 }
