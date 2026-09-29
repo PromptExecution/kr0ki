@@ -235,12 +235,35 @@ const statusLabel = computed(() => ({
 }[status.value] || status.value))
 
 // ---- Revision graph: every prompt/render is a node; time travel + forks ----
-const revisionGraph = reactive(createRevisionGraph({ source: '', format: 'd2', label: 'Session start' }))
+// Initialize with editor handoff source if available (Code Editor → Agent flow)
+const initialSource = props.editorHandoff?.source || ''
+const initialFormat = props.editorHandoff?.format || 'd2'
+const initialLabel = props.editorHandoff ? 'Initial diagram from Code Editor' : 'Session start'
+const revisionGraph = reactive(createRevisionGraph({ 
+  source: initialSource, 
+  format: initialFormat, 
+  label: initialLabel 
+}))
 const showRevisions = ref(false)
 const editingMessageId = ref(null)
 const editedPrompt = ref('')
 const activeRevision = computed(() => activeNode(revisionGraph))
 const saveState = ref('')
+
+// If editor handoff provided, mark the root node with the handoff metadata
+if (props.editorHandoff) {
+  const rootNode = revisionGraph.nodes[0]
+  if (rootNode) {
+    rootNode.detectedType = props.editorHandoff.detectedType
+    rootNode.output = props.editorHandoff.output
+    rootNode.title = props.editorHandoff.title
+    console.info('[storyb00k] initialized revision graph with Code Editor handoff:', {
+      source: initialSource.substring(0, 50) + '...',
+      format: initialFormat,
+      detectedType: props.editorHandoff.detectedType
+    })
+  }
+}
 
 // Watch panel renders: when the agent produces a new diagram, record it as a
 // prompt node (the prompt that produced it) on top of the active revision.

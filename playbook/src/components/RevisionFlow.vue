@@ -86,12 +86,17 @@ function onForkClick(nodeId) {
       <template #node-revision="{ data }">
         <div
           class="revflow__node"
-          :class="{ 'revflow__node--active': data.isActive }"
+          :class="{ 'revflow__node--active': data.isActive, 'revflow__node--root': data.node.kind === 'root' && data.node.source }"
           :style="{ borderColor: data.kindColor }"
           :data-node-kind="data.node.kind"
         >
           <span class="revflow__node-kind" :style="{ background: data.kindColor }">{{ data.node.kind }}</span>
-          <p class="revflow__node-label" :title="data.node.prompt || data.node.label">{{ data.node.label }}</p>
+          <p class="revflow__node-label" :title="data.node.prompt || data.node.label">
+            {{ data.node.kind === 'root' && data.node.source ? '📝 ' : '' }}{{ data.node.label }}
+          </p>
+          <p v-if="data.node.detectedType" class="revflow__node-meta" :title="`Detected: ${data.node.detectedType}`">
+            {{ data.node.detectedType }}
+          </p>
           <div class="revflow__node-actions">
             <button v-if="!data.isActive" class="revflow__btn" title="Time travel to this state" @click.stop="$emit('checkout', data.node.id)">⏱</button>
             <button class="revflow__btn" title="Fork a new branch from here" @click.stop="onForkClick(data.node.id)">⑂</button>
@@ -108,8 +113,10 @@ function onForkClick(nodeId) {
 .revflow { height: 320px; border: 1px solid #cbd5e1; border-radius: 6px; background: #f8fafc; }
 .revflow__node { background: white; border: 2px solid; border-radius: 8px; padding: .4rem .5rem; min-width: 180px; max-width: 200px; box-shadow: 0 1px 3px rgb(0 0 0 / .1); }
 .revflow__node--active { outline: 3px solid #2563eb; box-shadow: 0 0 0 4px rgb(37 99 235 / .15); }
+.revflow__node--root { border-width: 3px; border-style: double; }
 .revflow__node-kind { display: inline-block; color: white; font-size: .65rem; padding: 0 .4rem; border-radius: 999px; text-transform: uppercase; }
 .revflow__node-label { margin: .25rem 0; font-size: .78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.revflow__node-meta { margin: .15rem 0; font-size: .65rem; color: #64748b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .revflow__node-actions { display: flex; gap: .25rem; }
 .revflow__btn { font-size: .75rem; border: 1px solid #cbd5e1; background: white; border-radius: 4px; cursor: pointer; padding: 0 .35rem; }
 .revflow__btn:hover { background: #eff6ff; }
