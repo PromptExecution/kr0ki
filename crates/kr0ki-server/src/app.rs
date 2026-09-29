@@ -97,6 +97,7 @@ pub fn router(
         .route("/render/requirements-view", post(render_requirements_view))
         .route("/render/kubediagram", post(render_kubediagram))
         .route("/render/k8s-topology", post(render_k8s_topology))
+        .route("/render/rust-source", post(render_rust_source))
         .route(
             "/render/sysmlv2/projects/:project_id/commits/:commit_id",
             post(render_sysmlv2_snapshot),
@@ -1123,6 +1124,92 @@ async fn render_k8s_topology(
     let recognizer = kr0ki_core::k8s_recognizer::KubernetesRecognizer::new();
     let edges = recognizer.recognize(&manifests);
     let lifted = kr0ki_core::sysml_lift::lift_edges(&edges);
+    let relations: Vec<_> = match params.get("view") {
+        Some(view) => {
+            let kind = match kr0ki_core::sysml_lift::parse_view_kind_slug(view) {
+                Some(kind) => kind,
+                None => {
+                    return error_json(
+                        StatusCode::BAD_REQUEST,
+                        "unknown_view_kind",
+                        &format!("unrecognized view kind: {view}"),
+                    )
+                }
+            };
+            kr0ki_core::sysml_lift::group_by_view_kind(lifted)
+                .into_iter()
+                .find(|(k, _)| *k == kind)
+                .map(|(_, relations)| relations)
+                .unwrap_or_default()
+        }
+        None => lifted.into_iter().map(|l| l.relation).collect(),
+    };
+    let d2 = kr0ki_core::sysml_render::to_d2(&relations);
+
+    let output = params
+        .get("output")
+        .and_then(|v| OutputKind::from_param(v))
+        .unwrap_or(OutputKind::Svg);
+
+    match state.service.render(DiagramFormat::D2, output, &d2).await {
+        Ok(r) => rendered_response(output, r),
+        Err(e) => service_error_response(e),
+    }
+}
+
+/// `POST /render/rust-source?output=svg|png[&view=...]` -- the Rust-source
+/// arm (`PLAN-KR0KI-003.md`, `docs/PATTERNS-rust-source.md`): body is a
+/// single Rust source file's text. `rust_recognizer::recognize_source`
+/// parses it via `syn` into `iso_ir::{Node, Edge}` (box 1, already emitting
+/// UfoRelation-named edge_types per the patterns doc's vocabulary table),
+/// `rust_lift::lift_rust_edges` converts those into `OntologicalEdge`s (box
+/// 3->4 bridge), `sysml_lift::lift_edges` lifts to `sysml_model::Relation`
+/// (box 4, same as the Kubernetes arm), `sysml_render::to_d2` emits D2 text,
+/// rendered through the same content-addressed cache every other
+/// `/render/*` route uses.
+async fn render_rust_source(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    body: Bytes,
+) -> Response {
+    if body.is_empty() {
+        return error_json(
+            StatusCode::BAD_REQUEST,
+            "empty_source",
+            "rust source body is empty",
+        );
+    }
+    if body.len() > MAX_MANIFEST_BYTES {
+        return error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "source_too_large",
+            "rust source exceeds the 1 MiB limit",
+        );
+    }
+    let source = match std::str::from_utf8(&body) {
+        Ok(t) => t,
+        Err(_) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_utf8",
+                "source is not UTF-8",
+            )
+        }
+    };
+
+    let (_nodes, edges) = match kr0ki_core::rust_recognizer::recognize_source(source) {
+        Ok(r) => r,
+        Err(e) => {
+            return error_json(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "bad_rust_source",
+                &e.to_string(),
+            )
+        }
+    };
+
+    let ontological = kr0ki_core::rust_lift::lift_rust_edges(&edges);
+    let lifted = kr0ki_core::sysml_lift::lift_edges(&ontological);
     let relations: Vec<_> = match params.get("view") {
         Some(view) => {
             let kind = match kr0ki_core::sysml_lift::parse_view_kind_slug(view) {

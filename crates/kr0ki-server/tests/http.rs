@@ -1210,6 +1210,119 @@ async fn render_k8s_topology_recognized_view_query_param_renders_only_that_view(
 }
 
 #[tokio::test]
+async fn render_rust_source_empty_body_is_400() {
+    let app = test_app(test_state("rust-source-empty"));
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-source")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("empty_source"));
+}
+
+#[tokio::test]
+async fn render_rust_source_rejects_oversized_source_before_parsing() {
+    let app = test_app(test_state("rust-source-oversized"));
+    let oversized = "a".repeat(1_048_577);
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-source")
+                .body(Body::from(oversized))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert!(body.contains("source_too_large"));
+}
+
+#[tokio::test]
+async fn render_rust_source_rejects_invalid_rust_before_any_backend_call() {
+    // http://127.0.0.1:1 (test_state's fixed backend) is unreachable -- if
+    // the handler validates/parses before rendering, this call never
+    // reaches it.
+    let app = test_app(test_state("rust-source-badsyntax"));
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-source")
+                .body(Body::from("struct Unclosed {"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(body.contains("bad_rust_source"));
+}
+
+#[tokio::test]
+async fn render_rust_source_valid_source_reaches_the_unreachable_backend() {
+    // A struct field of another local struct type lifts to exactly one
+    // HasPart edge (rust_recognizer's own struct_field_of_local_type_is_has_part
+    // test), which rust_lift maps straight through to UfoRelation::HasPart --
+    // proving the recognize -> lift -> to_d2 pipeline itself didn't error
+    // out before ever reaching the (deliberately unreachable) backend.
+    let app = test_app(test_state("rust-source-valid"));
+    let source = "struct Engine {}
+struct Car { engine: Engine }
+";
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-source")
+                .body(Body::from(source))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    // Not a validation error -- the pipeline ran and only the network call
+    // to the unreachable stub backend failed (RenderError::Unavailable ->
+    // 502, service_error_response).
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(!body.contains("empty_source"));
+    assert!(!body.contains("bad_rust_source"));
+}
+
+#[tokio::test]
+async fn render_rust_source_end_to_end_through_a_real_backend() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/d2/svg"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_string("<svg/>"))
+        .mount(&server)
+        .await;
+
+    let mut state = test_state("rust-source-e2e");
+    state.service = Arc::new(RenderService::new(
+        HttpKrokiBackend::new(server.uri()),
+        FsCache::new(std::env::temp_dir().join(format!(
+            "kr0ki-http-test-{}-rust-source-e2e-backend",
+            std::process::id()
+        ))),
+    ));
+    let source = "struct Engine {}
+struct Car { engine: Engine }
+";
+    let resp = test_app(state)
+        .oneshot(
+            Request::post("/render/rust-source")
+                .body(Body::from(source))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    assert_eq!(body, "<svg/>");
+}
+
+#[tokio::test]
 async fn auth_required_rejects_missing_token() {
     let app = router(
         test_state("authed"),
