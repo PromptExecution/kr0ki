@@ -36,11 +36,13 @@
 //! `has_part` — see [`PATTERNS-rust-source.md` §2.1] for why a field is composition,
 //! not a `requires` dependency); non-generic, non-blanket trait `impl` blocks
 //! (`impl Trait for Type` → a `satisfies` edge — see
-//! [`RelationshipVisitor::push_trait_impl_edge`] for the exact scope); and direct,
-//! same-module, unqualified function calls (a `flows_to` edge per call site — see
-//! [`RelationshipVisitor::push_call_edges`]/[`find_call_names`] for the exact scope,
-//! and `PATTERNS-rust-source.md` §5 for why "same-module" specifically, not a
-//! whole-tree lookup the way field types and trait impls get).
+//! [`RelationshipVisitor::push_trait_impl_edge`] for the exact scope); and function
+//! calls resolved via `self`/`super`/`crate` path syntax or child-submodule
+//! nesting, never a whole-tree or `use`-import lookup (a `flows_to` edge per call
+//! site — see [`RelationshipVisitor::push_call_edges`]/[`find_call_names`]/
+//! [`resolve_call_prefix`] for the exact scope, and `PATTERNS-rust-source.md` §5
+//! for why this bound specifically, not a whole-tree lookup the way field types
+//! and trait impls get).
 //!
 //! Also covered, as two standalone functions rather than part of the
 //! `Vec<syn::File> -> (Vec<Node>, Vec<Edge>)` shape above (crate-level, not
@@ -56,9 +58,14 @@
 //! [`RelationshipVisitor::push_governed_by_edges`]. This resolves
 //! `PATTERNS-rust-source.md` §5's former "no decided edge shape" deferral.
 //!
-//! **Deferred** (needs more than AST pattern-matching): cross-module/
-//! method/trait-dispatch calls (`PATTERNS-rust-source.md` §5's call-graph
-//! scope note explains why "same-module only," not "not yet attempted").
+//! **Deferred** (needs more than AST pattern-matching): method calls
+//! (`x.foo()`) and trait-dispatch calls (`Self::foo()`, `<T as
+//! Trait>::foo()`, calls through a closure/fn-pointer variable) — all of
+//! these need real type resolution to find the right callee, not just path
+//! syntax, so this recognizer deliberately leaves them unrecognized rather
+//! than guess (`PATTERNS-rust-source.md` §5's call-graph scope note).
+//! Cross-module calls that cross a `mod foo;` *file* boundary are also still
+//! unresolved — see the inherited `module_path`-per-file limitation below.
 //!
 //! **Inherited limitation, not new here:** like `SymbolVisitor`, each file's
 //! `module_path` starts empty regardless of that file's real position in the crate
@@ -525,16 +532,26 @@ impl RelationshipVisitor<'_> {
     /// `module::foo()`), and [`collect_module_functions`] for why the
     /// callee must be declared in the *same* module as the call site.
     fn push_call_edges(&mut self, fn_name: &str, node: &syn::ItemFn) {
-        let module_key = self.qualified(&self.module_path);
-        let Some(local_fns) = self.module_functions.get(&module_key) else {
-            return;
-        };
         let caller_qname = self.qualified_name(fn_name);
-        for callee_name in find_call_names(&node.block) {
-            if !local_fns.contains(&callee_name) {
+        for path in find_call_names(&node.block) {
+            let Some((callee_name, prefix)) = path.split_last() else {
+                continue;
+            };
+            let Some(module_key_segments) = resolve_call_prefix(&self.module_path, prefix) else {
+                continue;
+            };
+            let module_key = self.qualified(&module_key_segments);
+            let Some(local_fns) = self.module_functions.get(&module_key) else {
+                continue;
+            };
+            if !local_fns.contains(callee_name) {
                 continue;
             }
-            let callee_qname = self.qualified_name(&callee_name);
+            let callee_qname = if module_key.is_empty() {
+                callee_name.clone()
+            } else {
+                format!("{module_key}::{callee_name}")
+            };
             self.push_edge(&caller_qname, &callee_qname, "flows_to");
         }
     }
@@ -548,16 +565,24 @@ impl RelationshipVisitor<'_> {
 /// (`<T as Trait>::foo()`, excluded via `qself`). Does not recurse into a
 /// nested `fn` item's own body — a call inside a function nested within
 /// `block` is that inner function's call, not this one's.
-fn find_call_names(block: &syn::Block) -> Vec<String> {
+fn find_call_names(block: &syn::Block) -> Vec<Vec<String>> {
     struct CallCollector<'a> {
-        out: &'a mut Vec<String>,
+        out: &'a mut Vec<Vec<String>>,
     }
 
     impl syn::visit::Visit<'_> for CallCollector<'_> {
         fn visit_expr_call(&mut self, node: &syn::ExprCall) {
             if let syn::Expr::Path(p) = node.func.as_ref() {
-                if p.qself.is_none() && p.path.segments.len() == 1 {
-                    self.out.push(p.path.segments[0].ident.to_string());
+                if p.qself.is_none() {
+                    let segments: Vec<String> = p
+                        .path
+                        .segments
+                        .iter()
+                        .map(|s| s.ident.to_string())
+                        .collect();
+                    if !segments.is_empty() {
+                        self.out.push(segments);
+                    }
                 }
             }
             syn::visit::visit_expr_call(self, node);
@@ -572,6 +597,50 @@ fn find_call_names(block: &syn::Block) -> Vec<String> {
     let mut collector = CallCollector { out: &mut out };
     syn::visit::visit_block(&mut collector, block);
     out
+}
+
+/// Resolve a call path's module *prefix* (every segment but the final
+/// callee name) into an absolute module-path key, purely from `self`/
+/// `super`/`crate` path syntax and child-module nesting — never a global
+/// or `use`-import lookup, so this can only ever be as wrong as the
+/// same-module heuristic §5 already accepted for bare calls: a
+/// `crate::`/`super::`-qualified path resolves relative to *this file's
+/// own* module tree (`module_path` starts empty per file — see this
+/// module's own doc comment), not the crate's real cross-file tree, so a
+/// path crossing a `mod foo;` file boundary still won't resolve. A bare,
+/// unqualified multi-segment prefix (e.g. `helper::bar()`) is resolved
+/// only as a child submodule of the call site's own module — the one
+/// case Rust's real name resolution also guarantees unambiguously
+/// without an import table; it is never treated as a sibling or
+/// `use`-aliased path, which would need real resolution this recognizer
+/// doesn't do.
+fn resolve_call_prefix(module_path: &[String], prefix: &[String]) -> Option<Vec<String>> {
+    if prefix.is_empty() {
+        return Some(module_path.to_vec());
+    }
+    match prefix[0].as_str() {
+        "crate" => Some(prefix[1..].to_vec()),
+        "self" => {
+            let mut base = module_path.to_vec();
+            base.extend(prefix[1..].iter().cloned());
+            Some(base)
+        }
+        "super" => {
+            let mut base = module_path.to_vec();
+            let mut rest = prefix;
+            while rest.first().map(String::as_str) == Some("super") {
+                base.pop()?;
+                rest = &rest[1..];
+            }
+            base.extend(rest.iter().cloned());
+            Some(base)
+        }
+        _ => {
+            let mut base = module_path.to_vec();
+            base.extend(prefix.iter().cloned());
+            Some(base)
+        }
+    }
 }
 
 /// Every path-type simple name reachable from `ty` without real type
@@ -1021,7 +1090,14 @@ mod tests {
     }
 
     #[test]
-    fn method_calls_and_qualified_calls_are_not_recognized() {
+    fn method_calls_and_type_qualified_calls_are_not_recognized() {
+        // `self.honk()` is an `ExprMethodCall`, a different AST node from
+        // `ExprCall` entirely, so this visitor never sees it. `Car::honk(self)`
+        // *is* an `ExprCall` with a multi-segment path, but "Car" resolves
+        // (via resolve_call_prefix's child-submodule fallback) against
+        // `module_functions`, which only ever contains `mod`-declared
+        // modules, never impl/type names — an inherent-method call through
+        // its type path stays correctly unrecognized without special-casing.
         let src = r#"
             struct Car;
             impl Car {
@@ -1031,10 +1107,79 @@ mod tests {
                     Car::honk(self);
                 }
             }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(!edges.iter().any(|e| e.edge_type == "flows_to"));
+    }
+
+    #[test]
+    fn qualified_call_to_a_child_submodule_becomes_flows_to() {
+        let src = r#"
             fn run() {
                 other::helper();
             }
             mod other {
+                pub fn helper() {}
+            }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(&edges, "run", "other::helper", "flows_to"));
+    }
+
+    #[test]
+    fn crate_self_and_super_qualified_calls_resolve_within_the_same_file() {
+        let src = r#"
+            mod a {
+                pub fn helper() {}
+
+                pub mod inner {
+                    pub fn via_super() {
+                        super::helper();
+                    }
+                    pub fn via_crate() {
+                        crate::a::helper();
+                    }
+                    pub fn via_self() {
+                        self::sibling();
+                    }
+                    pub fn sibling() {}
+                }
+            }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(
+            &edges,
+            "a::inner::via_super",
+            "a::helper",
+            "flows_to"
+        ));
+        assert!(has_edge(
+            &edges,
+            "a::inner::via_crate",
+            "a::helper",
+            "flows_to"
+        ));
+        assert!(has_edge(
+            &edges,
+            "a::inner::via_self",
+            "a::inner::sibling",
+            "flows_to"
+        ));
+    }
+
+    #[test]
+    fn unqualified_bare_path_to_a_sibling_module_is_not_recognized() {
+        // Real Rust resolves a bare `sibling::foo()` (no `super::`) only via
+        // an in-scope `use`, which this recognizer doesn't track — so a bare
+        // multi-segment call only ever resolves as a *child* submodule of
+        // the call site's own module, never a cousin.
+        let src = r#"
+            mod a {
+                pub fn run() {
+                    b::helper();
+                }
+            }
+            mod b {
                 pub fn helper() {}
             }
         "#;
