@@ -49,9 +49,16 @@
 //! using [`workspace_member_crate_names`] to tell that apart from a use of a
 //! genuine external dependency.
 //!
-//! **Deferred** (needs more than AST pattern-matching, or an unresolved design
-//! choice — see `docs/PATTERNS-rust-source.md` §5 for each reason): cross-module/
-//! method/trait-dispatch calls and blanket/generic trait `impl` blocks.
+//! Also covered: generic and blanket trait `impl` blocks (`impl<T> Trait for
+//! Foo<T>`, `impl<T: Bound> Trait for Vec<T>`) — the `satisfies` edge as
+//! above, plus a `governed_by` edge per bound on the impl's own generic
+//! parameters (inline or `where`-clause) — see
+//! [`RelationshipVisitor::push_governed_by_edges`]. This resolves
+//! `PATTERNS-rust-source.md` §5's former "no decided edge shape" deferral.
+//!
+//! **Deferred** (needs more than AST pattern-matching): cross-module/
+//! method/trait-dispatch calls (`PATTERNS-rust-source.md` §5's call-graph
+//! scope note explains why "same-module only," not "not yet attempted").
 //!
 //! **Inherited limitation, not new here:** like `SymbolVisitor`, each file's
 //! `module_path` starts empty regardless of that file's real position in the crate
@@ -380,16 +387,12 @@ impl RelationshipVisitor<'_> {
 
     /// `impl Trait for Type` → a `satisfies` edge, Type → Trait
     /// (`PATTERNS-rust-source.md` §2: "the type meets the trait's
-    /// contract"). Scoped to the unambiguous case only
-    /// (`PATTERNS-rust-source.md` §5's stated reason for deferring this):
-    /// the `impl` itself carries no generic parameters, and the
-    /// implementing type is a plain named path — `impl<T> Trait for
-    /// Foo<T>` and blanket impls like `impl<T: Bound> Trait for Vec<T>`
-    /// have no decided edge shape yet and are silently skipped, not
-    /// guessed at (mirrors `sysml_lift`'s own "no confident KerML fit"
-    /// fallback philosophy, minus a `Domain`-style escape hatch this
-    /// box-1→2 stage doesn't have). An inherent impl (`impl Type { .. }`,
-    /// no trait) contributes nothing — there is no trait to satisfy.
+    /// contract"). Requires a plain named `self_ty` path (`impl Trait for
+    /// Foo` and `impl Trait for Foo<T>` alike — the node id is the type's
+    /// own last path segment, generic arguments dropped, matching every
+    /// other name heuristic in this module). An inherent impl (`impl Type
+    /// { .. }`, no trait) contributes nothing — there is no trait to
+    /// satisfy.
     ///
     /// Both endpoints resolve through the same whole-tree `local_types`
     /// name table field-type resolution already uses (traits included,
@@ -398,10 +401,20 @@ impl RelationshipVisitor<'_> {
     /// external type/trait (`impl std::fmt::Debug for Foo`) is still worth
     /// recording as a node even though this module has no way to give it
     /// a qualified path of its own.
+    ///
+    /// A generic or blanket impl (`impl<T> Trait for Foo<T>`,
+    /// `impl<T: Bound> Trait for Vec<T>`) still emits the `satisfies` edge
+    /// — `PATTERNS-rust-source.md` §5's "no decided edge shape" deferral
+    /// is resolved as of this function: each bound on the impl's own
+    /// generic parameters (inline `<T: Bound>` or an equivalent `where T:
+    /// Bound`) additionally emits a `governed_by` edge from the self type
+    /// to the bound trait (`PATTERNS-rust-source.md` §2: "the
+    /// implementation is constrained by the bound"), via
+    /// [`Self::push_governed_by_edges`]. A bound this module can't
+    /// resolve to a simple trait path (a lifetime bound, `?Sized`, a
+    /// `dyn`/`impl Trait` bound) is silently skipped — reduced recall,
+    /// not a wrong edge, this module's usual posture.
     fn push_trait_impl_edge(&mut self, node: &syn::ItemImpl) {
-        if !node.generics.params.is_empty() {
-            return;
-        }
         let Some((_, trait_path, _)) = &node.trait_ else {
             return;
         };
@@ -434,6 +447,74 @@ impl RelationshipVisitor<'_> {
         self.push_node(&type_qname, "type");
         self.push_node(&trait_qname, "trait");
         self.push_edge(&type_qname, &trait_qname, "satisfies");
+
+        self.push_governed_by_edges(&node.generics, &type_qname);
+    }
+
+    /// `impl<T: Bound> ...` / an equivalent `where T: Bound` → a
+    /// `governed_by` edge per bound, self type → bound trait
+    /// (`PATTERNS-rust-source.md` §2's `governed_by` row). Walks both the
+    /// inline bounds on each type parameter and the `where`-clause
+    /// predicates whose bounded type is one of those same parameters'
+    /// idents (a `where` bound on a concrete type, not one of this impl's
+    /// own generic parameters, isn't this impl's constraint to report).
+    /// Non-trait bounds (lifetimes, `?Sized`, `dyn`/`impl Trait` bounds
+    /// with no single resolvable path) are skipped, not guessed at.
+    fn push_governed_by_edges(&mut self, generics: &syn::Generics, self_qname: &str) {
+        let type_param_idents: std::collections::HashSet<String> = generics
+            .params
+            .iter()
+            .filter_map(|p| match p {
+                syn::GenericParam::Type(tp) => Some(tp.ident.to_string()),
+                _ => None,
+            })
+            .collect();
+
+        let mut bound_trait_names = Vec::new();
+        for param in &generics.params {
+            if let syn::GenericParam::Type(tp) = param {
+                for bound in &tp.bounds {
+                    if let syn::TypeParamBound::Trait(trait_bound) = bound {
+                        if let Some(seg) = trait_bound.path.segments.last() {
+                            bound_trait_names.push(seg.ident.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(where_clause) = &generics.where_clause {
+            for predicate in &where_clause.predicates {
+                let syn::WherePredicate::Type(pred) = predicate else {
+                    continue;
+                };
+                let syn::Type::Path(bounded_path) = &pred.bounded_ty else {
+                    continue;
+                };
+                let Some(bounded_ident) = bounded_path.path.get_ident() else {
+                    continue;
+                };
+                if !type_param_idents.contains(&bounded_ident.to_string()) {
+                    continue;
+                }
+                for bound in &pred.bounds {
+                    if let syn::TypeParamBound::Trait(trait_bound) = bound {
+                        if let Some(seg) = trait_bound.path.segments.last() {
+                            bound_trait_names.push(seg.ident.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        for bound_name in bound_trait_names {
+            let bound_qname = self
+                .local_types
+                .get(&bound_name)
+                .cloned()
+                .unwrap_or(bound_name);
+            self.push_node(&bound_qname, "trait");
+            self.push_edge(self_qname, &bound_qname, "governed_by");
+        }
     }
 
     /// Direct, same-module, unqualified calls only
@@ -837,24 +918,60 @@ mod tests {
     }
 
     #[test]
-    fn generic_impl_is_skipped_pending_a_decided_edge_shape() {
+    fn generic_impl_with_no_bound_emits_satisfies_but_no_governed_by() {
         let src = r#"
             trait Wrap {}
             struct Box2<T> { inner: T }
             impl<T> Wrap for Box2<T> {}
         "#;
         let (_, edges) = recognize_source(src).unwrap();
-        assert!(!edges.iter().any(|e| e.edge_type == "satisfies"));
+        assert!(has_edge(&edges, "Box2", "Wrap", "satisfies"));
+        assert!(!edges.iter().any(|e| e.edge_type == "governed_by"));
     }
 
     #[test]
-    fn blanket_impl_over_an_external_generic_type_is_skipped() {
+    fn blanket_impl_over_an_external_generic_type_emits_satisfies_and_governed_by() {
         let src = r#"
             trait Describe {}
             impl<T: std::fmt::Debug> Describe for Vec<T> {}
         "#;
         let (_, edges) = recognize_source(src).unwrap();
-        assert!(!edges.iter().any(|e| e.edge_type == "satisfies"));
+        assert!(has_edge(&edges, "Vec", "Describe", "satisfies"));
+        assert!(has_edge(&edges, "Vec", "Debug", "governed_by"));
+    }
+
+    #[test]
+    fn multiple_inline_bounds_each_emit_their_own_governed_by_edge() {
+        let src = r#"
+            trait Describe {}
+            impl<T: std::fmt::Debug + Clone> Describe for Vec<T> {}
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(&edges, "Vec", "Debug", "governed_by"));
+        assert!(has_edge(&edges, "Vec", "Clone", "governed_by"));
+    }
+
+    #[test]
+    fn where_clause_bound_on_the_impls_own_type_param_emits_governed_by() {
+        let src = r#"
+            trait Describe {}
+            impl<T> Describe for Vec<T> where T: std::fmt::Debug {}
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(&edges, "Vec", "Debug", "governed_by"));
+    }
+
+    #[test]
+    fn where_clause_bound_on_an_unrelated_type_is_not_this_impls_constraint() {
+        // The where-clause bounds String, not T -- not a constraint on
+        // this impl's own generic parameter, so no governed_by edge.
+        let src = r#"
+            trait Describe {}
+            impl<T> Describe for Vec<T> where String: std::fmt::Debug {}
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(&edges, "Vec", "Describe", "satisfies"));
+        assert!(!edges.iter().any(|e| e.edge_type == "governed_by"));
     }
 
     #[test]

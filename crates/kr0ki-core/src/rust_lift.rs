@@ -11,9 +11,11 @@
 //! unchanged) can consume.
 //!
 //! `governed_by` (generic bounds, PATTERNS-rust-source.md §2 last-but-one
-//! row) is not yet emitted by the recognizer — an edge_type this module
-//! doesn't recognize is skipped rather than causing the whole conversion to
-//! fail, so partial recognizer coverage degrades gracefully.
+//! row) is emitted by the recognizer as of 2026-09-29 (generic/blanket impl
+//! bound tracking) and lifts through this same relation_for() mapping like
+//! every other edge_type — the "skip an edge_type this module doesn't
+//! recognize rather than fail the whole conversion" fallback below now
+//! only matters for a genuinely future relation, not a known gap.
 
 use ufo_types::iso_ir::Edge as IsoEdge;
 use ufo_types::ontology::{OntologicalEdge, SourceAnchor, UfoRelation};

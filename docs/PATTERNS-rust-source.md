@@ -123,11 +123,19 @@ string; whether it resolves to another *local* item is decided by string/qualifi
 matching against symbols the same harvest pass already collected, not a real type
 checker).
 
-**Second slice (shipped):** non-generic, non-blanket trait `impl` blocks (§2 row 4) —
-`impl Trait for Type` with no generic parameters on the `impl` itself and a plain named
-`self_ty` is unambiguous pure syntax, no name-collision risk: `impl<T> Trait for
-Foo<T>` and blanket impls (`impl<T: Bound> Trait for Vec<T>`) are skipped rather than
-guessed at, since no edge shape has been decided for them.
+**Second slice (shipped):** trait `impl` blocks (§2 row 4) — `impl Trait for Type`
+emits `satisfies` regardless of whether the `impl` itself carries generic parameters;
+the node id is the self type's own last path segment with any generic arguments
+dropped, the same name heuristic used everywhere else in this module. **Third slice
+(shipped, resolves this doc's former "no decided edge shape" deferral):** a generic or
+blanket impl's own bounds (`impl<T: Bound> Trait for Vec<T>`, or an equivalent `where T:
+Bound`) each additionally emit a `governed_by` edge, self type → bound trait (§2's
+`governed_by` row) — see `rust_recognizer.rs`'s `push_governed_by_edges` doc comment
+for exactly which bound shapes resolve (inline + `where`, trait bounds only; lifetime/
+`?Sized`/`dyn`-Trait bounds are skipped, not guessed at) and its own test suite for the
+decided edge shape worked through: `impl<T> Wrap for Box2<T>` → `Box2 satisfies Wrap`,
+no `governed_by` (no bound); `impl<T: Debug> Describe for Vec<T>` → `Vec satisfies
+Describe` + `Vec governed_by Debug`.
 
 **Call graph (§2 row 3) — scoped, not yet shipped.** A narrow "same-module direct
 calls only" first cut was chosen over the heavier-dependency alternative, but with a
@@ -159,4 +167,3 @@ synthetic fixtures.
 - Everything §5's original call-graph note named — cross-module calls, method
   calls, trait dispatch — see the call-graph slice's own scope note above for why
   "same-module only" specifically, not "not yet attempted."
-- Blanket/generic trait `impl` blocks (still no decided edge shape).
