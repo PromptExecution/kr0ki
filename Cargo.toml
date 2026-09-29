@@ -17,7 +17,7 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/kr0ki-core", "crates/kr0ki-server", "crates/kr0ki-sysmlv2-client"]
+members = ["crates/kr0ki-core", "crates/kr0ki-server", "crates/kr0ki-sysmlv2-client", "crates/kr0ki-svg"]
 
 [workspace.package]
 version = "0.0.4"
