@@ -116,7 +116,7 @@ class PlanningFlowTest(unittest.TestCase):
         # 3. Project captured the prompt, thinking, and QA.
         project = server.project_store.get_project("plan-1")
         self.assertEqual(project["goal"], "Draw my cluster")
-        self.assertEqual(project["qa"], [{"question": "Which diagram type?", "answer": "d2", "ts": project["qa"][0]["ts"]}])
+        self.assertEqual(project["qa"], [{"question": "Which diagram type?", "answer": "d2", "ts": project["qa"][0]["ts"], "interruptId": interrupt["id"]}])
         self.assertTrue(any("ambiguous" in t["text"] for t in project["thinking"]))
         self.assertTrue(any(p["role"] == "user" and p["text"] == "Draw my cluster" for p in project["prompts"]))
         self.assertTrue(any(p["role"] == "assistant" for p in project["prompts"]))
