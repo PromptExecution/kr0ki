@@ -12,13 +12,13 @@ use wasm_bindgen::prelude::*;
 pub enum Kr0kiSvgError {
     #[error("Failed to parse SVG: {0}")]
     ParseError(String),
-    
+
     #[error("Invalid SVG structure: {0}")]
     InvalidStructure(String),
-    
+
     #[error("Element not found: {0}")]
     ElementNotFound(String),
-    
+
     #[error("Serialization error: {0}")]
     SerializationError(String),
 }
@@ -34,16 +34,16 @@ impl From<Kr0kiSvgError> for JsValue {
 pub struct EnrichedSvg {
     /// Original SVG source
     pub source: String,
-    
+
     /// Parsed tree structure
     pub tree: SvgTree,
-    
+
     /// Metadata (JSON-LD)
     pub metadata: Option<serde_json::Value>,
-    
+
     /// Interactive hooks
     pub hooks: Vec<Hook>,
-    
+
     /// Animation definitions
     pub animations: Vec<Animation>,
 }
@@ -53,7 +53,7 @@ pub struct EnrichedSvg {
 pub struct SvgTree {
     /// Root element
     pub root: SvgElement,
-    
+
     /// All elements by ID
     pub elements: std::collections::HashMap<String, SvgElement>,
 }
@@ -63,16 +63,16 @@ pub struct SvgTree {
 pub struct SvgElement {
     /// Element ID
     pub id: Option<String>,
-    
+
     /// Element tag name
     pub tag: String,
-    
+
     /// Attributes
     pub attributes: std::collections::HashMap<String, String>,
-    
+
     /// Child elements
     pub children: Vec<SvgElement>,
-    
+
     /// Text content (if any)
     pub text: Option<String>,
 }
@@ -82,10 +82,10 @@ pub struct SvgElement {
 pub struct Hook {
     /// Hook name
     pub name: String,
-    
+
     /// Target element ID
     pub target: String,
-    
+
     /// Action to perform
     pub action: String,
 }
@@ -95,16 +95,16 @@ pub struct Hook {
 pub struct Animation {
     /// Animation name
     pub name: String,
-    
+
     /// Target element ID
     pub target: String,
-    
+
     /// Animation kind
     pub kind: AnimationKind,
-    
+
     /// Duration in milliseconds
     pub duration: u32,
-    
+
     /// Delay in milliseconds
     pub delay: u32,
 }
@@ -127,10 +127,10 @@ pub enum AnimationKind {
 pub struct EnrichmentConfig {
     /// Add interactive hooks
     pub add_hooks: bool,
-    
+
     /// Add animations
     pub add_animations: bool,
-    
+
     /// Embed metadata
     pub metadata: Option<serde_json::Value>,
 }
@@ -152,16 +152,16 @@ pub fn parse_svg(input: &str) -> Result<EnrichedSvg, Kr0kiSvgError> {
     let fontdb = usvg::fontdb::Database::new();
     let _tree = usvg::Tree::from_str(input, &opt, &fontdb)
         .map_err(|e| Kr0kiSvgError::ParseError(e.to_string()))?;
-    
+
     // For now, just parse the raw XML to extract structure
     // This is a simplified approach that doesn't use all usvg features
-    let doc = roxmltree::Document::parse(input)
-        .map_err(|e| Kr0kiSvgError::ParseError(e.to_string()))?;
-    
+    let doc =
+        roxmltree::Document::parse(input).map_err(|e| Kr0kiSvgError::ParseError(e.to_string()))?;
+
     let root_node = doc.root_element();
     let mut elements = std::collections::HashMap::new();
     let root = parse_xml_node(&root_node, &mut elements)?;
-    
+
     Ok(EnrichedSvg {
         source: input.to_string(),
         tree: SvgTree { root, elements },
@@ -177,25 +177,25 @@ fn parse_xml_node(
     elements: &mut std::collections::HashMap<String, SvgElement>,
 ) -> Result<SvgElement, Kr0kiSvgError> {
     let tag = node.tag_name().name().to_string();
-    
+
     // Extract attributes
     let mut attributes = std::collections::HashMap::new();
     for attr in node.attributes() {
         attributes.insert(attr.name().to_string(), attr.value().to_string());
     }
-    
+
     // Extract ID
     let id = attributes.get("id").cloned();
-    
+
     // Parse children
     let mut children = Vec::new();
     for child in node.children().filter(|n| n.is_element()) {
         children.push(parse_xml_node(&child, elements)?);
     }
-    
+
     // Extract text content
     let text = node.text().map(|s| s.to_string());
-    
+
     let element = SvgElement {
         id: id.clone(),
         tag,
@@ -203,12 +203,12 @@ fn parse_xml_node(
         children,
         text,
     };
-    
+
     // Store in elements map if it has an ID
     if let Some(id) = id {
         elements.insert(id, element.clone());
     }
-    
+
     Ok(element)
 }
 
@@ -235,10 +235,10 @@ mod tests {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
             <rect id="rect1" x="10" y="10" width="80" height="80" fill="red"/>
         </svg>"#;
-        
+
         let result = parse_svg(svg);
         assert!(result.is_ok());
-        
+
         let enriched = result.unwrap();
         assert_eq!(enriched.source, svg);
         assert!(enriched.tree.elements.contains_key("rect1"));
@@ -249,10 +249,10 @@ mod tests {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
             <path id="path1" d="M 10 10 L 90 90" stroke="black" stroke-width="2"/>
         </svg>"#;
-        
+
         let result = parse_svg(svg);
         assert!(result.is_ok());
-        
+
         let enriched = result.unwrap();
         assert!(enriched.tree.elements.contains_key("path1"));
     }
