@@ -476,19 +476,43 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, project)
         if self.path == "/projects/set-diagram-context":
             # Store diagram context from Code Editor handoff
+            # Validate required fields
+            source = payload.get("source")
+            fmt = payload.get("format")
+            if not source or not isinstance(source, str) or not source.strip():
+                return self._json(400, {"error": "missing_source", "message": "source is required and must be a non-empty string"})
+            if not fmt or not isinstance(fmt, str) or not fmt.strip():
+                return self._json(400, {"error": "missing_format", "message": "format is required and must be a non-empty string (e.g. d2, plantuml, mermaid)"})
+            # Validate detectedType if provided
+            detected_type = payload.get("detectedType", "")
+            if detected_type and detected_type not in VALID_INPUT_FORMATS and detected_type != "unknown":
+                return self._json(400, {"error": "invalid_detected_type", "message": f"detectedType '{detected_type}' is not a recognized diagram format", "valid_formats": sorted(VALID_INPUT_FORMATS)})
+            # Validate output if provided
+            output_val = payload.get("output", "")
+            if output_val and output_val not in ("svg", "png"):
+                return self._json(400, {"error": "invalid_output", "message": "output must be 'svg' or 'png' if provided"})
             thread_id = payload.get("threadId", "default")
             project = project_store.get_project(thread_id) or {"threadId": thread_id}
-            project["diagramContext"] = {
-                "source": payload.get("source", ""),
-                "format": payload.get("format", ""),
-                "detectedType": payload.get("detectedType", ""),
-                "output": payload.get("output", ""),
+            context = {
+                "source": source,
+                "format": fmt,
+                "detectedType": detected_type,
+                "output": output_val,
                 "imageData": payload.get("imageData"),
                 "title": payload.get("title", ""),
                 "timestamp": time.time(),
             }
+            project["diagramContext"] = context
+            # Append to handoff history
+            history = project.setdefault("handoffHistory", [])
+            history.append({**context, "seq": len(history)})
+            # Keep history bounded
+            if len(history) > 50:
+                project["handoffHistory"] = history[-50:]
             project_store.save_project(thread_id, project)
-            return self._json(200, {"status": "ok", "threadId": thread_id})
+            import sys
+            print(f"HANDOFF: thread={thread_id} format={fmt} detected={detected_type} title={payload.get('title', '')} source_len={len(source)}", file=sys.stderr)
+            return self._json(200, {"status": "ok", "threadId": thread_id, "format": fmt, "detectedType": detected_type})
         if self.path == "/respond-to-interrupt":
             thread_id = payload.get("threadId", "default")
             draft = _drafts.get(thread_id)

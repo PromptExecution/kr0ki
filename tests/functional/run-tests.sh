@@ -282,6 +282,183 @@ test_agent_003() {
     fi
 }
 
+test_handoff_001() {
+    log_test "HANDOFF-001: Handoff with valid D2 diagram"
+    
+    response=$(curl -s -X POST "$AGENT_URL/projects/set-diagram-context" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "threadId": "test-handoff-001",
+            "source": "x -> y -> z",
+            "format": "d2",
+            "detectedType": "d2",
+            "output": "svg",
+            "title": "D2 Test Diagram"
+        }')
+    
+    if echo "$response" | jq -e '.status == "ok"' > /dev/null; then
+        log_pass "Context set successfully"
+    else
+        log_fail "Context setting" "Response: $response"
+        return 1
+    fi
+    
+    if echo "$response" | jq -e '.format == "d2"' > /dev/null; then
+        log_pass "Format echoed correctly"
+    else
+        log_fail "Format echo" "Expected d2"
+        return 1
+    fi
+}
+
+test_handoff_002() {
+    log_test "HANDOFF-002: Handoff with valid PlantUML diagram"
+    
+    response=$(curl -s -X POST "$AGENT_URL/projects/set-diagram-context" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "threadId": "test-handoff-002",
+            "source": "@startuml\nA -> B\n@enduml",
+            "format": "plantuml",
+            "detectedType": "plantuml",
+            "output": "svg",
+            "title": "PlantUML Test"
+        }')
+    
+    if echo "$response" | jq -e '.status == "ok"' > /dev/null; then
+        log_pass "PlantUML context set"
+    else
+        log_fail "PlantUML context" "Response: $response"
+        return 1
+    fi
+}
+
+test_handoff_003() {
+    log_test "HANDOFF-003: Handoff with missing source (should fail)"
+    
+    http_code=$(curl -s -w "%{http_code}" -o /tmp/handoff-003.json \
+        -X POST "$AGENT_URL/projects/set-diagram-context" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "threadId": "test-handoff-003",
+            "format": "d2"
+        }')
+    
+    if [ "$http_code" = "400" ]; then
+        log_pass "HTTP 400 returned for missing source"
+    else
+        log_fail "Validation" "Expected 400, got $http_code"
+        return 1
+    fi
+    
+    if cat /tmp/handoff-003.json | jq -e '.error == "missing_source"' > /dev/null; then
+        log_pass "Error code is missing_source"
+    else
+        log_fail "Error code" "Expected missing_source"
+        return 1
+    fi
+}
+
+test_handoff_004() {
+    log_test "HANDOFF-004: Handoff with invalid format (should fail)"
+    
+    http_code=$(curl -s -w "%{http_code}" -o /tmp/handoff-004.json \
+        -X POST "$AGENT_URL/projects/set-diagram-context" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "threadId": "test-handoff-004",
+            "source": "some source",
+            "format": ""
+        }')
+    
+    if [ "$http_code" = "400" ]; then
+        log_pass "HTTP 400 returned for empty format"
+    else
+        log_fail "Validation" "Expected 400, got $http_code"
+        return 1
+    fi
+}
+
+test_handoff_005() {
+    log_test "HANDOFF-005: Handoff preserves metadata correctly"
+    
+    curl -s -X POST "$AGENT_URL/projects/set-diagram-context" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "threadId": "test-handoff-005",
+            "source": "a -> b",
+            "format": "d2",
+            "detectedType": "d2",
+            "output": "png",
+            "title": "Metadata Test"
+        }' > /dev/null
+    
+    # Verify project has the context
+    project_response=$(curl -s "$AGENT_URL/projects/test-handoff-005")
+    
+    if echo "$project_response" | jq -e '.diagramContext.format == "d2"' > /dev/null; then
+        log_pass "Format preserved"
+    else
+        log_fail "Format preservation" "Response: $project_response"
+        return 1
+    fi
+    
+    if echo "$project_response" | jq -e '.diagramContext.title == "Metadata Test"' > /dev/null; then
+        log_pass "Title preserved"
+    else
+        log_fail "Title preservation" "Response: $project_response"
+        return 1
+    fi
+    
+    if echo "$project_response" | jq -e '.diagramContext.output == "png"' > /dev/null; then
+        log_pass "Output preserved"
+    else
+        log_fail "Output preservation" "Response: $project_response"
+        return 1
+    fi
+    
+    if echo "$project_response" | jq -e '.handoffHistory | length >= 1' > /dev/null; then
+        log_pass "Handoff history tracked"
+    else
+        log_fail "History tracking" "No handoffHistory"
+        return 1
+    fi
+}
+
+test_handoff_006() {
+    log_test "HANDOFF-006: Subsequent prompts create children of root"
+    
+    # Set context first
+    curl -s -X POST "$AGENT_URL/projects/set-diagram-context" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "threadId": "test-handoff-006",
+            "source": "root -> child1",
+            "format": "d2",
+            "detectedType": "d2",
+            "output": "svg",
+            "title": "Children Test"
+        }' > /dev/null
+    
+    # Send a follow-up message
+    response=$(curl -s -X POST "$AGENT_URL/run" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "threadId": "test-handoff-006",
+            "runId": "run-handoff-006",
+            "messages": [
+                {"role": "user", "content": "Add another box to this diagram."}
+            ]
+        }')
+    
+    if echo "$response" | grep -q "RUN_FINISHED\|TEXT_MESSAGE_CONTENT"; then
+        log_pass "Agent responded after handoff"
+    else
+        log_fail "Agent response" "No response after handoff"
+        return 1
+    fi
+}
+
 # ============================================================================
 # UI TESTS (API-based validation)
 # ============================================================================
@@ -417,6 +594,14 @@ main() {
     test_agent_001 || true
     test_agent_002 || true
     test_agent_003 || true
+    
+    echo -e "\n${YELLOW}Running Handoff Tests...${NC}"
+    test_handoff_001 || true
+    test_handoff_002 || true
+    test_handoff_003 || true
+    test_handoff_004 || true
+    test_handoff_005 || true
+    test_handoff_006 || true
     
     echo -e "\n${YELLOW}Running UI Tests...${NC}"
     test_ui_001 || true

@@ -37,6 +37,8 @@ const artifactUrl = ref('')
 const result = ref('Ready')
 const busy = ref(false)
 const autoRender = ref(true)
+const handoffBusy = ref(false)
+const handoffToast = ref(null) // { type: 'success'|'error', message: string }
 
 // Watch for prop changes from Setup
 watch(
@@ -217,6 +219,13 @@ function detectDiagramType(code) {
 }
 
 async function sendToAgent() {
+  if (!source.value?.trim()) {
+    handoffToast.value = { type: 'error', message: 'Cannot send empty diagram source' }
+    setTimeout(() => { if (handoffToast.value?.type === 'error') handoffToast.value = null }, 4000)
+    return
+  }
+  handoffBusy.value = true
+  handoffToast.value = null
   const detectedType = detectDiagramType(source.value)
   
   // Convert rendered image to base64 data URI
@@ -236,14 +245,19 @@ async function sendToAgent() {
     }
   }
   
-  emit('send-to-agent', {
+  const meta = {
     source: source.value,
     format: props.example.format,
     detectedType,
     output: output.value,
     imageData,
     title: props.example.title,
-  })
+  }
+  console.info('[renderer] handoff →', { format: meta.format, detectedType, title: meta.title, sourceLen: meta.source.length })
+  emit('send-to-agent', meta)
+  handoffToast.value = { type: 'success', message: `Sent ${detectedType} diagram (${meta.source.length} chars) to Agent` }
+  handoffBusy.value = false
+  setTimeout(() => { handoffToast.value = null }, 5000)
 }
 </script>
 
@@ -273,9 +287,13 @@ async function sendToAgent() {
         <input type="checkbox" v-model="autoRender" />
         Auto Render
       </label>
-      <button type="button" class="send-to-agent" @click="sendToAgent" title="Send diagram to Agent for collaborative editing">
-        Send to Agent
+      <button type="button" class="send-to-agent" :disabled="handoffBusy" @click="sendToAgent" title="Send diagram to Agent for collaborative editing">
+        <span v-if="handoffBusy" class="handoff-spinner"></span>
+        {{ handoffBusy ? 'Sending…' : 'Send to Agent' }}
       </button>
+      <Transition name="toast">
+        <span v-if="handoffToast" class="handoff-toast" :data-type="handoffToast.type">{{ handoffToast.message }}</span>
+      </Transition>
       <button type="button" class="secondary" @click="resetToExample">Reset to example</button>
       <button type="button" class="secondary" @click="clearSource">Start blank</button>
       <label class="upload">
@@ -298,3 +316,24 @@ async function sendToAgent() {
     </div>
   </article>
 </template>
+
+<style scoped>
+.handoff-spinner {
+  display: inline-block; width: .85rem; height: .85rem;
+  border: 2px solid currentColor; border-top-color: transparent;
+  border-radius: 50%; animation: handoff-spin .6s linear infinite;
+  vertical-align: middle; margin-right: .3rem;
+}
+@keyframes handoff-spin { to { transform: rotate(360deg); } }
+.handoff-toast {
+  display: inline-block; font-size: .78rem; padding: .2rem .6rem;
+  border-radius: .35rem; margin-left: .5rem; vertical-align: middle;
+}
+.handoff-toast[data-type='success'] { background: #065f46; color: #a7f3d0; }
+.handoff-toast[data-type='error'] { background: #7f1d1d; color: #fecaca; }
+.toast-enter-active { transition: opacity .25s ease, transform .25s ease; }
+.toast-leave-active { transition: opacity .4s ease; }
+.toast-enter-from { opacity: 0; transform: translateY(-4px); }
+.toast-leave-to { opacity: 0; }
+</style>
+

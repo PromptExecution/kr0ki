@@ -228,6 +228,91 @@ curl -X POST http://192.168.1.137:8787/render/d2?output=svg \
 
 ---
 
+## Handoff Tests
+
+### HANDOFF-001: Valid D2 Handoff
+
+**Objective:** Verify D2 diagram handoff sets context correctly
+
+**Steps:**
+1. POST to `/projects/set-diagram-context` with D2 source, format=d2, detectedType=d2
+2. Check response status is "ok"
+3. Verify format is echoed in response
+
+**Expected Outcome:**
+- HTTP 200 with `{"status":"ok","format":"d2"}`
+- Project stores diagramContext
+
+---
+
+### HANDOFF-002: Valid PlantUML Handoff
+
+**Objective:** Verify PlantUML diagram handoff works
+
+**Steps:**
+1. POST with PlantUML source (`@startuml...`), format=plantuml
+2. Check response
+
+**Expected Outcome:**
+- HTTP 200, context stored
+
+---
+
+### HANDOFF-003: Missing Source Validation
+
+**Objective:** Verify server rejects handoff without source
+
+**Steps:**
+1. POST with format=d2 but no source field
+2. Check response
+
+**Expected Outcome:**
+- HTTP 400 with `{"error":"missing_source"}`
+
+---
+
+### HANDOFF-004: Invalid Format Validation
+
+**Objective:** Verify server rejects handoff with empty/invalid format
+
+**Steps:**
+1. POST with source but format=""
+2. Check response
+
+**Expected Outcome:**
+- HTTP 400 with `{"error":"missing_format"}`
+
+---
+
+### HANDOFF-005: Metadata Preservation
+
+**Objective:** Verify all handoff metadata is stored correctly
+
+**Steps:**
+1. POST with full metadata (source, format, detectedType, output, title)
+2. GET the project and verify diagramContext fields
+
+**Expected Outcome:**
+- All fields preserved in project.diagramContext
+- handoffHistory array contains the entry
+
+---
+
+### HANDOFF-006: Subsequent Prompts After Handoff
+
+**Objective:** Verify agent can continue conversation after handoff
+
+**Steps:**
+1. Set diagram context via handoff
+2. Send a follow-up prompt via /run
+3. Verify agent responds
+
+**Expected Outcome:**
+- Agent responds with RUN_FINISHED
+- Agent has access to diagram context
+
+---
+
 ## UI/UX Tests
 
 ### UI-001: Navigation Between Views

@@ -361,3 +361,93 @@ status port="8787":
     else
         echo "✗ kr0ki server is not running on port {{port}}"
     fi
+
+# Agent server lifecycle
+start-agent port="8789":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p .kr0ki-run
+    if [ -f .kr0ki-run/agent.pid ] && kill -0 $(cat .kr0ki-run/agent.pid) 2>/dev/null; then
+        echo "✗ Agent server is already running on port {{port}}"
+        echo "  Use 'just stop-agent {{port}}' to stop it first"
+        exit 1
+    fi
+    if lsof -ti:{{port}} >/dev/null 2>&1; then
+        echo "✗ Port {{port}} is already in use"
+        echo "  Use 'lsof -ti:{{port}} | xargs kill -9' to clear it"
+        exit 1
+    fi
+    echo "Starting agent server on port {{port}}..."
+    KR0KI_ROOT="$(pwd)"
+    AGENT_DIR="$KR0KI_ROOT/containers/kr0ki-storyb00k-agent"
+    LOG_FILE="$KR0KI_ROOT/.kr0ki-run/agent.log"
+    PID_FILE="$KR0KI_ROOT/.kr0ki-run/agent.pid"
+    cd "$AGENT_DIR"
+    if [ ! -d .venv ]; then
+        echo "Creating virtual environment..."
+        python3 -m venv .venv
+        .venv/bin/pip install -q -r requirements.txt
+    fi
+    nohup env \
+        OPENAI_API_URL="${OPENAI_API_URL:-http://192.168.1.137:8002/v1}" \
+        OPENAI_API_KEY="${OPENAI_API_KEY:-not-needed}" \
+        KR0KI_STORYB00K_ALLOWED_ORIGINS="${KR0KI_STORYB00K_ALLOWED_ORIGINS:-http://localhost:8787,http://192.168.1.137:5173,http://192.168.1.137:8787,http://127.0.0.1:5173,http://127.0.0.1:8787}" \
+        .venv/bin/python server.py > "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    sleep 2
+    if curl -s http://127.0.0.1:{{port}}/health | grep -q '"status":"ok"'; then
+        echo "✓ Agent server started on port {{port}}"
+        echo "  PID: $(cat .kr0ki-run/agent.pid)"
+        echo "  Logs: .kr0ki-run/agent.log"
+    else
+        echo "✗ Agent server failed to start"
+        echo "  Check logs: .kr0ki-run/agent.log"
+        exit 1
+    fi
+
+stop-agent port="8789":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -f .kr0ki-run/agent.pid ]; then
+        PID=$(cat .kr0ki-run/agent.pid)
+        if kill -0 $PID 2>/dev/null; then
+            echo "Stopping agent server (PID: $PID)..."
+            kill $PID
+            sleep 2
+            if kill -0 $PID 2>/dev/null; then
+                echo "  Force killing..."
+                kill -9 $PID
+            fi
+            rm -f .kr0ki-run/agent.pid
+            echo "✓ Agent server stopped"
+        else
+            echo "✗ Agent server is not running (stale PID file)"
+            rm -f .kr0ki-run/agent.pid
+        fi
+    else
+        if lsof -ti:{{port}} >/dev/null 2>&1; then
+            echo "Stopping agent server on port {{port}}..."
+            lsof -ti:{{port}} | xargs kill -9
+            echo "✓ Agent server stopped"
+        else
+            echo "✗ Agent server is not running on port {{port}}"
+        fi
+    fi
+
+status-agent port="8789":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if curl -s http://127.0.0.1:{{port}}/health | grep -q '"status":"ok"'; then
+        echo "✓ Agent server is running on port {{port}}"
+        if [ -f .kr0ki-run/agent.pid ]; then
+            PID=$(cat .kr0ki-run/agent.pid)
+            if kill -0 $PID 2>/dev/null; then
+                echo "  PID: $PID"
+            else
+                echo "  PID file exists but process is not running (stale PID file)"
+            fi
+        fi
+        echo "  Logs: .kr0ki-run/agent.log"
+    else
+        echo "✗ Agent server is not running on port {{port}}"
+    fi

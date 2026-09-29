@@ -50,13 +50,36 @@ const currentOrigin = ref(typeof window !== 'undefined' ? window.location.origin
 watch(() => props.prefill, (next) => {
   if (next && (!input.value.trim() || input.value === props.prefill)) input.value = next
 })
-// Editor handoff: capture the rendered image for display
+// Editor handoff: validate, capture image, show banner
+const handoffError = ref('')
+const handoffDismissed = ref(false)
+const handoffActive = computed(() => !!props.editorHandoff && !handoffDismissed.value)
+
+function validateHandoff(h) {
+  if (!h) return 'No handoff data'
+  if (!h.source || !h.source.trim()) return 'Missing diagram source'
+  if (!h.format) return 'Missing diagram format'
+  return null
+}
+
 watch(() => props.editorHandoff, (handoff) => {
+  handoffDismissed.value = false
+  handoffError.value = ''
+  const err = validateHandoff(handoff)
+  if (err) {
+    handoffError.value = err
+    console.error('[storyb00k] handoff validation failed:', err, handoff)
+    return
+  }
   if (handoff?.imageData) {
     handoffImage.value = handoff.imageData
   } else {
     handoffImage.value = null
   }
+  console.info('[storyb00k] handoff received:', {
+    format: handoff.format, detectedType: handoff.detectedType,
+    title: handoff.title, sourceLen: handoff.source?.length ?? 0,
+  })
 })
 const autoScroll = ref(true)
 const transcriptEl = ref(null)
@@ -369,29 +392,39 @@ async function sendMessage() {
     }
   }
   
-  // If there's an editor handoff, store the diagram context first
+  // If there's an editor handoff, validate and store the diagram context first
   if (props.editorHandoff) {
-    try {
-      const contextRes = await fetch(`${agentUrl}/projects/set-diagram-context`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          threadId: threadId.value,
-          source: props.editorHandoff.source,
-          format: props.editorHandoff.format,
-          detectedType: props.editorHandoff.detectedType,
-          output: props.editorHandoff.output,
-          imageData: props.editorHandoff.imageData,
-          title: props.editorHandoff.title,
-        }),
-      })
-      if (!contextRes.ok) {
-        console.warn('[storyb00k] Failed to set diagram context:', contextRes.status)
-      } else {
-        console.info('[storyb00k] Diagram context set for thread:', threadId.value)
+    const herr = validateHandoff(props.editorHandoff)
+    if (herr) {
+      console.error('[storyb00k] skipping diagram context: ', herr)
+    } else {
+      try {
+        const contextRes = await fetch(`${agentUrl}/projects/set-diagram-context`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            threadId: threadId.value,
+            source: props.editorHandoff.source,
+            format: props.editorHandoff.format,
+            detectedType: props.editorHandoff.detectedType,
+            output: props.editorHandoff.output,
+            imageData: props.editorHandoff.imageData,
+            title: props.editorHandoff.title,
+          }),
+        })
+        if (!contextRes.ok) {
+          const errBody = await contextRes.text().catch(() => '')
+          console.warn('[storyb00k] Failed to set diagram context:', contextRes.status, errBody)
+          handoffError.value = `Handoff failed: HTTP ${contextRes.status}`
+        } else {
+          const data = await contextRes.json().catch(() => ({}))
+          console.info('[storyb00k] Diagram context set for thread:', threadId.value, data)
+          handoffError.value = ''
+        }
+      } catch (err) {
+        console.error('[storyb00k] Error setting diagram context:', err)
+        handoffError.value = `Handoff network error: ${err.message}`
       }
-    } catch (err) {
-      console.error('[storyb00k] Error setting diagram context:', err)
     }
   }
   
@@ -685,9 +718,16 @@ function formatTokens(u) {
       </p>
 
       <div class="storyb00k__composer">
-        <div v-if="handoffImage" class="storyb00k__handoff-preview">
+        <div v-if="handoffActive" class="storyb00k__handoff-banner" data-testid="handoff-banner">
+          <span class="storyb00k__handoff-badge">📋 from Code Editor</span>
+          <span v-if="editorHandoff?.detectedType" class="storyb00k__handoff-meta">{{ editorHandoff.detectedType }} · {{ editorHandoff.format }}</span>
+          <span v-if="editorHandoff?.title" class="storyb00k__handoff-meta">{{ editorHandoff.title }}</span>
+          <button class="storyb00k__handoff-dismiss" @click="handoffDismissed = true" title="Dismiss handoff">×</button>
+        </div>
+        <p v-if="handoffError" class="storyb00k__handoff-error" data-testid="handoff-error">{{ handoffError }}</p>
+        <div v-if="handoffImage && handoffActive" class="storyb00k__handoff-preview">
           <img :src="handoffImage" alt="Diagram from Code Editor" />
-          <button class="storyb00k__handoff-dismiss" @click="handoffImage = null" title="Dismiss">×</button>
+          <button class="storyb00k__handoff-dismiss" @click="handoffImage = null" title="Dismiss image">×</button>
         </div>
         <textarea
           v-model="input"
@@ -777,6 +817,11 @@ function formatTokens(u) {
 .storyb00k__error-hint code { display: block; margin-top: .3rem; padding: .3rem; background: #0f172a; word-break: break-all; }
 .storyb00k__empty { opacity: .65; font-size: .9rem; }
 .storyb00k__composer { display: grid; gap: .4rem; }
+.storyb00k__handoff-banner { display: flex; align-items: center; gap: .5rem; padding: .35rem .6rem; background: #0c2d48; border: 1px solid #38bdf8; border-radius: .4rem; font-size: .8rem; color: #bae6fd; animation: handoff-slide .3s ease; }
+@keyframes handoff-slide { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+.storyb00k__handoff-badge { font-weight: 700; white-space: nowrap; }
+.storyb00k__handoff-meta { opacity: .7; font-size: .75rem; }
+.storyb00k__handoff-error { color: #fca5a5; background: #450a0a; padding: .3rem .5rem; border-radius: .3rem; font-size: .8rem; margin: 0; }
 .storyb00k__handoff-preview { position: relative; display: inline-block; max-width: 300px; max-height: 200px; border: 2px solid #38bdf8; border-radius: .45rem; overflow: hidden; background: #091127; }
 .storyb00k__handoff-preview img { display: block; max-width: 100%; max-height: 200px; object-fit: contain; }
 .storyb00k__handoff-dismiss { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border: none; border-radius: 50%; background: rgba(0,0,0,0.7); color: #fff; font-size: 16px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
