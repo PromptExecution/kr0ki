@@ -36,12 +36,21 @@ except ModuleNotFoundError:  # local source-tree tests; the image copies the mod
 
 KR0KI_URL = os.environ.get("KR0KI_URL", "http://127.0.0.1:8787")
 SKILLS_DIR = Path(__file__).parent / "skills"
-MAX_MODEL_TOOL_ROUNDS = int(os.environ.get("KR0KI_STORYB00K_MAX_MODEL_TOOL_ROUNDS", "64"))
+MAX_MODEL_TOOL_ROUNDS = int(os.environ.get("KR0KI_STORYB00K_MAX_MODEL_TOOL_ROUNDS", "15"))
+MAX_CONSECUTIVE_FAILURES = int(os.environ.get("KR0KI_STORYB00K_MAX_CONSECUTIVE_FAILURES", "3"))
 MAX_CLARIFYING_QUESTIONS = int(os.environ.get(
     "KR0KI_STORYB00K_MAX_CLARIFYING_QUESTIONS",
     os.environ.get("KR0KI_STORYB00K_MAX_TOOL_ROUNDS", "6"),
 ))
 MAX_OUTPUT_CHARS = int(os.environ.get("KR0KI_STORYB00K_MAX_OUTPUT_CHARS", "20000"))
+# Valid input formats for render_diagram (SVG/PNG are output formats, not input)
+VALID_INPUT_FORMATS = frozenset([
+    "d2", "plantuml", "c4plantuml", "mermaid", "graphviz", "dot",
+    "structurizr", "nomnoml", "erd", "bpmn", "bytefield", "pikchr",
+    "wavedrom", "k8s", "k8s-topology", "kubediagram", "vega", "vegalite",
+    "excalidraw", "tuc", "svgbob", "rack", "packetdb", "aws", "az",
+    "gcp", "icon", "dbml", "openapi", "asyncapi", "json-schema",
+])
 THREAD_TTL_SECS = int(os.environ.get("KR0KI_STORYB00K_THREAD_TTL_SECS", str(6 * 3600)))
 _drafts = {}  # thread_id -> {"graph": DraftGraph, "last_used": epoch}
 _pending_questions = {}  # thread_id -> ask_user question awaiting an answer
@@ -799,6 +808,9 @@ class Handler(BaseHTTPRequestHandler):
                 stream.text_message(f"[internal tool safety ceiling reached after {rounds} rounds]")
                 break
 
+            # Track consecutive failures to break infinite retry loops
+            consecutive_failures = getattr(stream, '_consecutive_failures', 0)
+
             for call in calls:
                 name = call["function"]["name"]
                 try:
@@ -965,6 +977,23 @@ class Handler(BaseHTTPRequestHandler):
                 if tool is None:
                     messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": f"unknown tool {name}"})
                     continue
+                # Validate render_diagram input format
+                if name == "render_diagram":
+                    fmt = (arguments.get("format") or "").lower().strip()
+                    if fmt in ("svg", "png"):
+                        error_msg = f"ERROR: '{fmt}' is an OUTPUT format, not an input format. Valid input formats are: {', '.join(sorted(VALID_INPUT_FORMATS)[:10])}... Do NOT retry with '{fmt}' as the format. Choose a valid diagram language like 'd2', 'plantuml', 'mermaid', or 'graphviz'."
+                        stream.try_write({"type": "TOOL_CALL_START", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "toolCallName": name, "parentMessageId": parent_message_id})
+                        stream.try_write({"type": "TOOL_CALL_ARGS", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "delta": call["function"]["arguments"] or "{}"})
+                        stream.try_write({"type": "TOOL_CALL_END", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id})
+                        stream.try_write({"type": "TOOL_CALL_RESULT", "threadId": thread_id, "runId": stream.run_id, "messageId": parent_message_id, "toolCallId": tool_call_id, "content": error_msg, "role": "tool"})
+                        messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": error_msg})
+                        consecutive_failures += 1
+                        stream._consecutive_failures = consecutive_failures
+                        run_log.tool_call(name, False, 0, error="invalid_format")
+                        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                            stream.text_message(f"[stopped after {consecutive_failures} consecutive tool failures — please reconsider your approach]")
+                            break
+                        continue
                 stream.try_write({"type": "TOOL_CALL_START", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "toolCallName": name, "parentMessageId": parent_message_id})
                 stream.try_write({"type": "TOOL_CALL_ARGS", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "delta": call["function"]["arguments"] or "{}"})
                 started = time.time()
@@ -976,11 +1005,18 @@ class Handler(BaseHTTPRequestHandler):
                     tool_content = panel["content"] or "Rendered binary image."
                     tool_image_data_url = panel.get("imageDataUrl")
                     tool_ok = True
+                    consecutive_failures = 0  # Reset on success
+                    stream._consecutive_failures = 0
                     run_log.tool_call(name, True, int((time.time() - started) * 1000))
                 except Exception as tool_error:  # noqa: BLE001 — feed the failure back to the LLM
                     tool_content = f"tool {name} failed: {tool_error}"
                     tool_ok = False
+                    consecutive_failures += 1
+                    stream._consecutive_failures = consecutive_failures
                     run_log.tool_call(name, False, int((time.time() - started) * 1000), error=tool_error)
+                    # Enhanced error message for repeated failures
+                    if consecutive_failures >= 2:
+                        tool_content += f"\n\n[WARNING: {consecutive_failures} consecutive failures. Consider a different approach or format.]"
                 # TOOL_CALL_END carries only ids; results are TOOL_CALL_RESULT.
                 stream.try_write({"type": "TOOL_CALL_END", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id})
                 stream.try_write({"type": "TOOL_CALL_RESULT", "threadId": thread_id, "runId": stream.run_id, "messageId": parent_message_id, "toolCallId": tool_call_id, "content": truncate(tool_content)[:2000], "role": "tool"})
@@ -996,6 +1032,13 @@ class Handler(BaseHTTPRequestHandler):
                             {"type": "image_url", "image_url": {"url": tool_image_data_url}},
                         ],
                     })
+                # Break if too many consecutive failures
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    stream.text_message(f"[stopped after {consecutive_failures} consecutive tool failures — please reconsider your approach or use a different diagram format]")
+                    break
+            # Break out of while loop if too many consecutive failures
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                break
 
         stream.try_write({"type": "CUSTOM", "threadId": thread_id, "runId": stream.run_id, "name": "usage", "value": usage_total})
         finished = lifecycle_event("RUN_FINISHED", thread_id, stream.run_id)
