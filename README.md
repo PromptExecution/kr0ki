@@ -95,7 +95,7 @@ stack, and the hardened SysML v2 write path with its Flexo ReqIF adapter. Open, 
   which fields `GET …/elements` returns, and whether custom `reqif_*` fields are accepted. The logic is covered by
   unit tests and a faithful stub, not by a real server.
 - **Raster → diagram-as-code**: upload a diagram image from a local project directory and have a multimodal
-  model iterate until a render "matches" (planned as `PLAN-KR0KI-007`).
+  model iterate until a render "matches" ([`PLAN-KR0KI-007`](docs/PLAN-KR0KI-007-raster-to-diagram-as-code.md), proposed).
 - **Revisioned procedural workspace** ([`PLAN-KR0KI-004`](docs/PLAN-KR0KI-004-revisioned-procedural-workspace.md)):
   Phase 0 contracts are done; durable revisions exist today only as the agent's `jj` chart store.
 - **Wire `kr0ki-svg`** into the playbook, and decide whether the layout engine stays in this repo.
