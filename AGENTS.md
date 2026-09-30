@@ -73,6 +73,7 @@ crates/
 │   ├── src/app.rs       # router: health, formats, render, cache + auth middleware
 │   ├── src/docs.rs      # /docs, /docs/api.json, /docs/api.tomllm, /docs/api.rustdoc
 │   └── tests/http.rs    # in-process HTTP tests (no backend needed)
+├── kr0ki-svg/           # browser/WASM SVG enrichment + constraint layout (fdg-sim); see docs/DESIGN-NOTE-svg-layout-solver.md
 └── kr0ki-sysmlv2-client/# OMG Systems Modeling API client
     ├── src/lib.rs       # Client, Project, Commit, Branch, Element, Relationship, ModelSnapshot
     └── tests/live.rs    # env-gated live test vs real OMG-API server
@@ -100,7 +101,8 @@ These are **upstream or sibling concerns** — build them in their proper crates
 - **Typed model layer** → `ufo-types` (D3 resolved: kr0ki consumes, does not host)
 - **SysML v2 parser** → `sysml-v2-parser` crate (consumed as dev-dependency for conformance)
 - **Kubernetes recognizer** → starts in `PATTERNS-kubernetes.md`, probably a new crate
-- **Isometric renderer** → `systhread-core` (call it, don't port it)
+- **Isometric renderer** → `systhread-core` (call it, don't port it); `kr0ki-svg`'s 2D force layout is the only layout code kr0ki hosts, and only because it must run client-side in WASM
+- **Raster → diagram-as-code ingestion** → its own crate and plan, not `kr0ki-svg`
 - **Comic engine / joke renderer** → `kroki-b00t` (downstream leaf, not core)
 - **CDN / edge caching** → infrastructure / Cloudflare R2 (D5)
 - **Graph reasoning / SHACL** → `ledgrrr`
