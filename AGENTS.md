@@ -45,14 +45,14 @@ front-end semantic  recog-    constructs adapters
 
 | Box | What | Status | Blocked on |
 |---|---|---|---|
-| 1 | Source front-ends (SysML-v2 API client, Rust AST, k8s manifests) | **Client partial** — `kr0ki-sysmlv2-client` reads OMG-API servers; Rust/k8s front-ends named but not scoped | `ufo-types` graph builder (Box 2) |
+| 1 | Source front-ends (SysML-v2 API client, Rust AST, k8s manifests, ReqIF) | **Partial** — `kr0ki-sysmlv2-client` reads *and writes* OMG-API servers; the k8s manifest and Rust-source front-ends are built (Box 3 recognizers); ReqIF import/export exist (`reqif_import`/`reqif_export`/`reqif_fetch`). Not built: dbt manifest, live databases | dbt `SysGraph` builder (upstream, `ufo-types`) |
 | 2 | Canonical UFO-typed semantic graph | **Partial** — `ufo-types` ships the `SysGraph` container (`sysgraph` module); the SysML-v2 arm builds it (`ufo_graph.rs`). The dbt arm's builder (`PLAN-KR0KI-006` piece 1) is spec-only, not yet in `ufo-types` | dbt `SysGraph` builder (upstream, `ufo-types`) |
 | 3 | Pattern recognizers (Kubernetes first) | **✅ Both arms shipped** — `k8s_recognizer.rs` (955 lines), wired into `kr0ki-server`'s routes, oracle-tested against real KubeDiagrams. Rust arm's recognizer (`rust_recognizer.rs`, `PLAN-KR0KI-003`) emits the full `UfoRelation` vocabulary (`has_part`/`flows_to`/`satisfies`/`requires`/`governed_by`, per `PATTERNS-rust-source.md`), including generic/blanket trait-impl bound tracking and `self`/`super`/`crate`/child-submodule path-qualified call resolution, both added 2026-09-29; wired end-to-end via the `rust_lift.rs` bridge and `POST /render/rust-source` — verified live against real Rust source. Method calls, type-qualified/trait-dispatch calls, and calls crossing a `mod foo;` file boundary remain explicitly deferred — each needs real type resolution this AST-only recognizer doesn't do (`PATTERNS-rust-source.md` §5) | Rust arm: method/trait-dispatch call resolution (needs type info, not just AST) |
-| 4 | SysML v2 model constructs / view definitions | **Partial** — `ElementKind` (24), `Relation` (12), `SysmlViewKind` done; `ViewDefinition` as data not yet | Box 2 + Box 3 |
-| 5 | **Renderer adapters + HTTP service** | **✅ P0 implemented** — `kr0ki-core` + `kr0ki-server`, cache, auth, PNG, docgen | CDN tier (D5), artifact resolver (FR6) |
+| 4 | SysML v2 model constructs / view definitions | **Partial** — `ElementKind` (24), `Relation` (12), `SysmlViewKind` done; edges are lifted to `Relation`s (`sysml_lift.rs`) and rendered as D2/Mermaid (`sysml_render.rs`); `ViewDefinition` as data not yet | Box 2 + Box 3 |
+| 5 | **Renderer adapters + HTTP service** | **✅ Implemented** — `kr0ki-core` + `kr0ki-server`: cache, auth, PNG, docgen, contract headers, `/model/*` read routes and the `/sync` write route | CDN tier (D5), artifact resolver (FR6) |
 
 **Current implemented surface:**
-- `kr0ki-core`: `RenderService` (cache + backend), `FsCache`, `HttpKrokiBackend`, `DiagramFormat` (8 slugs), docgen (syn harvester + formatters)
+- `kr0ki-core`: `RenderService` (cache + backend), `FsCache`, `HttpKrokiBackend`, `DiagramFormat` (26 companion-free Kroki formats), docgen (syn harvester + formatters), the recognizers (`k8s_recognizer`, `rust_recognizer`) and lifts (`ufo_graph`, `rust_lift`, `sysml_lift`, `sysml_render`), the requirements stack (`reqif_*`, `requirements_*`, `rule_eval`, `recompute`), and the write path (`sync_engine`, `digital_thread_sync`, `flexo_reqif_sync`)
 - `kr0ki-server`: axum routes `/health`, `/formats`, `/render/{format}`, `/render/k8s-topology`, `/render/rust-source`, `/model/projects/{id}/sync` (write a `SysGraph`'s `dbt:` nodes into a SysML v2 project), `/cache/{key}`, `/docs*` (HTML/JSON/tomllm/rustdoc)
 - `kr0ki-sysmlv2-client`: OMG-API REST client, `ModelSnapshot` with `content_hash`
 
@@ -64,13 +64,16 @@ front-end semantic  recog-    constructs adapters
 crates/
 ├── kr0ki-core/         # P0 render loop + docgen (NO model code)
 │   ├── src/cache.rs     # SHA-256 content-addressed FsCache; OutputKind {Svg,Png}
-│   ├── src/format.rs    # DiagramFormat enum (8 Kroki slugs, no Mermaid)
+│   ├── src/format.rs    # DiagramFormat enum (26 companion-free Kroki slugs, no Mermaid)
 │   ├── src/render.rs    # RenderBackend trait; HttpKrokiBackend POST /{slug}/{output}
 │   ├── src/docgen/      # syn-based source harvester + formatters (json, tomllm, rustdoc, html)
+│   ├── src/sync_engine.rs          # fetch -> diff -> commit into a SysML v2 project: branch head, stale-head check, 409/412 retry, diff_managed
+│   ├── src/digital_thread_sync.rs  # SysGraph (dbt: nodes) -> project; flexo_reqif_sync.rs: ReqIF baseline <-> RequirementUsage elements
 │   └── tests/           # template_render.rs (live), live_png.rs (live), conformance.rs (ignored)
 ├── kr0ki-server/        # axum HTTP service
 │   ├── src/main.rs      # entrypoint; KR0KI_BIND, KR0KI_BACKEND_URL, KR0KI_AUTH_TOKEN env
-│   ├── src/app.rs       # router: health, formats, render, cache + auth middleware
+│   ├── src/app.rs       # router: health, formats, render, /model/*, requirements, cache; auth (`/health` exempt) + contract middleware
+│   ├── src/contract.rs  # X-Kr0ki-Contract / X-Kr0ki-Request-Id headers on every response
 │   ├── src/docs.rs      # /docs, /docs/api.json, /docs/api.tomllm, /docs/api.rustdoc
 │   └── tests/http.rs    # in-process HTTP tests (no backend needed)
 ├── kr0ki-svg/           # browser/WASM SVG enrichment + constraint layout (fdg-sim); see docs/DESIGN-NOTE-svg-layout-solver.md
@@ -153,7 +156,7 @@ support PNG; D2 does not. The `OutputKind::Png` plumbing is correct — it's a K
 upstream limitation.
 
 🤓 **Mermaid is companion-only.** `DiagramFormat::ALL` excludes Mermaid because Kroki's
-Mermaid renderer requires a companion (puppeteer/Chrome). kr0ki only advertises the 8
+Mermaid renderer requires a companion (puppeteer/Chrome). kr0ki only advertises the 26
 standalone formats.
 
 🤓 **Cache key must include output kind.** Same D2 source → SVG and PNG must have

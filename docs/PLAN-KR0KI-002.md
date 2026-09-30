@@ -12,6 +12,13 @@ upstream OMG-API model server; it does not host the model*. The
 2026-09-05, [`VOCABULARY.md`](VOCABULARY.md)). This plan covers ingestion + view rendering + caching of a model kr0ki reads from an
 external server. It does **not** cover kr0ki emitting SysML v2 / KerML text.
 
+**Update 2026-09-30 — implementation status.** The layered pipeline below now exists for the arms that were
+"blocked" when this plan was written: `ufo-types` ships `SysGraph`; `kr0ki-core` builds it for the SysML-v2 arm
+(`ufo_graph.rs`) and recognizes Kubernetes manifests (`k8s_recognizer.rs`) and Rust source (`rust_recognizer.rs`);
+edges are lifted to `Relation`s (`sysml_lift.rs`) and rendered (`sysml_render.rs`); all three arms are served by
+`kr0ki-server`. The client also *writes* now (`create_commit`, `sync_engine`). The FR table in §5 is updated;
+the live per-box status is in [`../AGENTS.md`](../AGENTS.md) §1. Sections below keep their original design intent.
+
 ---
 
 ## 0. One paragraph
@@ -158,12 +165,12 @@ topology-recall regression signal. See [`EVAL-kubediagrams.md`](EVAL-kubediagram
 
 | FR | What | Status |
 |---|---|---|
-| **FR1** | `iso_ir` graph JSON → Mermaid + D2 | ◑ **blocked on the UFO semantic-graph layer (`ufo-types`, in flight) + a pattern recognizer.** No direct `iso_ir`→diagram lowering — it must route through boxes 2→3→4. Client + `ModelSnapshot` (box 1 arm) done. |
+| **FR1** | `iso_ir` graph JSON → Mermaid + D2 | ✅ for the arms built: `ModelSnapshot` → `ufo_graph` → `sysml_lift` → `sysml_render` (D2/Mermaid) behind `POST /render/sysmlv2/projects/{p}/commits/{c}`, the Kubernetes arm behind `/render/k8s-topology`, the Rust arm behind `/render/rust-source`. Still no direct `iso_ir`→diagram lowering, by design. |
 | **FR3** | `systhread-core` isometric layout JSON → its `render.rs` | unchanged — separate renderer (box 5), not on the UFO-graph critical path |
-| **FR4** | typed SysML-v2/KerML view model → per-`ViewDefinition` rendering | ◑ **blocked on the UFO semantic-graph layer (`ufo-types`, in flight) + a pattern recognizer.** The view consumes box 4 (`ufo_types::sysml_model::{ElementKind, Relation}`, merged), which is itself derived from the UFO graph via a recognizer — not lowered directly from `ModelSnapshot`. |
-| **FR5** (model) | content-address the model render | ◑ hash done (`ModelSnapshot.content_hash`); key extension §3 TBD; CDN tier = **D5** |
+| **FR4** | typed SysML-v2/KerML view model → per-`ViewDefinition` rendering | ◑ views by `SysmlViewKind` work (`?view=` on the render routes, `sysml_lift::group_by_view_kind`). **Not built:** `ViewDefinition` / `ViewpointDefinition` instances as data, and `ViewUsage.exposedElement` scoping (see `TODO.md`). |
+| **FR5** (model) | content-address the model render | ◑ done locally: `RenderService::render_model` keys on the snapshot hash plus the recognizer rule-set version (`cache::model_cache_key`); CDN tier = **D5** |
 | **FR6** | intra-ecosystem reference resolver | unchanged — needs `ledgrrr` |
-| **FR7** | caller auth on the service | unchanged — P0 gap, tracked in PRD §6.4 |
+| **FR7** | caller auth on the service | ✅ minimal: one shared bearer token (`KR0KI_AUTH_TOKEN`) on every route except `/health`; no OAuth/JWT/per-key limits (PRD §6.4) |
 
 ## 6. Open decisions still in force
 

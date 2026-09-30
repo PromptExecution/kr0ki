@@ -5,7 +5,7 @@ Box 5. **Related:** [`PLAN-KR0KI-002.md`](PLAN-KR0KI-002.md) (the source-to-rend
 pipeline), [`docs/superpowers/specs/2026-09-17-storyb00k-agent-dashboard-design.md`](superpowers/specs/2026-09-17-storyb00k-agent-dashboard-design.md)
 (the shipped StoryB00k prototype). **Owner:** PromptExecution. **Created:** 2026-09-18.
 
-**Status:** proposed. This is a contract-first plan; it authorizes no orchestration
+**Status (2026-09-30):** Phase 0 is **complete** (ADR-0001, `workspace_types.rs`, the four JSON schemas, `dev_session.rs`, and the `phase0_fixture.rs` exit-gate trace). Phases 1–5 are **not started** as specified; the only durable revision store today is the agent's `jj`-backed chart store (`containers/kr0ki-storyb00k-agent/chart_store.py`) behind the playbook's revision DAG, which is narrower than Phase 1's revision service. Originally: proposed. This is a contract-first plan; it authorizes no orchestration
 framework or assistant-ui dependency change until Phase 0 accepts the contracts below.
 
 ---
