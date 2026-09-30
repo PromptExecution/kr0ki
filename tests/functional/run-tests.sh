@@ -4,9 +4,17 @@
 
 set -e
 
-# Configuration
-BASE_URL="${BASE_URL:-http://192.168.1.137:8787}"
-AGENT_URL="${AGENT_URL:-http://192.168.1.137:8789}"
+# Configuration: machine-local URLs come from the gitignored repo-root .env (see
+# .env.example); BASE_URL / AGENT_URL in the environment still override.
+ENV_FILE="$(cd "$(dirname "$0")/../.." && pwd)/.env"
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+    set +a
+fi
+BASE_URL="${BASE_URL:-${KR0KI_PUBLIC_URL:-http://127.0.0.1:8787}}"
+AGENT_URL="${AGENT_URL:-${KR0KI_AGENT_PUBLIC_URL:-http://127.0.0.1:8789}}"
 SCREENSHOT_DIR="/tmp/kr0ki-test-screenshots"
 TEST_RESULTS="/tmp/kr0ki-test-results.json"
 

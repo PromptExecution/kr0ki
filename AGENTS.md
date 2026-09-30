@@ -89,6 +89,7 @@ crates/
 | `KR0KI_BACKEND_URL` | `http://127.0.0.1:8010` in dev; `http://127.0.0.1:8000` in the pod | Private kroki-compatible backend; never point production at the public Kroki service |
 | `KR0KI_CACHE_DIR` | `./.kr0ki-cache` | Filesystem cache root |
 | `KR0KI_AUTH_TOKEN` | unset | If set, require `Authorization: Bearer <token>` on all routes except `/health` |
+| `KR0KI_PUBLIC_URL` / `KR0KI_AGENT_PUBLIC_URL` | loopback `:8787` / `:8789` | Where the server / StoryB00k agent are reached from a browser, `tests/functional`, and the Vite dev proxy. Put LAN/remote addresses in the gitignored `.env` (copy `.env.example`); `just` loads `.env` automatically. Never hard-code a machine address in tracked files |
 | `KR0KI_TEST_BACKEND` | unset | Live render test backend; use the local/private kroki-compatible service |
 | `KR0KI_SYSMLV2_BASE_URL` | unset | Live SysML-v2 client test target |
 

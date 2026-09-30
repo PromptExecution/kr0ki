@@ -14,10 +14,19 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// Machine-local URLs come from the gitignored repo-root .env (see .env.example);
+// BASE_URL / AGENT_URL in the environment still override. A missing .env is fine.
+try {
+  process.loadEnvFile(path.join(__dirname, '..', '..', '.env'));
+} catch (err) {
+  if (err.code !== 'ENOENT') throw err;
+}
+
 // Test configuration
 const CONFIG = {
-  baseUrl: 'http://192.168.1.137:8787',
-  agentUrl: 'http://192.168.1.137:8789',
+  baseUrl: process.env.BASE_URL || process.env.KR0KI_PUBLIC_URL || 'http://127.0.0.1:8787',
+  agentUrl:
+    process.env.AGENT_URL || process.env.KR0KI_AGENT_PUBLIC_URL || 'http://127.0.0.1:8789',
   timeout: 30000,
   screenshotDir: '/tmp/kr0ki-test-screenshots',
 };
@@ -331,7 +340,7 @@ const UI_TESTS = [
       { action: 'navigate', url: `${CONFIG.baseUrl}/playbook/`, description: 'Navigate to playbook' },
       { action: 'click', selector: '.view-tab:nth-child(4)', description: 'Click Setup tab' },
       { action: 'wait', condition: 'element', selector: '.setup', description: 'Wait for setup panel' },
-      { action: 'type', selector: 'input[placeholder*="8787"]', text: 'http://192.168.1.137:8787', description: 'Enter renderer URL' },
+      { action: 'type', selector: 'input[placeholder*="8787"]', text: CONFIG.baseUrl, description: 'Enter renderer URL' },
       { action: 'click', selector: 'button:has-text("Save Settings")', description: 'Click Save' },
       { action: 'wait', condition: 'element', selector: 'button:has-text("✓ Saved")', timeout: 5000, description: 'Wait for save confirmation' },
       { action: 'screenshot', name: 'ui-004-setup-save', description: 'Take screenshot' },

@@ -1,5 +1,9 @@
 # kr0ki — thin command surface (b00t convention: recipes stay thin, logic lives in code).
 
+# Machine-local settings (LLM endpoint, public URLs) come from the gitignored `.env`
+# (copy `.env.example`); nothing machine-specific is hard-coded in this file.
+set dotenv-load := true
+
 default:
     @just --list
 
@@ -389,9 +393,9 @@ start-agent port="8789":
         .venv/bin/pip install -q -r requirements.txt
     fi
     nohup env \
-        OPENAI_API_URL="${OPENAI_API_URL:-http://192.168.1.137:8002/v1}" \
+        OPENAI_API_URL="${OPENAI_API_URL:?set OPENAI_API_URL in .env (see .env.example)}" \
         OPENAI_API_KEY="${OPENAI_API_KEY:-not-needed}" \
-        KR0KI_STORYB00K_ALLOWED_ORIGINS="${KR0KI_STORYB00K_ALLOWED_ORIGINS:-http://localhost:8787,http://192.168.1.137:5173,http://192.168.1.137:8787,http://127.0.0.1:5173,http://127.0.0.1:8787}" \
+        KR0KI_STORYB00K_ALLOWED_ORIGINS="${KR0KI_STORYB00K_ALLOWED_ORIGINS:-http://localhost:8787,http://127.0.0.1:8787,http://localhost:5173,http://127.0.0.1:5173${KR0KI_PUBLIC_URL:+,$KR0KI_PUBLIC_URL}}" \
         .venv/bin/python server.py > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     sleep 2

@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { configDefaults } from 'vitest/config'
 import { readFileSync } from 'fs'
@@ -8,6 +8,12 @@ import { resolve } from 'path'
 const cargoToml = readFileSync(resolve(__dirname, '../Cargo.toml'), 'utf-8')
 const versionMatch = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)
 const appVersion = versionMatch ? versionMatch[1] : '0.0.0'
+
+// The kr0ki server the dev proxy forwards to: KR0KI_PUBLIC_URL from the repo-root .env
+// (see .env.example), else the local default. Nothing machine-specific is hard-coded.
+const kr0kiUrl =
+  loadEnv(process.env.NODE_ENV || 'development', resolve(__dirname, '..'), 'KR0KI_')
+    .KR0KI_PUBLIC_URL || 'http://127.0.0.1:8787'
 
 // Relative assets work when the same build is served at /playbook/ locally and
 // under /kr0ki/playbook/ on GitHub Pages.
@@ -22,12 +28,12 @@ export default defineConfig({
       // Proxy /api and /playbook/api requests to the kr0ki server (port 8787)
       // The kr0ki server serves /api/examples (no .json suffix), so strip it.
       '/api': {
-        target: 'http://192.168.1.137:8787',
+        target: kr0kiUrl,
         changeOrigin: true,
         rewrite: (path) => path.replace(/\.json$/, ''),
       },
       '/playbook/api': {
-        target: 'http://192.168.1.137:8787',
+        target: kr0kiUrl,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/playbook/, '').replace(/\.json$/, ''),
       },
