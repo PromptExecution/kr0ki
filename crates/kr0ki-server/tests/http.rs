@@ -1338,6 +1338,39 @@ async fn auth_required_rejects_missing_token() {
     assert!(body.contains("unauthorized"));
 }
 
+/// Contract/correlation headers are part of every response, including the
+/// 401 the auth layer produces itself (auth must not sit outside the contract layer).
+#[tokio::test]
+async fn unauthorized_responses_still_carry_contract_headers() {
+    let app = router(
+        test_state("authed-headers"),
+        Some("secret".to_string()),
+        Arc::new(contract::ContractReference::default()),
+    );
+    let resp = app
+        .oneshot(
+            Request::get("/formats")
+                .header("x-request-id", "corr-401")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        resp.headers()
+            .get("x-kr0ki-contract")
+            .map(|v| v.to_str().unwrap()),
+        Some("ledgrrr://state-machines/sysml-render/v1")
+    );
+    assert_eq!(
+        resp.headers()
+            .get("x-kr0ki-request-id")
+            .map(|v| v.to_str().unwrap()),
+        Some("corr-401")
+    );
+}
+
 #[tokio::test]
 async fn auth_required_accepts_valid_bearer() {
     let app = router(

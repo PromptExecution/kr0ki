@@ -133,18 +133,19 @@ pub fn router(
         .merge(crate::docs::routes())
         .with_state(state);
 
-    // Add contract middleware first (before auth, so all responses get headers)
-    let r = r.layer(axum::middleware::from_fn(move |req, next| {
-        super::contract::contract_middleware(req, next, contract.clone())
-    }));
-
-    if let Some(token) = auth_token {
-        r.layer(axum::middleware::from_fn(move |req, next| {
+    let r = match auth_token {
+        Some(token) => r.layer(axum::middleware::from_fn(move |req, next| {
             require_bearer(req, next, token.clone())
-        }))
-    } else {
-        r
-    }
+        })),
+        None => r,
+    };
+
+    // Added last so it is the *outermost* layer (axum layers wrap what came before):
+    // every response, including the 401 the auth layer returns itself, then carries the
+    // contract and request-id headers, and handlers still see the RequestId extension.
+    r.layer(axum::middleware::from_fn(move |req, next| {
+        super::contract::contract_middleware(req, next, contract.clone())
+    }))
 }
 
 async fn require_bearer(

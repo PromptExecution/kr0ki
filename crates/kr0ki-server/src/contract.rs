@@ -6,9 +6,11 @@
 //!
 //! See `docs/DESIGN-NOTE-ledgrrr-state-contract-registry.md`.
 
-use axum::http::Request;
+use axum::http::{header::InvalidHeaderValue, HeaderValue, Request};
 use std::sync::Arc;
 use uuid::Uuid;
+
+const DEFAULT_URI: &str = "ledgrrr://state-machines/sysml-render/v1";
 
 /// Contract reference attached to responses.
 ///
@@ -21,30 +23,55 @@ pub struct ContractReference {
     pub uri: String,
     /// The subject (e.g., `kr0ki.b00t.promptexecution.com` or `localhost`).
     pub subject: String,
+    /// `uri` pre-validated as a header value, so the per-request path cannot fail.
+    uri_header: HeaderValue,
 }
 
 impl Default for ContractReference {
     fn default() -> Self {
         Self {
-            uri: "ledgrrr://state-machines/sysml-render/v1".to_string(),
+            uri: DEFAULT_URI.to_string(),
             subject: "localhost".to_string(),
+            uri_header: HeaderValue::from_static(DEFAULT_URI),
         }
     }
 }
 
 impl ContractReference {
+    /// Build a reference, rejecting a URI that cannot be sent as an HTTP header value.
+    ///
+    /// Validating here (rather than `.parse().expect()` in the middleware) means a bad
+    /// operator-supplied value fails once at startup instead of panicking every request.
+    pub fn new(
+        uri: impl Into<String>,
+        subject: impl Into<String>,
+    ) -> Result<Self, InvalidHeaderValue> {
+        let uri = uri.into();
+        Ok(Self {
+            uri_header: HeaderValue::from_str(&uri)?,
+            uri,
+            subject: subject.into(),
+        })
+    }
+
     /// Create from environment variables.
     ///
     /// - `KR0KI_CONTRACT_URI` (default: `ledgrrr://state-machines/sysml-render/v1`)
     /// - `KR0KI_CONTRACT_SUBJECT` (default: `localhost`)
+    ///
+    /// An unusable `KR0KI_CONTRACT_URI` falls back to the default and logs a warning.
     #[allow(dead_code)] // used by main.rs binary, not by test harnesses
     pub fn from_env() -> Self {
-        Self {
-            uri: std::env::var("KR0KI_CONTRACT_URI")
-                .unwrap_or_else(|_| "ledgrrr://state-machines/sysml-render/v1".to_string()),
-            subject: std::env::var("KR0KI_CONTRACT_SUBJECT")
-                .unwrap_or_else(|_| "localhost".to_string()),
-        }
+        let uri = std::env::var("KR0KI_CONTRACT_URI").unwrap_or_else(|_| DEFAULT_URI.to_string());
+        let subject =
+            std::env::var("KR0KI_CONTRACT_SUBJECT").unwrap_or_else(|_| "localhost".to_string());
+        Self::new(uri, subject.clone()).unwrap_or_else(|e| {
+            tracing::warn!("ignoring invalid KR0KI_CONTRACT_URI ({e}); using default");
+            Self {
+                subject,
+                ..Self::default()
+            }
+        })
     }
 }
 
@@ -86,14 +113,13 @@ pub async fn contract_middleware(
     let mut response = next.run(req).await;
 
     // Attach contract reference headers
-    response.headers_mut().insert(
-        "x-kr0ki-contract",
-        contract.uri.parse().expect("valid header value"),
-    );
-    response.headers_mut().insert(
-        "x-kr0ki-request-id",
-        request_id.0.parse().expect("valid header value"),
-    );
+    let headers = response.headers_mut();
+    headers.insert("x-kr0ki-contract", contract.uri_header.clone());
+    // A caller-supplied id was read via `to_str()` (visible ASCII), so this re-encodes
+    // cleanly; if it ever did not, dropping the header beats panicking the request.
+    if let Ok(v) = HeaderValue::from_str(&request_id.0) {
+        headers.insert("x-kr0ki-request-id", v);
+    }
 
     response
 }
@@ -123,6 +149,13 @@ mod tests {
         let c = ContractReference::default();
         assert_eq!(c.uri, "ledgrrr://state-machines/sysml-render/v1");
         assert_eq!(c.subject, "localhost");
+    }
+
+    #[test]
+    fn contract_uri_that_is_not_a_valid_header_value_is_rejected_up_front() {
+        // Env-supplied values must fail at construction, never per request.
+        assert!(ContractReference::new("ledgrrr://x\ny", "localhost").is_err());
+        assert!(ContractReference::new("ledgrrr://ok/v1", "localhost").is_ok());
     }
 
     #[test]
