@@ -1,6 +1,6 @@
 //! Live contract for the executable playb00k catalog.
 //!
-//! Run with `KR0KI_PLAYBOOK_URL=http://192.168.1.137:8787 just test-playbook`.
+//! Run with `KR0KI_PLAYBOOK_URL=http://127.0.0.1:8787 just test-playbook`.
 //! This intentionally exercises the HTTP surface the Vue panel uses, not
 //! `HttpKrokiBackend` directly.
 
@@ -10,7 +10,7 @@ use kr0ki_core::examples::ALL;
 #[ignore = "requires KR0KI_PLAYBOOK_URL pointing at a running kr0ki service"]
 async fn every_playbook_fixture_renders_and_caches() {
     let base = std::env::var("KR0KI_PLAYBOOK_URL")
-        .expect("set KR0KI_PLAYBOOK_URL, e.g. http://192.168.1.137:8787");
+        .expect("set KR0KI_PLAYBOOK_URL, e.g. http://127.0.0.1:8787");
     let base = base.trim_end_matches('/');
     let client = reqwest::Client::new();
 

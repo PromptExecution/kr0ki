@@ -12,10 +12,12 @@
     {
       "id": 2,
       "title": "bug: b00t exec local test escalation cannot reach configured adversarial model endpoint http://127.0.0.1:30801/v1/chat/completions",
-      "status": "pending",
+      "status": "done",
       "priority": 3,
       "tags": [],
-      "created_at": "2026-09-15T11:14:06Z"
+      "notes": "Root cause found: not a code bug, a documentation bug. inference-sm0l.hive.toml's usage hint told operators to export B00T_SM0L_ENDPOINT, but every host-side reader of the sm0l NodePort (adversarial_review in b00t-c0re-lib::sudo_operator, sm0l_dispatch, model_manager, validate) actually reads B00T_AI_SM0L_BASE -- B00T_SM0L_ENDPOINT is a real, different variable (from_artifact's sm0l-oracle, llama.cpp-native /completion). verdict.rs's DEFAULT_SM0L_BASE (127.0.0.1:30801) only works when b00t exec runs on the k8s node itself; any other host needs the override the datum failed to correctly document. Fixed in PromptExecution/__b00t__ PR #7 (https://github.com/PromptExecution/__b00t__/pull/7), commit 1ea2b1f. Datum validated (b00t datum validate: valid) + pre-commit datum-graph gate passed.",
+      "created_at": "2026-09-15T11:14:06Z",
+      "updated_at": "2026-09-29T22:02:14Z"
     },
     {
       "id": 3,
@@ -36,18 +38,22 @@
     {
       "id": 5,
       "title": "bug: b00t mcp install <name> dotmcpjson fails instead of initializing an absent project .mcp.json",
-      "status": "pending",
+      "status": "done",
       "priority": 3,
       "tags": [],
-      "created_at": "2026-09-15T11:42:45Z"
+      "notes": "Verified fixed: already resolved by merged PR #1318 (elasticdotventures/_b00t_ commit 116ecc4a, fix(cli): initialize MCP config, harden guards, and opt in RunPod), now on origin/main. load_or_initialize_dotmcpjson() returns {mcpServers:{}} on ENOENT instead of failing. Live-verified 2026-09-29 in a fresh git repo with no .mcp.json: 'b00t mcp install playwright dotmcpjson' created .mcp.json with the playwright server entry on first run, no error.",
+      "created_at": "2026-09-15T11:42:45Z",
+      "updated_at": "2026-09-29T21:45:38Z"
     },
     {
       "id": 6,
       "title": "bug: b00t soul distill panics with Cannot start a runtime from within a runtime instead of appending SOUL.md",
-      "status": "pending",
+      "status": "done",
       "priority": 3,
       "tags": [],
-      "created_at": "2026-09-15T11:44:57Z"
+      "notes": "Verified fixed: same merged PR #1318 (elasticdotventures/_b00t_ commit 116ecc4a) introduced block_on_soul_future() (src/commands/soul.rs:339-345), which uses tokio::task::block_in_place + Handle::current().block_on() when already inside a runtime, falling back to Runtime::new().block_on() only when not — soul distill (line 462) now goes through it instead of unconditionally calling Runtime::new(). Live-verified 2026-09-29: 'echo ... | b00t soul distill --dry-run' runs to completion with a clean anyhow::Result::Err (400 from the LLM endpoint, an unrelated API-shape issue) and exit code 1 -- no panic, no 'Cannot start a runtime from within a runtime'.",
+      "created_at": "2026-09-15T11:44:57Z",
+      "updated_at": "2026-09-29T21:46:16Z"
     },
     {
       "id": 7,
@@ -73,7 +79,9 @@
       "status": "pending",
       "priority": 3,
       "tags": [],
-      "created_at": "2026-09-15T12:27:13Z"
+      "notes": "Investigated 2026-09-29: no dedicated exec_guard/exec-guard module found in b00t-cli (searched src/commands/exec.rs's handle_exec, hook_engine.rs, budget_controller.rs, blessing.rs's forbidden-pattern list, and ~/.claude/hooks/ for a substring-on-'test' classifier). Nothing matches the described symptom (a non-executing string merely containing 'test' getting blocked). Needs a repro (exact command/text that triggers the false block, and which guard/hook surfaces it) before a safe fix can be scoped -- not picking a candidate file to edit blind.",
+      "created_at": "2026-09-15T12:27:13Z",
+      "updated_at": "2026-09-29T21:48:20Z"
     },
     {
       "id": 10,
@@ -87,10 +95,12 @@
     {
       "id": 11,
       "title": "kr0ki: define ledgrrr holon-viz D2 emitter plus kr0ki-client E2E contract",
-      "status": "pending",
+      "status": "done",
       "priority": 3,
       "tags": [],
-      "created_at": "2026-09-15T22:58:30Z"
+      "notes": "Stale duplicate: kr0ki's own docs/TODO.md already marks this [x] done with the exact same description, explicitly noting 'This checkbox was stale -- the work already shipped.' Verified 2026-09-29: crates/kr0ki-core/src/b00t_graph.rs (459 lines, 10 unit tests) implements Turtle -> holon_viz::type_graph::TypeRelationshipGraph -> CytoscapeGraph -> D2Emitter, a real (non-dev) holon_viz dependency per PRD-KR0KI-001's resolved D2 decision. Wired end-to-end: kr0ki-server's GET /b00t-graph/:tag route (app.rs) reads Turtle from B00T_GRAPH_ARTIFACTS_PATH, parses+emits D2, renders via the existing kroki pipeline. HTTP-level tests exist in kr0ki-server/tests/http.rs including b00t_graph_is_503_when_not_configured and a path-traversal security test. No further work needed.",
+      "created_at": "2026-09-15T22:58:30Z",
+      "updated_at": "2026-09-29T22:05:42Z"
     },
     {
       "id": 12,
@@ -437,10 +447,12 @@
     {
       "id": 53,
       "title": "kr0ki: harden ReqIF and ReqIFz intake then expose a validated import contract",
-      "status": "pending",
+      "status": "done",
       "priority": 3,
       "tags": [],
-      "created_at": "2026-09-20T06:18:55Z"
+      "notes": "Stale duplicate, already shipped: crates/kr0ki-core/src/reqif_import.rs implements bounded, in-memory intake for both plain ReqIF XML and ReqIFz ZIP archives (entry-count cap, expanded-size cap, checked before reading entries). crates/kr0ki-core/src/reqif_fetch.rs adds an SSRF-hardened HTTPS fetcher (DNS-pinned, redirect-revalidated, disallowed-address/scheme/too-many-redirects error taxonomy) -- merged PR #53 (coincidentally same number as this task) on 2026-09-23. Exposed as a validated import contract via kr0ki-server: POST /requirements/import (raw bytes, DefaultBodyLimit tied to the same cap) and POST /requirements/import/url (SSRF-hardened fetch-then-import). Explicit boundary documented in app.rs: kr0ki never persists source/attachments, accepts bytes not arbitrary file:///URL reads by default. HTTP-level tests exist (requirements_import_normalizes_raw_reqif_with_digest_provenance, requirements_import_rejects_malformed_reqif_without_calling_a_renderer) plus 7+3 unit tests in reqif_fetch.rs/reqif_export.rs. No further work needed.",
+      "created_at": "2026-09-20T06:18:55Z",
+      "updated_at": "2026-09-29T22:07:29Z"
     },
     {
       "id": 54,
