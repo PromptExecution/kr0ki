@@ -381,6 +381,8 @@ start-agent port="8789":
         echo "  Use 'lsof -ti:{{port}} | xargs kill -9' to clear it"
         exit 1
     fi
+    # Fail on the console, not silently inside the backgrounded process below.
+    : "${OPENAI_API_URL:?set OPENAI_API_URL in .env (see .env.example)}"
     echo "Starting agent server on port {{port}}..."
     KR0KI_ROOT="$(pwd)"
     AGENT_DIR="$KR0KI_ROOT/containers/kr0ki-storyb00k-agent"
@@ -393,13 +395,14 @@ start-agent port="8789":
         .venv/bin/pip install -q -r requirements.txt
     fi
     nohup env \
+        KR0KI_STORYB00K_PORT="{{port}}" \
         OPENAI_API_URL="${OPENAI_API_URL:?set OPENAI_API_URL in .env (see .env.example)}" \
         OPENAI_API_KEY="${OPENAI_API_KEY:-not-needed}" \
         KR0KI_STORYB00K_ALLOWED_ORIGINS="${KR0KI_STORYB00K_ALLOWED_ORIGINS:-http://localhost:8787,http://127.0.0.1:8787,http://localhost:5173,http://127.0.0.1:5173${KR0KI_PUBLIC_URL:+,$KR0KI_PUBLIC_URL}}" \
         .venv/bin/python server.py > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     sleep 2
-    if curl -s http://127.0.0.1:{{port}}/health | grep -q '"status":"ok"'; then
+    if curl -s http://127.0.0.1:{{port}}/health | grep -Eq '"status": ?"ok"'; then
         echo "✓ Agent server started on port {{port}}"
         echo "  PID: $(cat .kr0ki-run/agent.pid)"
         echo "  Logs: .kr0ki-run/agent.log"
@@ -441,7 +444,7 @@ stop-agent port="8789":
 status-agent port="8789":
     #!/usr/bin/env bash
     set -euo pipefail
-    if curl -s http://127.0.0.1:{{port}}/health | grep -q '"status":"ok"'; then
+    if curl -s http://127.0.0.1:{{port}}/health | grep -Eq '"status": ?"ok"'; then
         echo "✓ Agent server is running on port {{port}}"
         if [ -f .kr0ki-run/agent.pid ]; then
             PID=$(cat .kr0ki-run/agent.pid)
