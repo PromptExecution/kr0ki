@@ -371,7 +371,7 @@ start-agent port="8789":
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p .kr0ki-run
-    if [ -f .kr0ki-run/agent.pid ] && kill -0 $(cat .kr0ki-run/agent.pid) 2>/dev/null; then
+    if [ -f .kr0ki-run/agent.pid ] && kill -0 $(cat "$PID_FILE") 2>/dev/null; then
         echo "✗ Agent server is already running on port {{port}}"
         echo "  Use 'just stop-agent {{port}}' to stop it first"
         exit 1
@@ -404,7 +404,7 @@ start-agent port="8789":
     sleep 2
     if curl -s http://127.0.0.1:{{port}}/health | grep -Eq '"status": ?"ok"'; then
         echo "✓ Agent server started on port {{port}}"
-        echo "  PID: $(cat .kr0ki-run/agent.pid)"
+        echo "  PID: $(cat "$PID_FILE")"
         echo "  Logs: .kr0ki-run/agent.log"
     else
         echo "✗ Agent server failed to start"
@@ -416,7 +416,7 @@ stop-agent port="8789":
     #!/usr/bin/env bash
     set -euo pipefail
     if [ -f .kr0ki-run/agent.pid ]; then
-        PID=$(cat .kr0ki-run/agent.pid)
+        PID=$(cat "$PID_FILE")
         if kill -0 $PID 2>/dev/null; then
             echo "Stopping agent server (PID: $PID)..."
             kill $PID
@@ -447,7 +447,7 @@ status-agent port="8789":
     if curl -s http://127.0.0.1:{{port}}/health | grep -Eq '"status": ?"ok"'; then
         echo "✓ Agent server is running on port {{port}}"
         if [ -f .kr0ki-run/agent.pid ]; then
-            PID=$(cat .kr0ki-run/agent.pid)
+            PID=$(cat "$PID_FILE")
             if kill -0 $PID 2>/dev/null; then
                 echo "  PID: $PID"
             else
