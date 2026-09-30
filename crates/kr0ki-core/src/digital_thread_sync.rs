@@ -7,7 +7,7 @@ use crate::sync_engine::sync_managed;
 pub use crate::sync_engine::{SyncConfig, SyncError, MAX_SYNC_ATTEMPTS};
 use kr0ki_sysmlv2_client::{Commit, DataVersion, Element, Ref, SysmlV2Client};
 use std::collections::{BTreeMap, BTreeSet};
-use ufo_types::sysgraph::SysGraph;
+pub use ufo_types::sysgraph::SysGraph;
 
 /// An element's `identifier` field, if present. `identifier` lives in `Element`'s
 /// flattened `fields` map (not a dedicated struct field) -- it's an OMG-API-defined
