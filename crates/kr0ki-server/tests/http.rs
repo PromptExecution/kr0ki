@@ -196,7 +196,7 @@ async fn mcp_tools_lists_all_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 15);
+    assert_eq!(tools.len(), 16);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
@@ -207,6 +207,7 @@ async fn mcp_tools_lists_all_tools_with_bindings() {
     assert!(names.contains(&"import_reqif_url"));
     assert!(names.contains(&"query_model_graph"));
     assert!(names.contains(&"recompute_and_evaluate"));
+    assert!(names.contains(&"sync_digital_thread"));
 
     let render = tools
         .iter()
@@ -528,6 +529,123 @@ async fn model_recompute_evaluates_rule_docs_and_returns_violations() {
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("\"disposition\""));
     assert!(body.contains("BadPart is not allowed"));
+}
+
+const ONE_DBT_NODE_GRAPH: &str = r#"{"nodes":[{"id":"dbt:model.a","stereotype":{"Kind":"DbtModel"},"label":"A (marts)"}],"edges":[]}"#;
+
+async fn mount_sync_project(server: &wiremock::MockServer, elements: serde_json::Value) {
+    for (p, body) in [
+        (
+            "/projects/p1/commits",
+            serde_json::json!([{"@id": "c1", "@type": "Commit"}]),
+        ),
+        ("/projects/p1/commits/c1/elements", elements),
+    ] {
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path(p))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(body))
+            .mount(server)
+            .await;
+    }
+}
+
+async fn post_sync(
+    server: &wiremock::MockServer,
+    tag: &str,
+    body: &'static str,
+) -> (StatusCode, String) {
+    let response = test_app(test_state_with_sysmlv2_client(tag, server.uri()))
+        .oneshot(
+            Request::post("/model/projects/p1/sync")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    body_string(response).await
+}
+
+#[tokio::test]
+async fn model_sync_commits_the_graph_and_returns_the_commit() {
+    let server = wiremock::MockServer::start().await;
+    mount_sync_project(&server, serde_json::json!([])).await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/projects/p1/commits"))
+        .and(wiremock::matchers::body_partial_json(
+            serde_json::json!({"previousCommit": {"@id": "c1"}}),
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"@id": "c2", "@type": "Commit"})),
+        )
+        .mount(&server)
+        .await;
+
+    let (status, body) = post_sync(&server, "sync-ok", ONE_DBT_NODE_GRAPH).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body.contains("\"@id\":\"c2\""), "{body}");
+}
+
+#[tokio::test]
+async fn model_sync_persistent_conflict_is_409() {
+    let server = wiremock::MockServer::start().await;
+    mount_sync_project(&server, serde_json::json!([])).await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .respond_with(wiremock::ResponseTemplate::new(409))
+        .mount(&server)
+        .await;
+    let (status, body) = post_sync(&server, "sync-conflict", ONE_DBT_NODE_GRAPH).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert!(body.contains("sync_conflict"));
+}
+
+#[tokio::test]
+async fn model_sync_duplicate_server_identifiers_are_422() {
+    let server = wiremock::MockServer::start().await;
+    mount_sync_project(
+        &server,
+        serde_json::json!([
+            {"@id": "s1", "@type": "PartUsage", "identifier": "dbt:model.a", "name": "A"},
+            {"@id": "s2", "@type": "PartUsage", "identifier": "dbt:model.a", "name": "A"}
+        ]),
+    )
+    .await;
+    let (status, body) = post_sync(&server, "sync-dupes", ONE_DBT_NODE_GRAPH).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body.contains("duplicate_identifier"));
+}
+
+#[tokio::test]
+async fn model_sync_upstream_failure_is_502() {
+    let server = wiremock::MockServer::start().await;
+    mount_sync_project(&server, serde_json::json!([])).await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .respond_with(wiremock::ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+    let (status, _) = post_sync(&server, "sync-502", ONE_DBT_NODE_GRAPH).await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+}
+
+#[tokio::test]
+async fn model_sync_rejects_a_body_that_is_not_a_sysgraph() {
+    let server = wiremock::MockServer::start().await;
+    let (status, body) = post_sync(&server, "sync-bad", r#"{"nodes": "nope"}"#).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains("invalid_graph"));
+}
+
+#[tokio::test]
+async fn model_sync_without_a_configured_client_is_503() {
+    let response = test_app(test_state("sync-unconfigured"))
+        .oneshot(
+            Request::post("/model/projects/p1/sync")
+                .body(Body::from(ONE_DBT_NODE_GRAPH))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
 
 #[tokio::test]

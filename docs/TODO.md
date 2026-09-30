@@ -85,7 +85,7 @@ starting this stream. kr0ki's stateless view slice is on
 - [ ] **`reqif-opa-mcp` refactor** — retain its artifact → document graph → candidate
   → OPA → ReqIF pipeline; replace its private requirement DTO/relation/provenance and
   validation types with the upstream `ufo-types` contract.
-- [ ] **Flexo baseline adapter** — §1 (ReqIF export, `kr0ki_core::reqif_export`) ✓ implemented in PR #55. §2 (Flexo storage, `flexo_reqif_sync`) and §3 (round-trip contract test) blocked on PR #52 (`digital_thread_sync`); see docs/superpowers/specs/2026-09-23-flexo-baseline-adapter-design.md.
+- [x] **Flexo baseline adapter** — §1 (ReqIF export, `kr0ki_core::reqif_export`) ✓ PR #55. §2 (`kr0ki_core::flexo_reqif_sync`) and §3 (round-trip test) ✓ implemented on the shared `sync_engine`; the live round trip is `#[ignore]`d until an OMG-pilot server is available (`KR0KI_SYSMLV2_BASE_URL`, `KR0KI_SYSMLV2_TEST_PROJECT_ID`); see docs/superpowers/specs/2026-09-23-flexo-baseline-adapter-design.md.
 - [ ] **Playb00k requirements workspace** — after M2/M3 contracts exist: import and
   validate, select baseline, browse hierarchy/provenance, run all five viewpoints,
   distinguish asserted/inferred/proposed edges, explicitly promote, and open cached

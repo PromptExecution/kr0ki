@@ -3,15 +3,11 @@
 //! docs/superpowers/specs/2026-09-20-flexo-write-path-design.md for the full design.
 //! Nodes only -- no edge/relationship sync (see that spec's §6).
 
-use kr0ki_sysmlv2_client::{Commit, CommitRequest, DataVersion, Element, Ref, SysmlV2Client};
-use ufo_types::sysgraph::SysGraph;
-
-/// An element's `identifier` field, if present. `identifier` lives in `Element`'s
-/// flattened `fields` map (not a dedicated struct field) -- it's an OMG-API-defined
-/// field this crate doesn't otherwise model.
-fn element_identifier(element: &Element) -> Option<&str> {
-    element.fields.get("identifier").and_then(|v| v.as_str())
-}
+use crate::sync_engine::{diff_managed, element_identifier, sync_managed, DesiredElement};
+pub use crate::sync_engine::{SyncConfig, SyncError, MAX_SYNC_ATTEMPTS};
+use kr0ki_sysmlv2_client::{Commit, DataVersion, Element, SysmlV2Client};
+use serde_json::{Map, Value};
+pub use ufo_types::sysgraph::SysGraph;
 
 /// `graph` restricted to nodes whose id starts with `dbt:`. Used on the
 /// `sync_dbt_graph` side of the diff to mirror the `dbt:`-prefix filter already
@@ -29,155 +25,47 @@ fn filter_dbt_nodes(graph: &SysGraph) -> SysGraph {
     }
 }
 
-/// Diff `fetched_elements` (the project's current elements, already known to be
-/// `dbt:`-prefixed by identifier -- filtering happens before this call, in
-/// `sync_dbt_graph`) against `graph`'s nodes (also expected to be pre-filtered to
-/// `dbt:`-prefixed identifiers by the caller), producing the create/update/delete
-/// changeset. Returns an empty `Vec` when nothing changed.
-pub(crate) fn build_changeset(fetched_elements: &[Element], graph: &SysGraph) -> Vec<DataVersion> {
-    use std::collections::BTreeMap;
-
-    let by_identifier: BTreeMap<&str, &Element> = fetched_elements
+/// Map `graph`'s nodes to desired `PartUsage` elements and diff them against `fetched`
+/// (the project's existing `dbt:` elements). The create/update/delete rules, including the
+/// full-replace update payload, live in [`diff_managed`].
+pub(crate) fn build_changeset(
+    fetched_elements: &[Element],
+    graph: &SysGraph,
+) -> Result<Vec<DataVersion>, SyncError> {
+    let desired: Vec<DesiredElement> = graph
+        .nodes
         .iter()
-        .filter_map(|e| element_identifier(e).map(|id| (id, e)))
+        .map(|node| DesiredElement {
+            identifier: node.id.0.clone(),
+            type_: "PartUsage",
+            fields: Map::from_iter([(
+                "name".to_string(),
+                Value::String(node.label.clone().unwrap_or_default()),
+            )]),
+        })
         .collect();
-
-    let mut changes = Vec::new();
-    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
-
-    for node in &graph.nodes {
-        let identifier = node.id.0.as_str();
-        seen.insert(identifier);
-        let label = node.label.as_deref().unwrap_or_default();
-
-        match by_identifier.get(identifier) {
-            None => {
-                // create
-                changes.push(DataVersion {
-                    type_: "DataVersion",
-                    payload: Some(serde_json::json!({
-                        "@type": "PartUsage",
-                        "name": label,
-                        "identifier": identifier,
-                    })),
-                    identity: None,
-                });
-            }
-            Some(existing) => {
-                if existing.name() != Some(label) {
-                    // update -- DataVersion.payload is a full replacement of the
-                    // element's data-resource state, not a patch: the OMG reference
-                    // implementation (JpaCommitDao.persist) never merges an incoming
-                    // payload with the element's prior version, so any field this
-                    // payload omits comes back null/empty on the new version. Start
-                    // from the element's current fields (already fetched for the
-                    // diff above) and only overwrite `name`, so ownership/other
-                    // attributes another tool set survive this sync untouched.
-                    let mut payload = existing.fields.clone();
-                    payload.insert(
-                        "@type".to_string(),
-                        serde_json::Value::String(existing.ty().to_string()),
-                    );
-                    payload.insert(
-                        "name".to_string(),
-                        serde_json::Value::String(label.to_string()),
-                    );
-                    changes.push(DataVersion {
-                        type_: "DataVersion",
-                        payload: Some(serde_json::Value::Object(payload)),
-                        identity: Some(Ref {
-                            at_id: existing.id().to_string(),
-                            extra: Default::default(),
-                        }),
-                    });
-                }
-                // else: unchanged, emit nothing
-            }
-        }
-    }
-
-    for (identifier, existing) in &by_identifier {
-        if !seen.contains(identifier) {
-            // delete: this dbt: identifier is no longer in the fresh graph
-            changes.push(DataVersion {
-                type_: "DataVersion",
-                payload: None,
-                identity: Some(Ref {
-                    at_id: existing.id().to_string(),
-                    extra: Default::default(),
-                }),
-            });
-        }
-    }
-
-    changes
-}
-
-/// Which project (and optionally branch) to sync into.
-#[derive(Debug, Clone)]
-pub struct SyncConfig {
-    pub project_id: String,
-    pub branch_id: Option<String>,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum SyncError {
-    #[error(transparent)]
-    Client(#[from] kr0ki_sysmlv2_client::ClientError),
+    diff_managed(fetched_elements, &desired)
 }
 
 /// Sync `graph`'s `dbt:`-prefixed nodes into the project named by `config`, as at
-/// most one new commit. Returns `Ok(Some(commit))` with the *existing* latest
-/// commit, unchanged, when the diff produces no changes but a commit already
-/// exists; returns `Ok(None)` when there is nothing to sync AND no commit exists
-/// yet to hand back -- this function never posts an empty commit. See this
-/// module's own doc comment and the design spec for the full algorithm.
+/// most one new commit. Returns `Ok(Some(commit))` with the *existing* head commit,
+/// unchanged, when the diff produces no changes but a commit already exists; returns
+/// `Ok(None)` when there is nothing to sync AND no commit exists yet -- this function
+/// never posts an empty commit. Head resolution, `previousCommit`, and conflict retry
+/// are handled by [`crate::sync_engine`]; see the design spec for the full algorithm.
 pub async fn sync_dbt_graph(
     client: &SysmlV2Client,
     graph: &SysGraph,
     config: &SyncConfig,
 ) -> Result<Option<Commit>, SyncError> {
-    let commits = client.commits(&config.project_id).await?;
-    let latest = commits.first();
-
-    let fetched_elements = match latest {
-        Some(commit) => {
-            client
-                .all_elements(&config.project_id, &commit.at_id)
-                .await?
-        }
-        None => Vec::new(),
-    };
-
-    let dbt_elements: Vec<_> = fetched_elements
-        .into_iter()
-        .filter(|e| element_identifier(e).is_some_and(|id| id.starts_with("dbt:")))
-        .collect();
-
     let dbt_graph = filter_dbt_nodes(graph);
-
-    let changes = build_changeset(&dbt_elements, &dbt_graph);
-
-    if changes.is_empty() {
-        // Nothing to sync. If a commit already exists, hand it back unchanged;
-        // otherwise there is nothing to return -- never post an empty commit.
-        return Ok(latest.cloned());
-    }
-
-    let request = CommitRequest {
-        type_: "Commit",
-        change: changes,
-        previous_commit: latest.map(|c| Ref {
-            at_id: c.at_id.clone(),
-            extra: Default::default(),
-        }),
-    };
-
-    Ok(Some(
-        client
-            .create_commit(&config.project_id, config.branch_id.as_deref(), request)
-            .await?,
-    ))
+    sync_managed(
+        client,
+        config,
+        |e| element_identifier(e).is_some_and(|id| id.starts_with("dbt:")),
+        |managed| build_changeset(managed, &dbt_graph),
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -210,7 +98,7 @@ mod tests {
         let mut graph = SysGraph::new();
         graph.push_node(node("dbt:model.a", "A (marts)"));
 
-        let changes = build_changeset(&[], &graph);
+        let changes = build_changeset(&[], &graph).unwrap();
 
         assert_eq!(changes.len(), 1);
         assert!(changes[0].identity.is_none());
@@ -225,7 +113,7 @@ mod tests {
         graph.push_node(node("dbt:model.a", "A (marts)"));
         let fetched = vec![element("srv-1", "dbt:model.a", "A (marts)")];
 
-        let changes = build_changeset(&fetched, &graph);
+        let changes = build_changeset(&fetched, &graph).unwrap();
 
         assert!(changes.is_empty());
     }
@@ -236,7 +124,7 @@ mod tests {
         graph.push_node(node("dbt:model.a", "A (staging)"));
         let fetched = vec![element("srv-1", "dbt:model.a", "A (marts)")];
 
-        let changes = build_changeset(&fetched, &graph);
+        let changes = build_changeset(&fetched, &graph).unwrap();
 
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].identity.as_ref().unwrap().at_id, "srv-1");
@@ -259,7 +147,7 @@ mod tests {
         );
         let fetched = vec![existing];
 
-        let changes = build_changeset(&fetched, &graph);
+        let changes = build_changeset(&fetched, &graph).unwrap();
 
         assert_eq!(changes.len(), 1);
         let payload = changes[0].payload.as_ref().unwrap();
@@ -274,7 +162,7 @@ mod tests {
         let graph = SysGraph::new();
         let fetched = vec![element("srv-1", "dbt:model.gone", "Gone")];
 
-        let changes = build_changeset(&fetched, &graph);
+        let changes = build_changeset(&fetched, &graph).unwrap();
 
         assert_eq!(changes.len(), 1);
         assert!(changes[0].payload.is_none());
@@ -299,8 +187,35 @@ mod tests {
         graph.push_node(node("not-dbt:model.b", "B (unrelated)"));
 
         let filtered = filter_dbt_nodes(&graph);
-        let changes = build_changeset(&[], &filtered);
+        let changes = build_changeset(&[], &filtered).unwrap();
 
         assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn duplicate_identifier_on_the_server_is_an_error_not_a_silent_collapse() {
+        let fetched = vec![
+            element("srv-1", "dbt:model.a", "A"),
+            element("srv-2", "dbt:model.a", "A again"),
+            element("srv-3", "dbt:model.b", "B"),
+        ];
+        let mut graph = SysGraph::new();
+        graph.push_node(node("dbt:model.a", "A"));
+        let err = build_changeset(&fetched, &graph).unwrap_err();
+        assert!(
+            matches!(&err, SyncError::DuplicateIdentifier(ids) if ids == &["dbt:model.a"]),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn duplicate_identifier_in_the_graph_is_an_error_not_two_creates() {
+        let mut graph = SysGraph::new();
+        graph.push_node(node("dbt:model.a", "A"));
+        graph.push_node(node("dbt:model.a", "A (dup)"));
+        assert!(matches!(
+            build_changeset(&[], &graph),
+            Err(SyncError::DuplicateIdentifier(_))
+        ));
     }
 }

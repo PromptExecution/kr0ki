@@ -53,7 +53,7 @@ front-end semantic  recog-    constructs adapters
 
 **Current implemented surface:**
 - `kr0ki-core`: `RenderService` (cache + backend), `FsCache`, `HttpKrokiBackend`, `DiagramFormat` (8 slugs), docgen (syn harvester + formatters)
-- `kr0ki-server`: axum routes `/health`, `/formats`, `/render/{format}`, `/render/k8s-topology`, `/render/rust-source`, `/cache/{key}`, `/docs*` (HTML/JSON/tomllm/rustdoc)
+- `kr0ki-server`: axum routes `/health`, `/formats`, `/render/{format}`, `/render/k8s-topology`, `/render/rust-source`, `/model/projects/{id}/sync` (write a `SysGraph`'s `dbt:` nodes into a SysML v2 project), `/cache/{key}`, `/docs*` (HTML/JSON/tomllm/rustdoc)
 - `kr0ki-sysmlv2-client`: OMG-API REST client, `ModelSnapshot` with `content_hash`
 
 ---

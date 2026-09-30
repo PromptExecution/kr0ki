@@ -45,8 +45,11 @@ plan at `docs/superpowers/plans/2026-09-20-flexo-write-path.md`, and
 (`kr0ki_core::digital_thread_sync::sync_dbt_graph`, generic over any `SysGraph` in
 practice, not dbt-specific). Includes `create_commit` on `SysmlV2Client` and a
 critical-review-confirmed fix (2026-09-23) for `DataVersion.payload`'s full-replace
-semantics (see that spec's own history) — not merged to `main` as of this note; check
-the PR's current state before assuming it landed.
+semantics (see that spec's own history). **Merged to `main` (#52).** Hardened afterwards in
+`kr0ki_core::sync_engine`: diffs against the target branch's head (not `commits[0]`), re-reads
+the head before posting, retries on 409/412, and rejects duplicate identifiers. Exposed as
+`POST /model/projects/{id}/sync` and the `sync_digital_thread` MCP tool. Still needs a live
+OMG-pilot run to confirm the server's stale-`previousCommit` behaviour.
 
 ## 3. Explicitly deferred, not forgotten
 

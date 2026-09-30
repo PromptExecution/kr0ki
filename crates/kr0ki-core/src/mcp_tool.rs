@@ -27,6 +27,7 @@ pub enum McpTool {
     QueryModelRelationships,
     QueryModelGraph,
     RecomputeAndEvaluate,
+    SyncDigitalThread,
 }
 
 impl McpTool {
@@ -46,6 +47,7 @@ impl McpTool {
         Self::QueryModelRelationships,
         Self::QueryModelGraph,
         Self::RecomputeAndEvaluate,
+        Self::SyncDigitalThread,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -65,6 +67,7 @@ impl McpTool {
             Self::QueryModelRelationships => "query_model_relationships",
             Self::QueryModelGraph => "query_model_graph",
             Self::RecomputeAndEvaluate => "recompute_and_evaluate",
+            Self::SyncDigitalThread => "sync_digital_thread",
         }
     }
 
@@ -108,6 +111,11 @@ impl McpTool {
                 "Recompute a project's canonical graph from its latest commit, evaluate every \
                  RuleDocument element against it, and fold violations into its requirements \
                  graph as inferred, promotable Satisfies relations."
+            }
+            Self::SyncDigitalThread => {
+                "Write a SysGraph's dbt:-prefixed nodes into a SysML v2 project as one commit \
+                 (create/update/delete; other elements untouched). Diffs against the branch head \
+                 and retries on concurrent commits."
             }
         }
     }
@@ -202,6 +210,15 @@ impl McpTool {
                 "required": ["project_id"],
                 "properties": {
                     "project_id": {"type": "string", "description": "SysML v2 project id."}
+                }
+            }),
+            Self::SyncDigitalThread => serde_json::json!({
+                "type": "object",
+                "required": ["project_id", "graph"],
+                "properties": {
+                    "project_id": {"type": "string", "description": "SysML v2 project id."},
+                    "branch_id": {"type": "string", "description": "Target branch; defaults to the project's default branch."},
+                    "graph": {"type": "string", "description": "The SysGraph, serialized as JSON."}
                 }
             }),
         }
@@ -332,6 +349,24 @@ impl McpTool {
                     placement: ArgPlacement::Path,
                 }],
             },
+            Self::SyncDigitalThread => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/model/projects/{project_id}/sync",
+                args: &[
+                    ArgBinding {
+                        name: "project_id",
+                        placement: ArgPlacement::Path,
+                    },
+                    ArgBinding {
+                        name: "branch_id",
+                        placement: ArgPlacement::Query,
+                    },
+                    ArgBinding {
+                        name: "graph",
+                        placement: ArgPlacement::Body,
+                    },
+                ],
+            },
         }
     }
 
@@ -435,7 +470,7 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), before, "duplicate McpTool name in ALL");
-        assert_eq!(McpTool::ALL.len(), 15);
+        assert_eq!(McpTool::ALL.len(), 16);
     }
 
     #[test]
@@ -598,5 +633,22 @@ mod tests {
         let graph = McpTool::QueryModelGraph.http_binding();
         assert_eq!(graph.path_template, "/model/graph/query");
         assert_eq!(graph.args.len(), 2);
+    }
+
+    #[test]
+    fn sync_digital_thread_binds_graph_to_body_and_branch_to_query() {
+        let binding = McpTool::SyncDigitalThread.http_binding();
+        assert!(matches!(binding.method, HttpMethod::Post));
+        assert_eq!(binding.path_template, "/model/projects/{project_id}/sync");
+        let placement = |name: &str| {
+            binding
+                .args
+                .iter()
+                .find(|a| a.name == name)
+                .map(|a| a.placement)
+        };
+        assert!(matches!(placement("project_id"), Some(ArgPlacement::Path)));
+        assert!(matches!(placement("branch_id"), Some(ArgPlacement::Query)));
+        assert!(matches!(placement("graph"), Some(ArgPlacement::Body)));
     }
 }

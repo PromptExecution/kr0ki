@@ -115,6 +115,7 @@ pub fn router(
             "/model/projects/:project_id/recompute",
             post(recompute_model),
         )
+        .route("/model/projects/:project_id/sync", post(sync_model))
         .route(
             "/model/projects/:project_id/commits/:commit_id/elements",
             get(query_model_elements),
@@ -487,6 +488,68 @@ async fn recompute_model(
     match kr0ki_core::recompute::recompute_and_evaluate(&client, &project_id).await {
         Ok(result) => Json(result).into_response(),
         Err(error) => client_error_response(error),
+    }
+}
+
+/// Upper bound on a `SysGraph` JSON body for the sync route (matches axum's default limit).
+const MAX_SYNC_GRAPH_BYTES: usize = 2 * 1024 * 1024;
+
+/// `POST /model/projects/{project_id}/sync[?branch_id=...]` -- body is a `SysGraph` as JSON.
+/// Reconciles its `dbt:`-prefixed nodes into the project as at most one commit
+/// (`kr0ki_core::digital_thread_sync::sync_dbt_graph`); other elements are never touched.
+/// Responds `{"commit": {...}}` -- the new commit, or the unchanged head (or `null` for an
+/// empty project) when the graph already matches.
+async fn sync_model(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    body: Bytes,
+) -> Response {
+    use kr0ki_core::digital_thread_sync::{sync_dbt_graph, SyncConfig, SyncError, SysGraph};
+
+    let client = match require_sysmlv2_client(&state) {
+        Ok(client) => client,
+        Err(response) => return *response,
+    };
+    if body.len() > MAX_SYNC_GRAPH_BYTES {
+        return error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "graph_too_large",
+            "SysGraph body exceeds the 2 MiB limit",
+        );
+    }
+    let graph: SysGraph = match serde_json::from_slice(&body) {
+        Ok(graph) => graph,
+        Err(e) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_graph",
+                &format!("body is not a valid SysGraph: {e}"),
+            )
+        }
+    };
+    let config = SyncConfig {
+        project_id,
+        branch_id: params.get("branch_id").cloned(),
+    };
+    match sync_dbt_graph(&client, &graph, &config).await {
+        Ok(commit) => Json(serde_json::json!({ "commit": commit })).into_response(),
+        Err(SyncError::Conflict { attempts }) => error_json(
+            StatusCode::CONFLICT,
+            "sync_conflict",
+            &format!("concurrent commits kept moving the branch after {attempts} attempt(s); nothing was committed"),
+        ),
+        Err(e @ SyncError::DuplicateIdentifier(_)) => error_json(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "duplicate_identifier",
+            &e.to_string(),
+        ),
+        Err(SyncError::Client(e)) => client_error_response(e),
+        Err(e @ SyncError::Encode(_)) => error_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "sync_encode_error",
+            &e.to_string(),
+        ),
     }
 }
 
