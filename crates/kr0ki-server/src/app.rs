@@ -61,11 +61,17 @@ pub struct AppState {
     pub boot_wall_clock: std::time::SystemTime,
     /// Caller-auth token presence for /health reporting (material never echoed).
     pub auth_token: Option<String>,
+    /// Ledgrrr contract reference for response headers.
+    pub contract: Arc<super::contract::ContractReference>,
 }
 
 /// If `auth_token` is Some, inject a `RequireAuth` layer that rejects requests
 /// missing `Authorization: Bearer <token>`.
-pub fn router(state: AppState, auth_token: Option<String>) -> Router {
+pub fn router(
+    state: AppState,
+    auth_token: Option<String>,
+    contract: Arc<super::contract::ContractReference>,
+) -> Router {
     let r = Router::new()
         .route("/", get(root))
         .route("/welcome", get(welcome))
@@ -91,6 +97,7 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
         .route("/render/requirements-view", post(render_requirements_view))
         .route("/render/kubediagram", post(render_kubediagram))
         .route("/render/k8s-topology", post(render_k8s_topology))
+        .route("/render/rust-source", post(render_rust_source))
         .route(
             "/render/sysmlv2/projects/:project_id/commits/:commit_id",
             post(render_sysmlv2_snapshot),
@@ -126,13 +133,19 @@ pub fn router(state: AppState, auth_token: Option<String>) -> Router {
         .merge(crate::docs::routes())
         .with_state(state);
 
-    if let Some(token) = auth_token {
-        r.layer(axum::middleware::from_fn(move |req, next| {
+    let r = match auth_token {
+        Some(token) => r.layer(axum::middleware::from_fn(move |req, next| {
             require_bearer(req, next, token.clone())
-        }))
-    } else {
-        r
-    }
+        })),
+        None => r,
+    };
+
+    // Added last so it is the *outermost* layer (axum layers wrap what came before):
+    // every response, including the 401 the auth layer returns itself, then carries the
+    // contract and request-id headers, and handlers still see the RequestId extension.
+    r.layer(axum::middleware::from_fn(move |req, next| {
+        super::contract::contract_middleware(req, next, contract.clone())
+    }))
 }
 
 async fn require_bearer(
@@ -764,15 +777,17 @@ async fn render(
     State(state): State<AppState>,
     Path(format): Path<String>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    axum::extract::Extension(request_id): axum::extract::Extension<super::contract::RequestId>,
     body: Bytes,
 ) -> Response {
     let format = match DiagramFormat::from_str(&format) {
         Ok(f) => f,
         Err(e) => {
-            return error_json(
+            return error_json_with_id(
                 StatusCode::BAD_REQUEST,
                 "unsupported_format",
                 &e.to_string(),
+                &request_id,
             )
         }
     };
@@ -780,17 +795,19 @@ async fn render(
     let source = match std::str::from_utf8(&body) {
         Ok(s) if !s.trim().is_empty() => s,
         Ok(_) => {
-            return error_json(
+            return error_json_with_id(
                 StatusCode::BAD_REQUEST,
                 "empty_source",
                 "diagram source is empty",
+                &request_id,
             )
         }
         Err(_) => {
-            return error_json(
+            return error_json_with_id(
                 StatusCode::BAD_REQUEST,
                 "invalid_utf8",
                 "diagram source is not UTF-8",
+                &request_id,
             )
         }
     };
@@ -1141,6 +1158,92 @@ async fn render_k8s_topology(
     }
 }
 
+/// `POST /render/rust-source?output=svg|png[&view=...]` -- the Rust-source
+/// arm (`PLAN-KR0KI-003.md`, `docs/PATTERNS-rust-source.md`): body is a
+/// single Rust source file's text. `rust_recognizer::recognize_source`
+/// parses it via `syn` into `iso_ir::{Node, Edge}` (box 1, already emitting
+/// UfoRelation-named edge_types per the patterns doc's vocabulary table),
+/// `rust_lift::lift_rust_edges` converts those into `OntologicalEdge`s (box
+/// 3->4 bridge), `sysml_lift::lift_edges` lifts to `sysml_model::Relation`
+/// (box 4, same as the Kubernetes arm), `sysml_render::to_d2` emits D2 text,
+/// rendered through the same content-addressed cache every other
+/// `/render/*` route uses.
+async fn render_rust_source(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    body: Bytes,
+) -> Response {
+    if body.is_empty() {
+        return error_json(
+            StatusCode::BAD_REQUEST,
+            "empty_source",
+            "rust source body is empty",
+        );
+    }
+    if body.len() > MAX_MANIFEST_BYTES {
+        return error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "source_too_large",
+            "rust source exceeds the 1 MiB limit",
+        );
+    }
+    let source = match std::str::from_utf8(&body) {
+        Ok(t) => t,
+        Err(_) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_utf8",
+                "source is not UTF-8",
+            )
+        }
+    };
+
+    let (_nodes, edges) = match kr0ki_core::rust_recognizer::recognize_source(source) {
+        Ok(r) => r,
+        Err(e) => {
+            return error_json(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "bad_rust_source",
+                &e.to_string(),
+            )
+        }
+    };
+
+    let ontological = kr0ki_core::rust_lift::lift_rust_edges(&edges);
+    let lifted = kr0ki_core::sysml_lift::lift_edges(&ontological);
+    let relations: Vec<_> = match params.get("view") {
+        Some(view) => {
+            let kind = match kr0ki_core::sysml_lift::parse_view_kind_slug(view) {
+                Some(kind) => kind,
+                None => {
+                    return error_json(
+                        StatusCode::BAD_REQUEST,
+                        "unknown_view_kind",
+                        &format!("unrecognized view kind: {view}"),
+                    )
+                }
+            };
+            kr0ki_core::sysml_lift::group_by_view_kind(lifted)
+                .into_iter()
+                .find(|(k, _)| *k == kind)
+                .map(|(_, relations)| relations)
+                .unwrap_or_default()
+        }
+        None => lifted.into_iter().map(|l| l.relation).collect(),
+    };
+    let d2 = kr0ki_core::sysml_render::to_d2(&relations);
+
+    let output = params
+        .get("output")
+        .and_then(|v| OutputKind::from_param(v))
+        .unwrap_or(OutputKind::Svg);
+
+    match state.service.render(DiagramFormat::D2, output, &d2).await {
+        Ok(r) => rendered_response(output, r),
+        Err(e) => service_error_response(e),
+    }
+}
+
 /// Split a multi-doc YAML manifest bundle (`---`-separated) into one
 /// `serde_json::Value` per document, skipping empty/`null` documents (a
 /// leading or trailing bare `---` produces one). Each document is
@@ -1237,6 +1340,23 @@ pub(crate) fn error_json(status: StatusCode, code: &str, message: &str) -> Respo
     (
         status,
         Json(serde_json::json!({ "error": code, "message": message })),
+    )
+        .into_response()
+}
+
+/// Extract request ID from request extensions (set by contract middleware).
+/// Returns a default "unknown" if not present (shouldn't happen in normal flow).
+pub(crate) fn error_json_with_id(
+    status: StatusCode,
+    code: &str,
+    message: &str,
+    request_id: &super::contract::RequestId,
+) -> Response {
+    (
+        status,
+        Json(super::contract::error_with_request_id(
+            code, message, request_id,
+        )),
     )
         .into_response()
 }

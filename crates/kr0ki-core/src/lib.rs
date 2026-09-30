@@ -49,6 +49,7 @@ pub mod requirements_render;
 pub mod requirements_sync;
 pub mod rule_docs;
 pub mod rule_eval;
+pub mod rust_lift;
 pub mod rust_recognizer;
 pub mod sysml_lift;
 pub mod sysml_render;

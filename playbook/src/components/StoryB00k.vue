@@ -8,9 +8,22 @@ import {
   checkoutNode, forkFrom, serialize as serializeGraph,
 } from '../lib/revisionGraph.js'
 
+const props = defineProps({
+  // Gallery → Agent handoff: a sample prompt (names the diagram type) the
+  // composer starts with. The user edits/sends it — never auto-sent.
+  prefill: { type: String, default: '' },
+  lockedType: { type: String, default: '' },
+  llmUrl: { type: String, default: '' },
+  llmKey: { type: String, default: '' },
+  llmModel: { type: String, default: 'gpt-4o' },
+  agentUrl: { type: String, default: '' },
+  // Editor → Agent handoff: full diagram data from the editor
+  editorHandoff: { type: Object, default: null },
+})
+
 // Preserve the browser-visible host so LAN users reach this pod's sidecar instead
 // of their own workstation's localhost.
-const agentUrl = import.meta.env.VITE_STORYB00K_AGENT_URL || `${window.location.protocol}//${window.location.hostname}:8789`
+const agentUrl = props.agentUrl || import.meta.env.VITE_STORYB00K_AGENT_URL || `${window.location.protocol}//${window.location.hostname}:8789`
 
 // crypto.randomUUID() is secure-context-only (HTTPS or localhost). This pod
 // serves plain HTTP on a LAN IP, so the browser hides it and the ag-ui client
@@ -28,18 +41,45 @@ if (!globalThis.crypto?.randomUUID) {
   })
   console.warn('[storyb00k] crypto.randomUUID unavailable (insecure context) — installed prototype fallback')
 }
-const props = defineProps({
-  // Gallery → Agent handoff: a sample prompt (names the diagram type) the
-  // composer starts with. The user edits/sends it — never auto-sent.
-  prefill: { type: String, default: '' },
-  lockedType: { type: String, default: '' },
-})
 
 const input = ref(props.prefill)
+const handoffImage = ref(null)
 const comparisonPanels = ref([])
+const currentOrigin = ref(typeof window !== 'undefined' ? window.location.origin : '')
 // Fresh handoffs replace a still-untouched composer; a half-typed draft wins.
 watch(() => props.prefill, (next) => {
   if (next && (!input.value.trim() || input.value === props.prefill)) input.value = next
+})
+// Editor handoff: validate, capture image, show banner
+const handoffError = ref('')
+const handoffDismissed = ref(false)
+const handoffActive = computed(() => !!props.editorHandoff && !handoffDismissed.value)
+
+function validateHandoff(h) {
+  if (!h) return 'No handoff data'
+  if (!h.source || !h.source.trim()) return 'Missing diagram source'
+  if (!h.format) return 'Missing diagram format'
+  return null
+}
+
+watch(() => props.editorHandoff, (handoff) => {
+  handoffDismissed.value = false
+  handoffError.value = ''
+  const err = validateHandoff(handoff)
+  if (err) {
+    handoffError.value = err
+    console.error('[storyb00k] handoff validation failed:', err, handoff)
+    return
+  }
+  if (handoff?.imageData) {
+    handoffImage.value = handoff.imageData
+  } else {
+    handoffImage.value = null
+  }
+  console.info('[storyb00k] handoff received:', {
+    format: handoff.format, detectedType: handoff.detectedType,
+    title: handoff.title, sourceLen: handoff.source?.length ?? 0,
+  })
 })
 const autoScroll = ref(true)
 const transcriptEl = ref(null)
@@ -69,6 +109,72 @@ const threadId = chat.threadId
 const panels = computed(() => [...(chat.state.value?.panels || []), ...comparisonPanels.value])
 const drafts = computed(() => chat.state.value?.drafts || [])
 const busy = computed(() => status.value === 'submitted' || status.value === 'streaming')
+const agentConnectionStatus = ref('unknown') // 'unknown', 'checking', 'connected', 'failed'
+const agentConnectionError = ref('')
+
+// Test agent connection on mount and provide detailed diagnostics
+async function testAgentConnection() {
+  agentConnectionStatus.value = 'checking'
+  agentConnectionError.value = ''
+  
+  const currentOrigin = window.location.origin
+  
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+    
+    const response = await fetch(`${agentUrl}/health`, {
+      method: 'GET',
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    
+    if (response.ok) {
+      agentConnectionStatus.value = 'connected'
+      console.info('[storyb00k] ✓ Agent server connected:', agentUrl)
+    } else {
+      agentConnectionStatus.value = 'failed'
+      agentConnectionError.value = `Agent server returned HTTP ${response.status}`
+      console.error('[storyb00k] ✗ Agent server error:', agentUrl, 'HTTP', response.status)
+    }
+  } catch (err) {
+    agentConnectionStatus.value = 'failed'
+    
+    if (err.name === 'AbortError') {
+      agentConnectionError.value = `Connection timeout (5s) - agent server at ${agentUrl} is not responding`
+    } else if (err.message.includes('Failed to fetch')) {
+      // This could be a network error OR a CORS error
+      // Try to detect CORS by checking if we can reach the server at all
+      try {
+        // Try a no-cors request to see if the server is reachable
+        const testResponse = await fetch(`${agentUrl}/health`, {
+          method: 'GET',
+          mode: 'no-cors',
+        })
+        
+        // If we got here with no-cors, the server is reachable but CORS is blocking
+        agentConnectionError.value = `CORS error: Agent server at ${agentUrl} is reachable, but does not allow requests from ${currentOrigin}. ` +
+          `Update KR0KI_STORYB00K_ALLOWED_ORIGINS to include ${currentOrigin}`
+        console.error('[storyb00k] ✗ CORS error detected:', {
+          agentUrl,
+          currentOrigin,
+          suggestion: `Add ${currentOrigin} to KR0KI_STORYB00K_ALLOWED_ORIGINS`
+        })
+      } catch (testErr) {
+        // Server is not reachable at all
+        agentConnectionError.value = `Cannot reach agent server at ${agentUrl} - is it running? ` +
+          `Check that the server is started and the URL is correct.`
+        console.error('[storyb00k] ✗ Network error:', agentUrl, testErr.message)
+      }
+    } else {
+      agentConnectionError.value = `Connection failed: ${err.message}`
+      console.error('[storyb00k] ✗ Agent connection failed:', agentUrl, err.message)
+    }
+  }
+}
+
+// Test connection on mount
+testAgentConnection()
 const toolActivity = computed(() => Array.from(toolCallTrackers.value?.values() || []).map(t => ({
   id: t.toolCallId,
   name: t.toolName,
@@ -152,12 +258,35 @@ const statusLabel = computed(() => ({
 }[status.value] || status.value))
 
 // ---- Revision graph: every prompt/render is a node; time travel + forks ----
-const revisionGraph = reactive(createRevisionGraph({ source: '', format: 'd2', label: 'Session start' }))
+// Initialize with editor handoff source if available (Code Editor → Agent flow)
+const initialSource = props.editorHandoff?.source || ''
+const initialFormat = props.editorHandoff?.format || 'd2'
+const initialLabel = props.editorHandoff ? 'Initial diagram from Code Editor' : 'Session start'
+const revisionGraph = reactive(createRevisionGraph({ 
+  source: initialSource, 
+  format: initialFormat, 
+  label: initialLabel 
+}))
 const showRevisions = ref(false)
 const editingMessageId = ref(null)
 const editedPrompt = ref('')
 const activeRevision = computed(() => activeNode(revisionGraph))
 const saveState = ref('')
+
+// If editor handoff provided, mark the root node with the handoff metadata
+if (props.editorHandoff) {
+  const rootNode = revisionGraph.nodes[0]
+  if (rootNode) {
+    rootNode.detectedType = props.editorHandoff.detectedType
+    rootNode.output = props.editorHandoff.output
+    rootNode.title = props.editorHandoff.title
+    console.info('[storyb00k] initialized revision graph with Code Editor handoff:', {
+      source: initialSource.substring(0, 50) + '...',
+      format: initialFormat,
+      detectedType: props.editorHandoff.detectedType
+    })
+  }
+}
 
 // Watch panel renders: when the agent produces a new diagram, record it as a
 // prompt node (the prompt that produced it) on top of the active revision.
@@ -251,7 +380,56 @@ async function regeneratePrompt(item, editedText) {
 async function sendMessage() {
   const text = input.value.trim()
   if (!text || busy.value) return
+  
+  // Check agent connection before sending
+  if (agentConnectionStatus.value !== 'connected') {
+    console.warn('[storyb00k] Attempting to send message but agent connection status is:', agentConnectionStatus.value)
+    // Try to reconnect
+    await testAgentConnection()
+    if (agentConnectionStatus.value !== 'connected') {
+      console.error('[storyb00k] Cannot send message - agent server not available at', agentUrl)
+      return
+    }
+  }
+  
+  // If there's an editor handoff, validate and store the diagram context first
+  if (props.editorHandoff) {
+    const herr = validateHandoff(props.editorHandoff)
+    if (herr) {
+      console.error('[storyb00k] skipping diagram context: ', herr)
+    } else {
+      try {
+        const contextRes = await fetch(`${agentUrl}/projects/set-diagram-context`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            threadId: threadId.value,
+            source: props.editorHandoff.source,
+            format: props.editorHandoff.format,
+            detectedType: props.editorHandoff.detectedType,
+            output: props.editorHandoff.output,
+            imageData: props.editorHandoff.imageData,
+            title: props.editorHandoff.title,
+          }),
+        })
+        if (!contextRes.ok) {
+          const errBody = await contextRes.text().catch(() => '')
+          console.warn('[storyb00k] Failed to set diagram context:', contextRes.status, errBody)
+          handoffError.value = `Handoff failed: HTTP ${contextRes.status}`
+        } else {
+          const data = await contextRes.json().catch(() => ({}))
+          console.info('[storyb00k] Diagram context set for thread:', threadId.value, data)
+          handoffError.value = ''
+        }
+      } catch (err) {
+        console.error('[storyb00k] Error setting diagram context:', err)
+        handoffError.value = `Handoff network error: ${err.message}`
+      }
+    }
+  }
+  
   input.value = ''
+  handoffImage.value = null
   console.info('[storyb00k] send →', text, '| thread:', threadId.value, '| agent:', agentUrl)
   try {
     if (props.lockedType) {
@@ -265,7 +443,17 @@ async function sendMessage() {
     console.info('[storyb00k] run finished | new messages:', result?.newMessages?.length ?? 0,
       '| usage:', usage.value.at(-1) ?? 'none reported')
   } catch (err) {
-    console.error('[storyb00k] run failed:', err?.message ?? err)
+    const errorMsg = err?.message ?? String(err)
+    console.error('[storyb00k] run failed:', errorMsg, '| agent:', agentUrl)
+    // Enhance error with connection details
+    if (errorMsg.includes('Failed to fetch')) {
+      console.error(`[storyb00k] Network error - cannot reach agent at ${agentUrl}`)
+      console.error('[storyb00k] LLM config:', {
+        url: props.llmUrl,
+        model: props.llmModel,
+        hasKey: !!props.llmKey
+      })
+    }
   }
 }
 
@@ -389,6 +577,12 @@ function formatTokens(u) {
         <h2>storyb00k</h2>
         <span class="storyb00k__status" :data-status="status">{{ statusLabel }}</span>
         <span v-if="formatTokens(usage[usage.length - 1])" class="storyb00k__usage">{{ formatTokens(usage[usage.length - 1]) }}</span>
+        <span class="storyb00k__agent-status" :data-status="agentConnectionStatus" :title="agentConnectionError || `Agent: ${agentUrl}`">
+          {{ agentConnectionStatus === 'connected' ? '✓ agent' : agentConnectionStatus === 'checking' ? '… agent' : '✗ agent' }}
+        </span>
+        <button v-if="agentConnectionStatus === 'failed'" class="storyb00k__retry-connection" @click="testAgentConnection" title="Retry agent connection">
+          ↻
+        </button>
       </header>
 
       <!-- Project banner: the conceptual unit of work in this session -->
@@ -505,11 +699,36 @@ function formatTokens(u) {
       </div>
 
       <p v-if="error" class="storyb00k__error" data-testid="run-error">
-        {{ error.message }}
+        <strong>Error:</strong> {{ error.message }}
+        <span v-if="agentConnectionStatus === 'failed'" class="storyb00k__error-detail">
+          <br>Agent server: <code>{{ agentUrl }}</code>
+          <br>Browser origin: <code>{{ currentOrigin }}</code>
+          <br v-if="agentConnectionError">{{ agentConnectionError }}
+          <span v-if="agentConnectionError && agentConnectionError.includes('CORS')" class="storyb00k__error-hint">
+            <strong>Fix:</strong> Restart the agent server with:<br>
+            <code>export KR0KI_STORYB00K_ALLOWED_ORIGINS="{{ currentOrigin }},http://127.0.0.1:8787"</code>
+          </span>
+        </span>
+        <span v-else class="storyb00k__error-detail">
+          <br>Agent: <code>{{ agentUrl }}</code>
+          <br>LLM: <code>{{ llmUrl || 'not configured' }}</code>
+          <br>Model: {{ llmModel || 'not configured' }}
+        </span>
         <button class="storyb00k__retry" @click="reloadLast">Retry</button>
       </p>
 
       <div class="storyb00k__composer">
+        <div v-if="handoffActive" class="storyb00k__handoff-banner" data-testid="handoff-banner">
+          <span class="storyb00k__handoff-badge">📋 from Code Editor</span>
+          <span v-if="editorHandoff?.detectedType" class="storyb00k__handoff-meta">{{ editorHandoff.detectedType }} · {{ editorHandoff.format }}</span>
+          <span v-if="editorHandoff?.title" class="storyb00k__handoff-meta">{{ editorHandoff.title }}</span>
+          <button class="storyb00k__handoff-dismiss" @click="handoffDismissed = true" title="Dismiss handoff">×</button>
+        </div>
+        <p v-if="handoffError" class="storyb00k__handoff-error" data-testid="handoff-error">{{ handoffError }}</p>
+        <div v-if="handoffImage && handoffActive" class="storyb00k__handoff-preview">
+          <img :src="handoffImage" alt="Diagram from Code Editor" />
+          <button class="storyb00k__handoff-dismiss" @click="handoffImage = null" title="Dismiss image">×</button>
+        </div>
         <textarea
           v-model="input"
           class="storyb00k__input"
@@ -576,6 +795,12 @@ function formatTokens(u) {
 .storyb00k__status[data-status='streaming'], .storyb00k__status[data-status='submitted'] { background: #fef3c7; }
 .storyb00k__status[data-status='error'] { background: #fee2e2; }
 .storyb00k__usage { font-size: .75rem; opacity: .65; }
+.storyb00k__agent-status { font-size: .7rem; padding: .1rem .4rem; border-radius: 999px; background: #e2e8f0; margin-left: auto; }
+.storyb00k__agent-status[data-status='connected'] { background: #10b981; color: #fff; }
+.storyb00k__agent-status[data-status='checking'] { background: #fbbf24; color: #000; }
+.storyb00k__agent-status[data-status='failed'] { background: #ef4444; color: #fff; cursor: help; }
+.storyb00k__retry-connection { background: none; border: 1px solid #ef4444; color: #ef4444; border-radius: .3rem; padding: .1rem .4rem; font-size: .75rem; cursor: pointer; margin-left: .3rem; }
+.storyb00k__retry-connection:hover { background: #ef4444; color: #fff; }
 .storyb00k__lede { margin: 0; font-size: .9rem; opacity: .75; }
 .storyb00k__messages { max-height: 55vh; overflow-y: auto; display: flex; flex-direction: column; gap: .4rem; padding-right: .25rem; }
 .storyb00k__message { margin: 0; }
@@ -585,9 +810,22 @@ function formatTokens(u) {
 .storyb00k__step-status--error { color: #fca5a5; font-weight: 700; }
 .storyb00k__interrupt { border-left: 3px solid #b57700; padding-left: .75rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; background: #1c1830; border-radius: .3rem; padding-top: .3rem; padding-bottom: .3rem; }
 .storyb00k__interrupt p { margin: 0; flex: 1 1 auto; }
-.storyb00k__error { color: #fca5a5; margin: 0; }
+.storyb00k__error { color: #fca5a5; margin: 0; padding: .5rem; background: #450a0a; border-radius: .3rem; font-size: .85rem; }
+.storyb00k__error code { background: #1e293b; padding: .1rem .3rem; border-radius: .2rem; font-size: .8rem; }
+.storyb00k__error-detail { display: block; margin-top: .3rem; font-size: .75rem; opacity: .85; }
+.storyb00k__error-hint { display: block; margin-top: .5rem; padding: .4rem; background: #1e293b; border-radius: .3rem; font-size: .75rem; opacity: 1; }
+.storyb00k__error-hint code { display: block; margin-top: .3rem; padding: .3rem; background: #0f172a; word-break: break-all; }
 .storyb00k__empty { opacity: .65; font-size: .9rem; }
 .storyb00k__composer { display: grid; gap: .4rem; }
+.storyb00k__handoff-banner { display: flex; align-items: center; gap: .5rem; padding: .35rem .6rem; background: #0c2d48; border: 1px solid #38bdf8; border-radius: .4rem; font-size: .8rem; color: #bae6fd; animation: handoff-slide .3s ease; }
+@keyframes handoff-slide { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+.storyb00k__handoff-badge { font-weight: 700; white-space: nowrap; }
+.storyb00k__handoff-meta { opacity: .7; font-size: .75rem; }
+.storyb00k__handoff-error { color: #fca5a5; background: #450a0a; padding: .3rem .5rem; border-radius: .3rem; font-size: .8rem; margin: 0; }
+.storyb00k__handoff-preview { position: relative; display: inline-block; max-width: 300px; max-height: 200px; border: 2px solid #38bdf8; border-radius: .45rem; overflow: hidden; background: #091127; }
+.storyb00k__handoff-preview img { display: block; max-width: 100%; max-height: 200px; object-fit: contain; }
+.storyb00k__handoff-dismiss { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border: none; border-radius: 50%; background: rgba(0,0,0,0.7); color: #fff; font-size: 16px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.storyb00k__handoff-dismiss:hover { background: rgba(239, 68, 68, 0.9); }
 .storyb00k__input { width: 100%; resize: vertical; font: inherit; border: 1px solid #3b4d7d; border-radius: .45rem; background: #091127; color: #edf5ff; padding: .55rem .65rem; }
 .storyb00k__edit-box textarea, .storyb00k__freetext, .storyb00k__project-title input { font: inherit; border: 1px solid #3b4d7d; border-radius: .45rem; background: #091127; color: #edf5ff; padding: .4rem .5rem; }
 .storyb00k__project-title input { font-weight: 700; }

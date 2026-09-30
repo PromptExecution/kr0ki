@@ -1,0 +1,11 @@
+{
+  "scripts": {
+    "test:e2e": "playwright test -c tests/functional/playwright/playwright.config.js"
+  },
+  "dependencies": {
+    "undici": "^7.30.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}

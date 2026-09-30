@@ -3,6 +3,10 @@ import { computed, onMounted, ref, watch } from 'vue'
 import RendererPanel from './components/RendererPanel.vue'
 import Gallery from './components/Gallery.vue'
 import StoryB00k from './components/StoryB00k.vue'
+import Setup from './components/Setup.vue'
+
+// Version from Cargo.toml (injected at build time by Vite)
+const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
 
 const examples = ref([])
 const selectedFormat = ref('d2')
@@ -14,15 +18,78 @@ const editedSource = ref('')
 const editedRoute = ref(null)
 let editedSourcePending = false
 
-// Gallery → Agent handoff (Plan 005 §1.3): prefill the Agent composer with a
-// prompt naming the diagram type, then flip to the Agent view. Never auto-sent.
-const agentUrl = `${window.location.protocol}//${window.location.hostname}:8789`
+// Setup settings (persisted to localStorage)
+const rendererUrl = ref(
+  localStorage.getItem('kr0ki:rendererUrl') ||
+    (typeof window !== 'undefined' && window.location.hostname
+      ? `${window.location.protocol}//${window.location.hostname}:8787`
+      : 'http://127.0.0.1:8787')
+)
+const outputFormat = ref(localStorage.getItem('kr0ki:outputFormat') || 'svg')
+const llmUrl = ref(localStorage.getItem('kr0ki:llmUrl') || `http://${window.location.hostname}:8002/v1`)
+const llmKey = ref(localStorage.getItem('kr0ki:llmKey') || '')
+const llmModel = ref(localStorage.getItem('kr0ki:llmModel') || 'gpt-4o')
+
+function updateRendererUrl(url) {
+  rendererUrl.value = url
+  localStorage.setItem('kr0ki:rendererUrl', url)
+}
+
+function updateOutputFormat(format) {
+  outputFormat.value = format
+  localStorage.setItem('kr0ki:outputFormat', format)
+}
+
+function updateLlmUrl(url) {
+  llmUrl.value = url
+  localStorage.setItem('kr0ki:llmUrl', url)
+}
+
+function updateLlmKey(key) {
+  llmKey.value = key
+  localStorage.setItem('kr0ki:llmKey', key)
+}
+
+function updateLlmModel(model) {
+  llmModel.value = model
+  localStorage.setItem('kr0ki:llmModel', model)
+}
+
+const agentUrl = ref(
+  localStorage.getItem('kr0ki:agentUrl') ||
+    (typeof window !== 'undefined' && window.location.hostname
+      ? `${window.location.protocol}//${window.location.hostname}:8789`
+      : 'http://127.0.0.1:8789')
+)
+
+function updateAgentUrl(url) {
+  agentUrl.value = url
+  localStorage.setItem('kr0ki:agentUrl', url)
+}
 const agentPrefill = ref('')
 const agentTypeId = ref('')
+// Editor → Agent handoff: diagram source with detected type
+const editorHandoff = ref(null)
 
 function agentHandoff({ prompt, typeId }) {
   agentPrefill.value = prompt
   agentTypeId.value = typeId
+  editorHandoff.value = null
+  viewMode.value = 'storyb00k'
+}
+
+function editorToAgentHandoff({ source, format, detectedType, output, imageData, title }) {
+  editorHandoff.value = {
+    source,
+    format,
+    detectedType,
+    output,
+    imageData,
+    title,
+  }
+  // Simple prompt - the source will be sent separately
+  agentPrefill.value = `Review this ${detectedType !== 'unknown' ? detectedType : format} diagram and suggest improvements.`
+  agentTypeId.value = detectedType !== 'unknown' ? detectedType : ''
   viewMode.value = 'storyb00k'
 }
 
@@ -95,16 +162,20 @@ onMounted(async () => {
   <main class="shell">
     <aside class="sidebar">
       <a class="brand" href="../">kr0ki <span>playb00k</span></a>
+      <p class="version-tag">v{{ appVersion }}</p>
       <p class="sidebar-copy">Example fixtures for every supported format — or clear the source and render your own.</p>
       <nav class="view-tabs" aria-label="Playbook view">
         <button class="view-tab" :class="{ active: viewMode === 'gallery' }" @click="viewMode = 'gallery'">
           Gallery
         </button>
         <button class="view-tab" :class="{ active: viewMode === 'editor' }" @click="viewMode = 'editor'">
-          Editor
+          Code Editor
         </button>
         <button class="view-tab" :class="{ active: viewMode === 'storyb00k' }" @click="viewMode = 'storyb00k'">
           Agent
+        </button>
+        <button class="view-tab" :class="{ active: viewMode === 'setup' }" @click="viewMode = 'setup'">
+          Setup
         </button>
       </nav>
       <nav v-if="viewMode === 'editor'" aria-label="Supported diagram formats">
@@ -149,6 +220,17 @@ onMounted(async () => {
       </header>
 
       <p v-if="loadError" class="error">{{ loadError }}</p>
+      <Setup
+        v-else-if="viewMode === 'setup'"
+        :renderer-url="rendererUrl"
+        :agent-url="agentUrl"
+        @update:renderer-url="updateRendererUrl"
+        @update:agent-url="updateAgentUrl"
+        @update:llm-url="updateLlmUrl"
+        @update:llm-key="updateLlmKey"
+        @update:llm-model="updateLlmModel"
+        @update:output-format="updateOutputFormat"
+      />
       <Gallery
         v-else-if="viewMode === 'gallery'"
         :examples="examples"
@@ -156,14 +238,17 @@ onMounted(async () => {
         @open-in-editor="openInEditor"
         @agent-handoff="agentHandoff"
       />
-      <StoryB00k v-else-if="viewMode === 'storyb00k'" :prefill="agentPrefill" :locked-type="agentTypeId" @edit-in-editor="editInEditor" />
+      <StoryB00k v-else-if="viewMode === 'storyb00k'" :prefill="agentPrefill" :locked-type="agentTypeId" :llm-url="llmUrl" :llm-key="llmKey" :llm-model="llmModel" :agent-url="agentUrl" :editor-handoff="editorHandoff" @edit-in-editor="editInEditor" />
       <RendererPanel
         v-else-if="selectedExample"
         :example="selectedExample"
         :examples="formatExamples"
         :override-source="editedSourcePending ? editedSource : undefined"
         :override-route="editedSourcePending ? editedRoute : undefined"
+        :renderer-url="rendererUrl"
+        :output-format="outputFormat"
         @select-example="onSelectExample"
+        @send-to-agent="editorToAgentHandoff"
       />
       <p v-else class="loading">Loading test-backed examples…</p>
     </section>

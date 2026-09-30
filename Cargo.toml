@@ -17,15 +17,16 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/kr0ki-core", "crates/kr0ki-server", "crates/kr0ki-sysmlv2-client"]
+members = ["crates/kr0ki-core", "crates/kr0ki-server", "crates/kr0ki-sysmlv2-client", "crates/kr0ki-svg"]
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.4"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/PromptExecution/kr0ki"
 
 [workspace.dependencies]
+uuid = { version = "1.10", features = ["v4", "v7"] }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

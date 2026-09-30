@@ -1,0 +1,27 @@
+[package]
+name = "kr0ki-svg"
+version = "0.1.0"
+edition = "2021"
+description = "SVG enrichment and transformation layer for kr0ki"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+usvg = "0.41"
+svgtypes = "0.15"
+tiny-skia-path = "0.11"
+roxmltree = "0.19"
+wasm-bindgen = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+serde_json = "1.0"
+thiserror = "1.0"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[profile.release]
+opt-level = "s"
+lto = true

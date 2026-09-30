@@ -12,6 +12,8 @@ use tower::ServiceExt; // oneshot
 // The server crate is a bin; pull the router module in via path.
 #[path = "../src/app.rs"]
 mod app;
+#[path = "../src/contract.rs"]
+mod contract;
 #[path = "../src/docs.rs"]
 mod docs;
 use app::{router, AppState};
@@ -36,11 +38,13 @@ fn test_state(tag: &str) -> AppState {
         started_at: std::time::Instant::now(),
         boot_wall_clock: std::time::SystemTime::now(),
         auth_token: None,
+        contract: Arc::new(contract::ContractReference::default()),
     }
 }
 
 fn test_app(state: AppState) -> axum::Router {
-    router(state, None)
+    let contract = state.contract.clone();
+    router(state, None, contract)
 }
 
 async fn body_string(resp: axum::response::Response) -> (StatusCode, String) {
@@ -73,6 +77,76 @@ async fn health_ok() {
     assert!(body.contains("\"llm\""));
     assert!(body.contains("\"configured\":false"));
     assert!(body.contains("\"model_count\""));
+}
+
+#[tokio::test]
+async fn contract_headers_present_on_all_responses() {
+    let app = test_app(test_state("contract-headers"));
+    let resp = app
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    let headers = resp.headers();
+    assert!(
+        headers.contains_key("x-kr0ki-contract"),
+        "missing x-kr0ki-contract header"
+    );
+    assert!(
+        headers.contains_key("x-kr0ki-request-id"),
+        "missing x-kr0ki-request-id header"
+    );
+
+    let contract = headers.get("x-kr0ki-contract").unwrap().to_str().unwrap();
+    assert_eq!(contract, "ledgrrr://state-machines/sysml-render/v1");
+
+    let request_id = headers.get("x-kr0ki-request-id").unwrap().to_str().unwrap();
+    assert!(!request_id.is_empty(), "request-id should not be empty");
+    assert!(
+        request_id.len() == 36,
+        "request-id should be UUID v7 format (36 chars)"
+    );
+}
+
+#[tokio::test]
+async fn request_id_adopted_from_header() {
+    let app = test_app(test_state("request-id-adopted"));
+    let custom_id = "my-custom-correlation-id-12345";
+    let resp = app
+        .oneshot(
+            Request::get("/health")
+                .header("x-request-id", custom_id)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let returned_id = resp
+        .headers()
+        .get("x-kr0ki-request-id")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert_eq!(
+        returned_id, custom_id,
+        "should adopt caller-provided request-id"
+    );
+}
+
+#[tokio::test]
+async fn health_includes_contract_field() {
+    let app = test_app(test_state("health-contract"));
+    let resp = app
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.contains("\"contract\":\"ledgrrr://state-machines/sysml-render/v1\""),
+        "health should include contract field, body: {body}"
+    );
 }
 
 #[tokio::test]
@@ -122,7 +196,7 @@ async fn mcp_tools_lists_all_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 14);
+    assert_eq!(tools.len(), 15);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
@@ -1136,8 +1210,125 @@ async fn render_k8s_topology_recognized_view_query_param_renders_only_that_view(
 }
 
 #[tokio::test]
+async fn render_rust_source_empty_body_is_400() {
+    let app = test_app(test_state("rust-source-empty"));
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-source")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(body.contains("empty_source"));
+}
+
+#[tokio::test]
+async fn render_rust_source_rejects_oversized_source_before_parsing() {
+    let app = test_app(test_state("rust-source-oversized"));
+    let oversized = "a".repeat(1_048_577);
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-source")
+                .body(Body::from(oversized))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert!(body.contains("source_too_large"));
+}
+
+#[tokio::test]
+async fn render_rust_source_rejects_invalid_rust_before_any_backend_call() {
+    // http://127.0.0.1:1 (test_state's fixed backend) is unreachable -- if
+    // the handler validates/parses before rendering, this call never
+    // reaches it.
+    let app = test_app(test_state("rust-source-badsyntax"));
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-source")
+                .body(Body::from("struct Unclosed {"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(body.contains("bad_rust_source"));
+}
+
+#[tokio::test]
+async fn render_rust_source_valid_source_reaches_the_unreachable_backend() {
+    // A struct field of another local struct type lifts to exactly one
+    // HasPart edge (rust_recognizer's own struct_field_of_local_type_is_has_part
+    // test), which rust_lift maps straight through to UfoRelation::HasPart --
+    // proving the recognize -> lift -> to_d2 pipeline itself didn't error
+    // out before ever reaching the (deliberately unreachable) backend.
+    let app = test_app(test_state("rust-source-valid"));
+    let source = "struct Engine {}
+struct Car { engine: Engine }
+";
+    let resp = app
+        .oneshot(
+            Request::post("/render/rust-source")
+                .body(Body::from(source))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    // Not a validation error -- the pipeline ran and only the network call
+    // to the unreachable stub backend failed (RenderError::Unavailable ->
+    // 502, service_error_response).
+    assert_eq!(status, StatusCode::BAD_GATEWAY);
+    assert!(!body.contains("empty_source"));
+    assert!(!body.contains("bad_rust_source"));
+}
+
+#[tokio::test]
+async fn render_rust_source_end_to_end_through_a_real_backend() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/d2/svg"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_string("<svg/>"))
+        .mount(&server)
+        .await;
+
+    let mut state = test_state("rust-source-e2e");
+    state.service = Arc::new(RenderService::new(
+        HttpKrokiBackend::new(server.uri()),
+        FsCache::new(std::env::temp_dir().join(format!(
+            "kr0ki-http-test-{}-rust-source-e2e-backend",
+            std::process::id()
+        ))),
+    ));
+    let source = "struct Engine {}
+struct Car { engine: Engine }
+";
+    let resp = test_app(state)
+        .oneshot(
+            Request::post("/render/rust-source")
+                .body(Body::from(source))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK, "body: {body}");
+    assert_eq!(body, "<svg/>");
+}
+
+#[tokio::test]
 async fn auth_required_rejects_missing_token() {
-    let app = router(test_state("authed"), Some("secret".to_string()));
+    let app = router(
+        test_state("authed"),
+        Some("secret".to_string()),
+        Arc::new(contract::ContractReference::default()),
+    );
     let resp = app
         .oneshot(Request::get("/formats").body(Body::empty()).unwrap())
         .await
@@ -1147,9 +1338,46 @@ async fn auth_required_rejects_missing_token() {
     assert!(body.contains("unauthorized"));
 }
 
+/// Contract/correlation headers are part of every response, including the
+/// 401 the auth layer produces itself (auth must not sit outside the contract layer).
+#[tokio::test]
+async fn unauthorized_responses_still_carry_contract_headers() {
+    let app = router(
+        test_state("authed-headers"),
+        Some("secret".to_string()),
+        Arc::new(contract::ContractReference::default()),
+    );
+    let resp = app
+        .oneshot(
+            Request::get("/formats")
+                .header("x-request-id", "corr-401")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        resp.headers()
+            .get("x-kr0ki-contract")
+            .map(|v| v.to_str().unwrap()),
+        Some("ledgrrr://state-machines/sysml-render/v1")
+    );
+    assert_eq!(
+        resp.headers()
+            .get("x-kr0ki-request-id")
+            .map(|v| v.to_str().unwrap()),
+        Some("corr-401")
+    );
+}
+
 #[tokio::test]
 async fn auth_required_accepts_valid_bearer() {
-    let app = router(test_state("authed-ok"), Some("secret".to_string()));
+    let app = router(
+        test_state("authed-ok"),
+        Some("secret".to_string()),
+        Arc::new(contract::ContractReference::default()),
+    );
     let resp = app
         .oneshot(
             Request::get("/health")

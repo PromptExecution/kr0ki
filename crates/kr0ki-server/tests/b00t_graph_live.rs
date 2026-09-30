@@ -16,6 +16,8 @@ use tower::ServiceExt;
 
 #[path = "../src/app.rs"]
 mod app;
+#[path = "../src/contract.rs"]
+mod contract;
 #[path = "../src/docs.rs"]
 mod docs;
 use app::{router, AppState};
@@ -46,6 +48,7 @@ async fn b00t_graph_renders_a_real_turtle_fixture_to_svg() {
 
     let cache_dir = base.join(".cache");
     let service = RenderService::new(HttpKrokiBackend::new(backend_url), FsCache::new(&cache_dir));
+    let contract = Arc::new(contract::ContractReference::default());
     let state = AppState {
         service: Arc::new(service),
         playbook_dir: std::env::temp_dir().join("kr0ki-no-playbook-assets"),
@@ -60,8 +63,9 @@ async fn b00t_graph_renders_a_real_turtle_fixture_to_svg() {
         started_at: std::time::Instant::now(),
         boot_wall_clock: std::time::SystemTime::now(),
         auth_token: None,
+        contract: contract.clone(),
     };
-    let app = router(state, None);
+    let app = router(state, None, contract);
 
     let resp = app
         .oneshot(Request::get("/b00t-graph/v1").body(Body::empty()).unwrap())

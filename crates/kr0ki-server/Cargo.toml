@@ -11,6 +11,7 @@ name = "kr0ki"
 path = "src/main.rs"
 
 [dependencies]
+uuid = { workspace = true }
 kr0ki-core = { path = "../kr0ki-core" }
 kr0ki-sysmlv2-client = { path = "../kr0ki-sysmlv2-client" }
 anyhow.workspace = true

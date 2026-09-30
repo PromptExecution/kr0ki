@@ -12,7 +12,7 @@ function makeId(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${idCounter}`
 }
 
-export function createRevisionGraph({ source = '', format = 'd2', route = null, label = 'Initial diagram' } = {}) {
+export function createRevisionGraph({ source = '', format = 'd2', route = null, label = 'Initial diagram', detectedType = null, output = null, title = null } = {}) {
   const root = {
     id: makeId('rev'),
     parentId: null,
@@ -24,6 +24,10 @@ export function createRevisionGraph({ source = '', format = 'd2', route = null, 
     source,
     format,
     route,
+    // Editor handoff metadata
+    detectedType,
+    output,
+    title,
     // Agent feedback captured for regeneration context (clarifications etc.)
     notes: '',
     createdAt: new Date().toISOString(),

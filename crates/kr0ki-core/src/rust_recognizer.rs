@@ -36,11 +36,13 @@
 //! `has_part` — see [`PATTERNS-rust-source.md` §2.1] for why a field is composition,
 //! not a `requires` dependency); non-generic, non-blanket trait `impl` blocks
 //! (`impl Trait for Type` → a `satisfies` edge — see
-//! [`RelationshipVisitor::push_trait_impl_edge`] for the exact scope); and direct,
-//! same-module, unqualified function calls (a `flows_to` edge per call site — see
-//! [`RelationshipVisitor::push_call_edges`]/[`find_call_names`] for the exact scope,
-//! and `PATTERNS-rust-source.md` §5 for why "same-module" specifically, not a
-//! whole-tree lookup the way field types and trait impls get).
+//! [`RelationshipVisitor::push_trait_impl_edge`] for the exact scope); and function
+//! calls resolved via `self`/`super`/`crate` path syntax or child-submodule
+//! nesting, never a whole-tree or `use`-import lookup (a `flows_to` edge per call
+//! site — see [`RelationshipVisitor::push_call_edges`]/[`find_call_names`]/
+//! [`resolve_call_prefix`] for the exact scope, and `PATTERNS-rust-source.md` §5
+//! for why this bound specifically, not a whole-tree lookup the way field types
+//! and trait impls get).
 //!
 //! Also covered, as two standalone functions rather than part of the
 //! `Vec<syn::File> -> (Vec<Node>, Vec<Edge>)` shape above (crate-level, not
@@ -49,9 +51,21 @@
 //! using [`workspace_member_crate_names`] to tell that apart from a use of a
 //! genuine external dependency.
 //!
-//! **Deferred** (needs more than AST pattern-matching, or an unresolved design
-//! choice — see `docs/PATTERNS-rust-source.md` §5 for each reason): cross-module/
-//! method/trait-dispatch calls and blanket/generic trait `impl` blocks.
+//! Also covered: generic and blanket trait `impl` blocks (`impl<T> Trait for
+//! Foo<T>`, `impl<T: Bound> Trait for Vec<T>`) — the `satisfies` edge as
+//! above, plus a `governed_by` edge per bound on the impl's own generic
+//! parameters (inline or `where`-clause) — see
+//! [`RelationshipVisitor::push_governed_by_edges`]. This resolves
+//! `PATTERNS-rust-source.md` §5's former "no decided edge shape" deferral.
+//!
+//! **Deferred** (needs more than AST pattern-matching): method calls
+//! (`x.foo()`) and trait-dispatch calls (`Self::foo()`, `<T as
+//! Trait>::foo()`, calls through a closure/fn-pointer variable) — all of
+//! these need real type resolution to find the right callee, not just path
+//! syntax, so this recognizer deliberately leaves them unrecognized rather
+//! than guess (`PATTERNS-rust-source.md` §5's call-graph scope note).
+//! Cross-module calls that cross a `mod foo;` *file* boundary are also still
+//! unresolved — see the inherited `module_path`-per-file limitation below.
 //!
 //! **Inherited limitation, not new here:** like `SymbolVisitor`, each file's
 //! `module_path` starts empty regardless of that file's real position in the crate
@@ -380,16 +394,12 @@ impl RelationshipVisitor<'_> {
 
     /// `impl Trait for Type` → a `satisfies` edge, Type → Trait
     /// (`PATTERNS-rust-source.md` §2: "the type meets the trait's
-    /// contract"). Scoped to the unambiguous case only
-    /// (`PATTERNS-rust-source.md` §5's stated reason for deferring this):
-    /// the `impl` itself carries no generic parameters, and the
-    /// implementing type is a plain named path — `impl<T> Trait for
-    /// Foo<T>` and blanket impls like `impl<T: Bound> Trait for Vec<T>`
-    /// have no decided edge shape yet and are silently skipped, not
-    /// guessed at (mirrors `sysml_lift`'s own "no confident KerML fit"
-    /// fallback philosophy, minus a `Domain`-style escape hatch this
-    /// box-1→2 stage doesn't have). An inherent impl (`impl Type { .. }`,
-    /// no trait) contributes nothing — there is no trait to satisfy.
+    /// contract"). Requires a plain named `self_ty` path (`impl Trait for
+    /// Foo` and `impl Trait for Foo<T>` alike — the node id is the type's
+    /// own last path segment, generic arguments dropped, matching every
+    /// other name heuristic in this module). An inherent impl (`impl Type
+    /// { .. }`, no trait) contributes nothing — there is no trait to
+    /// satisfy.
     ///
     /// Both endpoints resolve through the same whole-tree `local_types`
     /// name table field-type resolution already uses (traits included,
@@ -398,10 +408,20 @@ impl RelationshipVisitor<'_> {
     /// external type/trait (`impl std::fmt::Debug for Foo`) is still worth
     /// recording as a node even though this module has no way to give it
     /// a qualified path of its own.
+    ///
+    /// A generic or blanket impl (`impl<T> Trait for Foo<T>`,
+    /// `impl<T: Bound> Trait for Vec<T>`) still emits the `satisfies` edge
+    /// — `PATTERNS-rust-source.md` §5's "no decided edge shape" deferral
+    /// is resolved as of this function: each bound on the impl's own
+    /// generic parameters (inline `<T: Bound>` or an equivalent `where T:
+    /// Bound`) additionally emits a `governed_by` edge from the self type
+    /// to the bound trait (`PATTERNS-rust-source.md` §2: "the
+    /// implementation is constrained by the bound"), via
+    /// [`Self::push_governed_by_edges`]. A bound this module can't
+    /// resolve to a simple trait path (a lifetime bound, `?Sized`, a
+    /// `dyn`/`impl Trait` bound) is silently skipped — reduced recall,
+    /// not a wrong edge, this module's usual posture.
     fn push_trait_impl_edge(&mut self, node: &syn::ItemImpl) {
-        if !node.generics.params.is_empty() {
-            return;
-        }
         let Some((_, trait_path, _)) = &node.trait_ else {
             return;
         };
@@ -434,6 +454,74 @@ impl RelationshipVisitor<'_> {
         self.push_node(&type_qname, "type");
         self.push_node(&trait_qname, "trait");
         self.push_edge(&type_qname, &trait_qname, "satisfies");
+
+        self.push_governed_by_edges(&node.generics, &type_qname);
+    }
+
+    /// `impl<T: Bound> ...` / an equivalent `where T: Bound` → a
+    /// `governed_by` edge per bound, self type → bound trait
+    /// (`PATTERNS-rust-source.md` §2's `governed_by` row). Walks both the
+    /// inline bounds on each type parameter and the `where`-clause
+    /// predicates whose bounded type is one of those same parameters'
+    /// idents (a `where` bound on a concrete type, not one of this impl's
+    /// own generic parameters, isn't this impl's constraint to report).
+    /// Non-trait bounds (lifetimes, `?Sized`, `dyn`/`impl Trait` bounds
+    /// with no single resolvable path) are skipped, not guessed at.
+    fn push_governed_by_edges(&mut self, generics: &syn::Generics, self_qname: &str) {
+        let type_param_idents: std::collections::HashSet<String> = generics
+            .params
+            .iter()
+            .filter_map(|p| match p {
+                syn::GenericParam::Type(tp) => Some(tp.ident.to_string()),
+                _ => None,
+            })
+            .collect();
+
+        let mut bound_trait_names = Vec::new();
+        for param in &generics.params {
+            if let syn::GenericParam::Type(tp) = param {
+                for bound in &tp.bounds {
+                    if let syn::TypeParamBound::Trait(trait_bound) = bound {
+                        if let Some(seg) = trait_bound.path.segments.last() {
+                            bound_trait_names.push(seg.ident.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(where_clause) = &generics.where_clause {
+            for predicate in &where_clause.predicates {
+                let syn::WherePredicate::Type(pred) = predicate else {
+                    continue;
+                };
+                let syn::Type::Path(bounded_path) = &pred.bounded_ty else {
+                    continue;
+                };
+                let Some(bounded_ident) = bounded_path.path.get_ident() else {
+                    continue;
+                };
+                if !type_param_idents.contains(&bounded_ident.to_string()) {
+                    continue;
+                }
+                for bound in &pred.bounds {
+                    if let syn::TypeParamBound::Trait(trait_bound) = bound {
+                        if let Some(seg) = trait_bound.path.segments.last() {
+                            bound_trait_names.push(seg.ident.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        for bound_name in bound_trait_names {
+            let bound_qname = self
+                .local_types
+                .get(&bound_name)
+                .cloned()
+                .unwrap_or(bound_name);
+            self.push_node(&bound_qname, "trait");
+            self.push_edge(self_qname, &bound_qname, "governed_by");
+        }
     }
 
     /// Direct, same-module, unqualified calls only
@@ -444,16 +532,26 @@ impl RelationshipVisitor<'_> {
     /// `module::foo()`), and [`collect_module_functions`] for why the
     /// callee must be declared in the *same* module as the call site.
     fn push_call_edges(&mut self, fn_name: &str, node: &syn::ItemFn) {
-        let module_key = self.qualified(&self.module_path);
-        let Some(local_fns) = self.module_functions.get(&module_key) else {
-            return;
-        };
         let caller_qname = self.qualified_name(fn_name);
-        for callee_name in find_call_names(&node.block) {
-            if !local_fns.contains(&callee_name) {
+        for path in find_call_names(&node.block) {
+            let Some((callee_name, prefix)) = path.split_last() else {
+                continue;
+            };
+            let Some(module_key_segments) = resolve_call_prefix(&self.module_path, prefix) else {
+                continue;
+            };
+            let module_key = self.qualified(&module_key_segments);
+            let Some(local_fns) = self.module_functions.get(&module_key) else {
+                continue;
+            };
+            if !local_fns.contains(callee_name) {
                 continue;
             }
-            let callee_qname = self.qualified_name(&callee_name);
+            let callee_qname = if module_key.is_empty() {
+                callee_name.clone()
+            } else {
+                format!("{module_key}::{callee_name}")
+            };
             self.push_edge(&caller_qname, &callee_qname, "flows_to");
         }
     }
@@ -467,16 +565,24 @@ impl RelationshipVisitor<'_> {
 /// (`<T as Trait>::foo()`, excluded via `qself`). Does not recurse into a
 /// nested `fn` item's own body — a call inside a function nested within
 /// `block` is that inner function's call, not this one's.
-fn find_call_names(block: &syn::Block) -> Vec<String> {
+fn find_call_names(block: &syn::Block) -> Vec<Vec<String>> {
     struct CallCollector<'a> {
-        out: &'a mut Vec<String>,
+        out: &'a mut Vec<Vec<String>>,
     }
 
     impl syn::visit::Visit<'_> for CallCollector<'_> {
         fn visit_expr_call(&mut self, node: &syn::ExprCall) {
             if let syn::Expr::Path(p) = node.func.as_ref() {
-                if p.qself.is_none() && p.path.segments.len() == 1 {
-                    self.out.push(p.path.segments[0].ident.to_string());
+                if p.qself.is_none() {
+                    let segments: Vec<String> = p
+                        .path
+                        .segments
+                        .iter()
+                        .map(|s| s.ident.to_string())
+                        .collect();
+                    if !segments.is_empty() {
+                        self.out.push(segments);
+                    }
                 }
             }
             syn::visit::visit_expr_call(self, node);
@@ -491,6 +597,50 @@ fn find_call_names(block: &syn::Block) -> Vec<String> {
     let mut collector = CallCollector { out: &mut out };
     syn::visit::visit_block(&mut collector, block);
     out
+}
+
+/// Resolve a call path's module *prefix* (every segment but the final
+/// callee name) into an absolute module-path key, purely from `self`/
+/// `super`/`crate` path syntax and child-module nesting — never a global
+/// or `use`-import lookup, so this can only ever be as wrong as the
+/// same-module heuristic §5 already accepted for bare calls: a
+/// `crate::`/`super::`-qualified path resolves relative to *this file's
+/// own* module tree (`module_path` starts empty per file — see this
+/// module's own doc comment), not the crate's real cross-file tree, so a
+/// path crossing a `mod foo;` file boundary still won't resolve. A bare,
+/// unqualified multi-segment prefix (e.g. `helper::bar()`) is resolved
+/// only as a child submodule of the call site's own module — the one
+/// case Rust's real name resolution also guarantees unambiguously
+/// without an import table; it is never treated as a sibling or
+/// `use`-aliased path, which would need real resolution this recognizer
+/// doesn't do.
+fn resolve_call_prefix(module_path: &[String], prefix: &[String]) -> Option<Vec<String>> {
+    if prefix.is_empty() {
+        return Some(module_path.to_vec());
+    }
+    match prefix[0].as_str() {
+        "crate" => Some(prefix[1..].to_vec()),
+        "self" => {
+            let mut base = module_path.to_vec();
+            base.extend(prefix[1..].iter().cloned());
+            Some(base)
+        }
+        "super" => {
+            let mut base = module_path.to_vec();
+            let mut rest = prefix;
+            while rest.first().map(String::as_str) == Some("super") {
+                base.pop()?;
+                rest = &rest[1..];
+            }
+            base.extend(rest.iter().cloned());
+            Some(base)
+        }
+        _ => {
+            let mut base = module_path.to_vec();
+            base.extend(prefix.iter().cloned());
+            Some(base)
+        }
+    }
 }
 
 /// Every path-type simple name reachable from `ty` without real type
@@ -837,24 +987,60 @@ mod tests {
     }
 
     #[test]
-    fn generic_impl_is_skipped_pending_a_decided_edge_shape() {
+    fn generic_impl_with_no_bound_emits_satisfies_but_no_governed_by() {
         let src = r#"
             trait Wrap {}
             struct Box2<T> { inner: T }
             impl<T> Wrap for Box2<T> {}
         "#;
         let (_, edges) = recognize_source(src).unwrap();
-        assert!(!edges.iter().any(|e| e.edge_type == "satisfies"));
+        assert!(has_edge(&edges, "Box2", "Wrap", "satisfies"));
+        assert!(!edges.iter().any(|e| e.edge_type == "governed_by"));
     }
 
     #[test]
-    fn blanket_impl_over_an_external_generic_type_is_skipped() {
+    fn blanket_impl_over_an_external_generic_type_emits_satisfies_and_governed_by() {
         let src = r#"
             trait Describe {}
             impl<T: std::fmt::Debug> Describe for Vec<T> {}
         "#;
         let (_, edges) = recognize_source(src).unwrap();
-        assert!(!edges.iter().any(|e| e.edge_type == "satisfies"));
+        assert!(has_edge(&edges, "Vec", "Describe", "satisfies"));
+        assert!(has_edge(&edges, "Vec", "Debug", "governed_by"));
+    }
+
+    #[test]
+    fn multiple_inline_bounds_each_emit_their_own_governed_by_edge() {
+        let src = r#"
+            trait Describe {}
+            impl<T: std::fmt::Debug + Clone> Describe for Vec<T> {}
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(&edges, "Vec", "Debug", "governed_by"));
+        assert!(has_edge(&edges, "Vec", "Clone", "governed_by"));
+    }
+
+    #[test]
+    fn where_clause_bound_on_the_impls_own_type_param_emits_governed_by() {
+        let src = r#"
+            trait Describe {}
+            impl<T> Describe for Vec<T> where T: std::fmt::Debug {}
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(&edges, "Vec", "Debug", "governed_by"));
+    }
+
+    #[test]
+    fn where_clause_bound_on_an_unrelated_type_is_not_this_impls_constraint() {
+        // The where-clause bounds String, not T -- not a constraint on
+        // this impl's own generic parameter, so no governed_by edge.
+        let src = r#"
+            trait Describe {}
+            impl<T> Describe for Vec<T> where String: std::fmt::Debug {}
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(&edges, "Vec", "Describe", "satisfies"));
+        assert!(!edges.iter().any(|e| e.edge_type == "governed_by"));
     }
 
     #[test]
@@ -904,7 +1090,14 @@ mod tests {
     }
 
     #[test]
-    fn method_calls_and_qualified_calls_are_not_recognized() {
+    fn method_calls_and_type_qualified_calls_are_not_recognized() {
+        // `self.honk()` is an `ExprMethodCall`, a different AST node from
+        // `ExprCall` entirely, so this visitor never sees it. `Car::honk(self)`
+        // *is* an `ExprCall` with a multi-segment path, but "Car" resolves
+        // (via resolve_call_prefix's child-submodule fallback) against
+        // `module_functions`, which only ever contains `mod`-declared
+        // modules, never impl/type names — an inherent-method call through
+        // its type path stays correctly unrecognized without special-casing.
         let src = r#"
             struct Car;
             impl Car {
@@ -914,10 +1107,79 @@ mod tests {
                     Car::honk(self);
                 }
             }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(!edges.iter().any(|e| e.edge_type == "flows_to"));
+    }
+
+    #[test]
+    fn qualified_call_to_a_child_submodule_becomes_flows_to() {
+        let src = r#"
             fn run() {
                 other::helper();
             }
             mod other {
+                pub fn helper() {}
+            }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(&edges, "run", "other::helper", "flows_to"));
+    }
+
+    #[test]
+    fn crate_self_and_super_qualified_calls_resolve_within_the_same_file() {
+        let src = r#"
+            mod a {
+                pub fn helper() {}
+
+                pub mod inner {
+                    pub fn via_super() {
+                        super::helper();
+                    }
+                    pub fn via_crate() {
+                        crate::a::helper();
+                    }
+                    pub fn via_self() {
+                        self::sibling();
+                    }
+                    pub fn sibling() {}
+                }
+            }
+        "#;
+        let (_, edges) = recognize_source(src).unwrap();
+        assert!(has_edge(
+            &edges,
+            "a::inner::via_super",
+            "a::helper",
+            "flows_to"
+        ));
+        assert!(has_edge(
+            &edges,
+            "a::inner::via_crate",
+            "a::helper",
+            "flows_to"
+        ));
+        assert!(has_edge(
+            &edges,
+            "a::inner::via_self",
+            "a::inner::sibling",
+            "flows_to"
+        ));
+    }
+
+    #[test]
+    fn unqualified_bare_path_to_a_sibling_module_is_not_recognized() {
+        // Real Rust resolves a bare `sibling::foo()` (no `super::`) only via
+        // an in-scope `use`, which this recognizer doesn't track — so a bare
+        // multi-segment call only ever resolves as a *child* submodule of
+        // the call site's own module, never a cousin.
+        let src = r#"
+            mod a {
+                pub fn run() {
+                    b::helper();
+                }
+            }
+            mod b {
                 pub fn helper() {}
             }
         "#;

@@ -123,27 +123,54 @@ string; whether it resolves to another *local* item is decided by string/qualifi
 matching against symbols the same harvest pass already collected, not a real type
 checker).
 
-**Second slice (shipped):** non-generic, non-blanket trait `impl` blocks (§2 row 4) —
-`impl Trait for Type` with no generic parameters on the `impl` itself and a plain named
-`self_ty` is unambiguous pure syntax, no name-collision risk: `impl<T> Trait for
-Foo<T>` and blanket impls (`impl<T: Bound> Trait for Vec<T>`) are skipped rather than
-guessed at, since no edge shape has been decided for them.
+**Second slice (shipped):** trait `impl` blocks (§2 row 4) — `impl Trait for Type`
+emits `satisfies` regardless of whether the `impl` itself carries generic parameters;
+the node id is the self type's own last path segment with any generic arguments
+dropped, the same name heuristic used everywhere else in this module. **Third slice
+(shipped, resolves this doc's former "no decided edge shape" deferral):** a generic or
+blanket impl's own bounds (`impl<T: Bound> Trait for Vec<T>`, or an equivalent `where T:
+Bound`) each additionally emit a `governed_by` edge, self type → bound trait (§2's
+`governed_by` row) — see `rust_recognizer.rs`'s `push_governed_by_edges` doc comment
+for exactly which bound shapes resolve (inline + `where`, trait bounds only; lifetime/
+`?Sized`/`dyn`-Trait bounds are skipped, not guessed at) and its own test suite for the
+decided edge shape worked through: `impl<T> Wrap for Box2<T>` → `Box2 satisfies Wrap`,
+no `governed_by` (no bound); `impl<T: Debug> Describe for Vec<T>` → `Vec satisfies
+Describe` + `Vec governed_by Debug`.
 
-**Call graph (§2 row 3) — scoped, not yet shipped.** A narrow "same-module direct
-calls only" first cut was chosen over the heavier-dependency alternative, but with a
-correctness condition the original framing missed: resolving a call's callee by
-**simple name against a whole-tree table** (the same heuristic field types and trait
-impls use) is safe for *type* names, which rarely collide project-wide, but not for
-*function* names — short, common names (`new`, `parse`, `run`) collide constantly
-across modules in any real codebase, and a global lookup would assert wrong edges
-(module A's function calling module C's unrelated same-named function), not just
-under-recall. The fix: resolve a call's callee **only against functions declared in
-the same module** as the call site — Rust's own name resolution already guarantees at
-most one `fn` of a given name per module scope, so this bound eliminates the collision
-risk entirely rather than accepting it. Cost: misses every cross-module call, every
-method call (`x.foo()`), and everything needing real dispatch (trait methods, `Self::`
-paths, calls through a closure/fn-pointer variable) — reduced recall, not a
-compromise on correctness.
+**Call graph (§2 row 3) — same-module slice shipped; path-qualified slice shipped
+2026-09-29.** A narrow "same-module direct calls only" first cut was chosen over the
+heavier-dependency alternative, but with a correctness condition the original framing
+missed: resolving a call's callee by **simple name against a whole-tree table** (the
+same heuristic field types and trait impls use) is safe for *type* names, which rarely
+collide project-wide, but not for *function* names — short, common names (`new`,
+`parse`, `run`) collide constantly across modules in any real codebase, and a global
+lookup would assert wrong edges (module A's function calling module C's unrelated
+same-named function), not just under-recall. The fix: resolve a call's callee **only
+against functions declared in the same module** as the call site — Rust's own name
+resolution already guarantees at most one `fn` of a given name per module scope, so
+this bound eliminates the collision risk entirely rather than accepting it.
+
+That same collision-free reasoning extends cleanly to **path-qualified** calls,
+without reopening the collision risk: `crate::`/`self::`/`super::` are Rust path
+keywords, not names that can collide, and each resolves deterministically against the
+call site's own already-tracked `module_path` (see
+`RelationshipVisitor::resolve_call_prefix`'s doc comment for the exact walk). A bare,
+unqualified multi-segment prefix (`helper::bar()`) is resolved only as a **child
+submodule** of the call site's own module — the one bare-path case Rust's real name
+resolution also guarantees unambiguously without an import table; a cousin/sibling
+module reached only via `use` (not `super::`) still isn't recognized, since that
+needs real import resolution this recognizer doesn't do.
+
+Cost, still uncovered: every method call (`x.foo()` — a different AST node,
+`ExprMethodCall`, not even visited), every type-qualified associated-function call
+(`Car::honk(self)`, `Self::helper()`), and every call needing real trait dispatch
+(`<T as Trait>::foo()`, calls through a closure/fn-pointer variable) — none of these
+resolve to a callee without real type information, so none are guessed at. Also still
+uncovered: a call whose qualified path crosses a `mod foo;` *file* boundary — each
+file's `module_path` starts empty regardless of its real position in the crate tree
+(the recognizer's inherited, pre-existing limitation — see `rust_recognizer.rs`'s own
+module doc comment), so `crate::`/`super::` only resolve correctly *within* a single
+already-parsed file, not across the files `walk_and_recognize` stitches together.
 
 **Cross-crate `requires` (§2 row 5) — shipped, as two standalone functions rather
 than part of the module/item-level pass above.** `workspace_member_crate_names`
@@ -159,4 +186,3 @@ synthetic fixtures.
 - Everything §5's original call-graph note named — cross-module calls, method
   calls, trait dispatch — see the call-graph slice's own scope note above for why
   "same-module only" specifically, not "not yet attempted."
-- Blanket/generic trait `impl` blocks (still no decided edge shape).

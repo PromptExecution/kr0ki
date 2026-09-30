@@ -36,12 +36,21 @@ except ModuleNotFoundError:  # local source-tree tests; the image copies the mod
 
 KR0KI_URL = os.environ.get("KR0KI_URL", "http://127.0.0.1:8787")
 SKILLS_DIR = Path(__file__).parent / "skills"
-MAX_MODEL_TOOL_ROUNDS = int(os.environ.get("KR0KI_STORYB00K_MAX_MODEL_TOOL_ROUNDS", "64"))
+MAX_MODEL_TOOL_ROUNDS = int(os.environ.get("KR0KI_STORYB00K_MAX_MODEL_TOOL_ROUNDS", "15"))
+MAX_CONSECUTIVE_FAILURES = int(os.environ.get("KR0KI_STORYB00K_MAX_CONSECUTIVE_FAILURES", "3"))
 MAX_CLARIFYING_QUESTIONS = int(os.environ.get(
     "KR0KI_STORYB00K_MAX_CLARIFYING_QUESTIONS",
     os.environ.get("KR0KI_STORYB00K_MAX_TOOL_ROUNDS", "6"),
 ))
 MAX_OUTPUT_CHARS = int(os.environ.get("KR0KI_STORYB00K_MAX_OUTPUT_CHARS", "20000"))
+# Valid input formats for render_diagram (SVG/PNG are output formats, not input)
+VALID_INPUT_FORMATS = frozenset([
+    "d2", "plantuml", "c4plantuml", "mermaid", "graphviz", "dot",
+    "structurizr", "nomnoml", "erd", "bpmn", "bytefield", "pikchr",
+    "wavedrom", "k8s", "k8s-topology", "kubediagram", "vega", "vegalite",
+    "excalidraw", "tuc", "svgbob", "rack", "packetdb", "aws", "az",
+    "gcp", "icon", "dbml", "openapi", "asyncapi", "json-schema",
+])
 THREAD_TTL_SECS = int(os.environ.get("KR0KI_STORYB00K_THREAD_TTL_SECS", str(6 * 3600)))
 _drafts = {}  # thread_id -> {"graph": DraftGraph, "last_used": epoch}
 _pending_questions = {}  # thread_id -> ask_user question awaiting an answer
@@ -465,13 +474,80 @@ class Handler(BaseHTTPRequestHandler):
             project["lockedType"] = type_id
             project_store.save_project(thread_id, project)
             return self._json(200, project)
+        if self.path == "/projects/set-diagram-context":
+            # Store diagram context from Code Editor handoff
+            # Validate required fields
+            source = payload.get("source")
+            fmt = payload.get("format")
+            if not source or not isinstance(source, str) or not source.strip():
+                return self._json(400, {"error": "missing_source", "message": "source is required and must be a non-empty string"})
+            if not fmt or not isinstance(fmt, str) or not fmt.strip():
+                return self._json(400, {"error": "missing_format", "message": "format is required and must be a non-empty string (e.g. d2, plantuml, mermaid)"})
+            # Validate detectedType if provided
+            detected_type = payload.get("detectedType", "")
+            if detected_type and detected_type not in VALID_INPUT_FORMATS and detected_type != "unknown":
+                return self._json(400, {"error": "invalid_detected_type", "message": f"detectedType '{detected_type}' is not a recognized diagram format", "valid_formats": sorted(VALID_INPUT_FORMATS)})
+            # Validate output if provided
+            output_val = payload.get("output", "")
+            if output_val and output_val not in ("svg", "png"):
+                return self._json(400, {"error": "invalid_output", "message": "output must be 'svg' or 'png' if provided"})
+            thread_id = payload.get("threadId", "default")
+            project = project_store.get_project(thread_id) or {"threadId": thread_id}
+            context = {
+                "source": source,
+                "format": fmt,
+                "detectedType": detected_type,
+                "output": output_val,
+                "imageData": payload.get("imageData"),
+                "title": payload.get("title", ""),
+                "timestamp": time.time(),
+            }
+            project["diagramContext"] = context
+            # Append to handoff history
+            history = project.setdefault("handoffHistory", [])
+            history.append({**context, "seq": len(history)})
+            # Keep history bounded
+            if len(history) > 50:
+                project["handoffHistory"] = history[-50:]
+            project_store.save_project(thread_id, project)
+            import sys
+            print(f"HANDOFF: thread={thread_id} format={fmt} detected={detected_type} title={payload.get('title', '')} source_len={len(source)}", file=sys.stderr)
+            return self._json(200, {"status": "ok", "threadId": thread_id, "format": fmt, "detectedType": detected_type})
         if self.path == "/respond-to-interrupt":
             thread_id = payload.get("threadId", "default")
             draft = _drafts.get(thread_id)
             question = _pending_questions.get(thread_id)
             is_answer = question is not None and payload.get("interruptId") == question.get("id")
             if draft is None and not is_answer:
-                return self._json(404, {"error": "draft_session_not_found"})
+                # Check if this question was already answered (prevents 404 on retry)
+                project = project_store.get_project(thread_id)
+                interrupt_id = payload.get("interruptId")
+                already_answered = False
+                if project:
+                    for qa in project.get("qa", []):
+                        # Check if this interrupt ID matches a previously answered question
+                        if qa.get("interruptId") == interrupt_id:
+                            already_answered = True
+                            break
+                if already_answered:
+                    # Question was already answered, return success
+                    return self._json(200, {"status": "ok", "already_answered": True})
+                # Log the 404 for debugging
+                run_log_event = {
+                    "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "thread": thread_id,
+                    "level": "warning",
+                    "kind": "interrupt.404",
+                    "error": "draft_session_not_found",
+                    "has_draft": draft is not None,
+                    "has_pending_question": question is not None,
+                    "is_answer": is_answer,
+                    "payload_interrupt_id": payload.get("interruptId"),
+                    "pending_question_id": question.get("id") if question else None,
+                }
+                import sys
+                print(f"WARNING: {json.dumps(run_log_event)}", file=sys.stderr)
+                return self._json(404, {"error": "draft_session_not_found", "details": run_log_event})
             if is_answer and question is not None:
                 # Planning refinement / type-confirm answer: record it in the
                 # project QA history, hand it back to the caller (the UI
@@ -485,7 +561,19 @@ class Handler(BaseHTTPRequestHandler):
                 if not answer:
                     return self._json(400, {"error": "answer_required"})
                 _pending_questions.pop(thread_id, None)
-                project_store.add_qa(thread_id, question.get("question", ""), answer)
+                # Store interrupt ID in QA for deduplication
+                qa_entry = {"question": question.get("question", ""), "answer": answer, "ts": time.time()}
+                if question.get("id"):
+                    qa_entry["interruptId"] = question["id"]
+                project_store.add_qa(thread_id, qa_entry["question"], qa_entry["answer"])
+                # Update the stored QA entry with interrupt ID
+                project = project_store.get_project(thread_id)
+                if project and project.get("qa"):
+                    for qa in project["qa"]:
+                        if qa.get("question") == qa_entry["question"] and qa.get("answer") == qa_entry["answer"]:
+                            qa["interruptId"] = question.get("id")
+                            break
+                    project_store.save_project(thread_id, project)
                 if question.get("kind") == "type-confirm":
                     recommendations = question.get("recommendations") or []
                     if normalize_type_id(answer) == "show-me-both":
@@ -634,6 +722,11 @@ class Handler(BaseHTTPRequestHandler):
                 "candidate diagrams before presenting the strongest result."
             )
         qa_memory += mode_rules + question_budget_rules
+        # Add list of already-asked questions to prevent repetition
+        qa_history = project.get("qa", [])
+        if qa_history:
+            asked_list = "\n".join(f"  {i+1}. {qa['question']}" for i, qa in enumerate(qa_history))
+            qa_memory += f"\n\nALREADY ASKED QUESTIONS (do NOT repeat these):\n{asked_list}"
         # Plan 005 §3: per-type skill loaded ONLY when the type is locked —
         # replaces the generic skill dump so context stays small and the syntax
         # guidance matches the chosen diagram.
@@ -644,19 +737,56 @@ class Handler(BaseHTTPRequestHandler):
         else:
             skills_text = "\n\n".join(load_skills().values())
         messages = [{"role": "system", "content": SYSTEM_PREAMBLE + qa_memory + "\n\n" + skills_text}]
+        # Inject diagram context from Code Editor handoff if available
+        diagram_context = project.get("diagramContext")
+        if diagram_context and diagram_context.get("source"):
+            ctx = diagram_context
+            context_msg = (
+                f"DIAGRAM CONTEXT (from Code Editor handoff):\n"
+                f"Title: {ctx.get('title', 'Untitled')}\n"
+                f"Format: {ctx.get('format', 'unknown')}\n"
+                f"Detected Type: {ctx.get('detectedType', 'unknown')}\n"
+                f"Output: {ctx.get('output', 'svg')}\n"
+                f"\nDiagram Source Code:\n```\n{ctx['source']}\n```\n"
+                f"\nThe user wants you to review this diagram and suggest improvements. "
+                f"Analyze both the code structure and suggest specific improvements."
+            )
+            messages.append({"role": "user", "content": context_msg})
+            # Clear the context after injecting it (one-time use)
+            project.pop("diagramContext", None)
+            project_store.save_project(thread_id, project)
         messages += messages_from_payload(payload)
+        # Ensure there's at least one user message for the LLM's Jinja template
+        if not any(m.get("role") == "user" for m in messages):
+            # Extract user prompt from payload if available
+            user_prompt = ""
+            for msg in payload.get("messages") or []:
+                if msg.get("role") == "user" and msg.get("content"):
+                    user_prompt = msg["content"]
+                    break
+            if not user_prompt:
+                user_prompt = "Hello"
+            messages.append({"role": "user", "content": user_prompt})
         # Also inject the answers as an explicit tool-result conversation turn so
         # the model sees them in the message flow, not only the system prompt.
+        # Track which questions have been answered to prevent repetition.
+        asked_questions = set()
         for qa in project.get("qa", []):
-            already = any(
-                isinstance(m.get("content"), str) and qa["answer"] in m["content"]
-                for m in messages if m.get("role") == "user"
-            )
-            if not already:
-                messages.append({
-                    "role": "user",
-                    "content": f"(answer to your question \"{qa['question']}\"): {qa['answer']}",
-                })
+            question_text = qa.get("question", "")
+            answer_text = qa.get("answer", "")
+            asked_questions.add(question_text.lower().strip())
+            # Always inject the QA pair so the model sees the full history
+            messages.append({
+                "role": "user",
+                "content": f"(answer to your question \"{question_text}\"): {answer_text}",
+            })
+        # Add explicit instruction about already-asked questions
+        if asked_questions:
+            questions_list = "\n".join(f"- {q}" for q in asked_questions)
+            messages.append({
+                "role": "user",
+                "content": f"IMPORTANT: You have already asked these questions and received answers. Do NOT ask them again:\n{questions_list}\n\nIf you need more information, ask NEW questions that haven't been asked yet.",
+            })
         client = llm_client.OpenAICompatibleClient.from_env()
 
         usage_total = {"promptTokens": 0, "completionTokens": 0}
@@ -701,6 +831,9 @@ class Handler(BaseHTTPRequestHandler):
             if rounds >= MAX_MODEL_TOOL_ROUNDS:
                 stream.text_message(f"[internal tool safety ceiling reached after {rounds} rounds]")
                 break
+
+            # Track consecutive failures to break infinite retry loops
+            consecutive_failures = getattr(stream, '_consecutive_failures', 0)
 
             for call in calls:
                 name = call["function"]["name"]
@@ -772,6 +905,20 @@ class Handler(BaseHTTPRequestHandler):
                     }))
                     return
                 if name == "ask_user":
+                    # Check if this question has already been asked
+                    question_text = arguments.get("question", "")
+                    project = project_store.get_project(thread_id)
+                    already_asked = False
+                    if project:
+                        for qa in project.get("qa", []):
+                            if qa.get("question", "").lower().strip() == question_text.lower().strip():
+                                already_asked = True
+                                break
+                    if already_asked:
+                        # Question already asked, skip it and continue
+                        messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": f"Question already asked: {question_text}"})
+                        run_log.event("plan.question_skipped", {"question": question_text, "reason": "already_asked"})
+                        continue
                     # Planning refinement: surface the question as an interrupt.
                     # The client answers via /respond-to-interrupt; the answer
                     # lands in _pending_answers so the next /run call (which
@@ -854,6 +1001,23 @@ class Handler(BaseHTTPRequestHandler):
                 if tool is None:
                     messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": f"unknown tool {name}"})
                     continue
+                # Validate render_diagram input format
+                if name == "render_diagram":
+                    fmt = (arguments.get("format") or "").lower().strip()
+                    if fmt in ("svg", "png"):
+                        error_msg = f"ERROR: '{fmt}' is an OUTPUT format, not an input format. Valid input formats are: {', '.join(sorted(VALID_INPUT_FORMATS)[:10])}... Do NOT retry with '{fmt}' as the format. Choose a valid diagram language like 'd2', 'plantuml', 'mermaid', or 'graphviz'."
+                        stream.try_write({"type": "TOOL_CALL_START", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "toolCallName": name, "parentMessageId": parent_message_id})
+                        stream.try_write({"type": "TOOL_CALL_ARGS", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "delta": call["function"]["arguments"] or "{}"})
+                        stream.try_write({"type": "TOOL_CALL_END", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id})
+                        stream.try_write({"type": "TOOL_CALL_RESULT", "threadId": thread_id, "runId": stream.run_id, "messageId": parent_message_id, "toolCallId": tool_call_id, "content": error_msg, "role": "tool"})
+                        messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": error_msg})
+                        consecutive_failures += 1
+                        stream._consecutive_failures = consecutive_failures
+                        run_log.tool_call(name, False, 0, error="invalid_format")
+                        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                            stream.text_message(f"[stopped after {consecutive_failures} consecutive tool failures — please reconsider your approach]")
+                            break
+                        continue
                 stream.try_write({"type": "TOOL_CALL_START", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "toolCallName": name, "parentMessageId": parent_message_id})
                 stream.try_write({"type": "TOOL_CALL_ARGS", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "delta": call["function"]["arguments"] or "{}"})
                 started = time.time()
@@ -865,11 +1029,18 @@ class Handler(BaseHTTPRequestHandler):
                     tool_content = panel["content"] or "Rendered binary image."
                     tool_image_data_url = panel.get("imageDataUrl")
                     tool_ok = True
+                    consecutive_failures = 0  # Reset on success
+                    stream._consecutive_failures = 0
                     run_log.tool_call(name, True, int((time.time() - started) * 1000))
                 except Exception as tool_error:  # noqa: BLE001 — feed the failure back to the LLM
                     tool_content = f"tool {name} failed: {tool_error}"
                     tool_ok = False
+                    consecutive_failures += 1
+                    stream._consecutive_failures = consecutive_failures
                     run_log.tool_call(name, False, int((time.time() - started) * 1000), error=tool_error)
+                    # Enhanced error message for repeated failures
+                    if consecutive_failures >= 2:
+                        tool_content += f"\n\n[WARNING: {consecutive_failures} consecutive failures. Consider a different approach or format.]"
                 # TOOL_CALL_END carries only ids; results are TOOL_CALL_RESULT.
                 stream.try_write({"type": "TOOL_CALL_END", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id})
                 stream.try_write({"type": "TOOL_CALL_RESULT", "threadId": thread_id, "runId": stream.run_id, "messageId": parent_message_id, "toolCallId": tool_call_id, "content": truncate(tool_content)[:2000], "role": "tool"})
@@ -885,6 +1056,13 @@ class Handler(BaseHTTPRequestHandler):
                             {"type": "image_url", "image_url": {"url": tool_image_data_url}},
                         ],
                     })
+                # Break if too many consecutive failures
+                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    stream.text_message(f"[stopped after {consecutive_failures} consecutive tool failures — please reconsider your approach or use a different diagram format]")
+                    break
+            # Break out of while loop if too many consecutive failures
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                break
 
         stream.try_write({"type": "CUSTOM", "threadId": thread_id, "runId": stream.run_id, "name": "usage", "value": usage_total})
         finished = lifecycle_event("RUN_FINISHED", thread_id, stream.run_id)
