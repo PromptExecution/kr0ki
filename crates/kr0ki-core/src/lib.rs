@@ -31,6 +31,7 @@ pub mod digital_thread_sync;
 pub mod docgen;
 pub mod examples;
 pub mod flatten;
+pub mod flexo_reqif_sync;
 pub mod format;
 pub mod graph_store;
 pub mod k8s_recognizer;

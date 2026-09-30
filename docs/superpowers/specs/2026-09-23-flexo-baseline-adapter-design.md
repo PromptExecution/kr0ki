@@ -1,6 +1,6 @@
 # Flexo baseline adapter — design
 
-**Status:** §1 (ReqIF export) implemented. §2 (Flexo storage) and §3 (round-trip contract test) blocked on PR #52 (`digital_thread_sync`) merging -- see docs/superpowers/plans/2026-09-23-flexo-baseline-adapter.md.
+**Status:** §1 (ReqIF export) implemented. §2 (Flexo storage, `kr0ki_core::flexo_reqif_sync`) and §3 (round-trip contract test) implemented on top of the shared `kr0ki_core::sync_engine` (PR #52 merged). §3's in-memory and stub-server versions run in CI; the live version (`tests/flexo_reqif_sync.rs::live_commit_graph_roundtrip`) is `#[ignore]`d pending an OMG-pilot server. Deviations from the text below: the baseline's own `revision` is also stored (`reqif_baseline_revision`) so it survives the round trip, and asserted relations are stored on their source requirement (`reqif_relations`) rather than as separate elements.
 
 ## 0. Context
 

@@ -12,6 +12,8 @@
 use kr0ki_sysmlv2_client::{
     ClientError, Commit, CommitRequest, DataVersion, Element, Ref, SysmlV2Client,
 };
+use serde_json::{Map, Value};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Attempts (fetch + diff + POST) before a persistent conflict is reported.
 pub const MAX_SYNC_ATTEMPTS: usize = 3;
@@ -28,6 +30,10 @@ pub enum SyncError {
     #[error(transparent)]
     Client(#[from] kr0ki_sysmlv2_client::ClientError),
 
+    /// A value the sync had to write could not be encoded as JSON.
+    #[error("could not encode element payload: {0}")]
+    Encode(#[from] serde_json::Error),
+
     /// Two managed elements (or two graph nodes) share one identifier, so a diff keyed by
     /// identifier would silently drop one of them. Fix the data; do not guess.
     #[error("duplicate managed identifier(s): {}", .0.join(", "))]
@@ -38,6 +44,99 @@ pub enum SyncError {
         "sync conflicted with concurrent commits on {attempts} attempt(s); nothing was committed"
     )]
     Conflict { attempts: usize },
+}
+
+/// An element's `identifier` field, if present. `identifier` lives in `Element`'s
+/// flattened `fields` map (not a dedicated struct field) -- it's an OMG-API-defined
+/// field the client crate doesn't otherwise model.
+pub(crate) fn element_identifier(element: &Element) -> Option<&str> {
+    element.fields.get("identifier").and_then(Value::as_str)
+}
+
+/// An element a sync wants to exist, identified by `identifier`, together with the
+/// writable `fields` the sync owns (anything else on the server element is not ours and
+/// is preserved on update).
+pub(crate) struct DesiredElement {
+    pub identifier: String,
+    pub type_: &'static str,
+    pub fields: Map<String, Value>,
+}
+
+fn data_version(payload: Option<Value>, existing: Option<&Element>) -> DataVersion {
+    DataVersion {
+        type_: "DataVersion",
+        payload,
+        identity: existing.map(|e| Ref {
+            at_id: e.id().to_string(),
+            extra: Default::default(),
+        }),
+    }
+}
+
+/// Create / update / delete changeset that makes `existing` (already restricted to the
+/// caller's managed namespace) match `desired`.
+///
+/// - **create**: an identifier with no server element.
+/// - **update**: some owned field differs. `DataVersion.payload` is a full replacement --
+///   the OMG reference implementation never merges it with the prior version -- so the
+///   payload starts from the element's *current* fields and only overlays the owned ones.
+///   A sparse payload would wipe whatever another tool set.
+/// - **delete**: a server element whose identifier is no longer desired.
+/// - Repeated identifiers on either side are an error, never a silent collapse.
+pub(crate) fn diff_managed(
+    existing: &[Element],
+    desired: &[DesiredElement],
+) -> Result<Vec<DataVersion>, SyncError> {
+    let mut duplicates = BTreeSet::new();
+    let mut by_identifier: BTreeMap<&str, &Element> = BTreeMap::new();
+    for e in existing {
+        if let Some(id) = element_identifier(e) {
+            if by_identifier.insert(id, e).is_some() {
+                duplicates.insert(id.to_string());
+            }
+        }
+    }
+    let mut wanted = BTreeSet::new();
+    for d in desired {
+        if !wanted.insert(d.identifier.as_str()) {
+            duplicates.insert(d.identifier.clone());
+        }
+    }
+    if !duplicates.is_empty() {
+        return Err(SyncError::DuplicateIdentifier(
+            duplicates.into_iter().collect(),
+        ));
+    }
+
+    let mut changes = Vec::new();
+    for d in desired {
+        match by_identifier.get(d.identifier.as_str()) {
+            None => {
+                let mut payload = d.fields.clone();
+                payload.insert("@type".into(), d.type_.into());
+                payload.insert("identifier".into(), d.identifier.clone().into());
+                changes.push(data_version(Some(Value::Object(payload)), None));
+            }
+            Some(&current) => {
+                let owned_field_differs = d
+                    .fields
+                    .iter()
+                    .any(|(k, v)| current.fields.get(k) != Some(v));
+                if owned_field_differs {
+                    let mut payload = current.fields.clone();
+                    payload.insert("@type".into(), current.ty().into());
+                    payload.extend(d.fields.clone());
+                    changes.push(data_version(Some(Value::Object(payload)), Some(current)));
+                }
+            }
+        }
+    }
+    for (identifier, current) in &by_identifier {
+        if !wanted.contains(identifier) {
+            changes.push(data_version(None, Some(current)));
+        }
+    }
+    Ok(changes)
 }
 
 fn is_conflict(e: &ClientError) -> bool {
@@ -55,7 +154,7 @@ fn is_conflict(e: &ClientError) -> bool {
 /// branch fall back to the newest commit by `created` (first in list order on ties) --
 /// never blindly `commits[0]`, whose order the API does not define. `None` means the
 /// target has no commits yet.
-async fn resolve_head(
+pub(crate) async fn resolve_head(
     client: &SysmlV2Client,
     config: &SyncConfig,
 ) -> Result<Option<Commit>, SyncError> {

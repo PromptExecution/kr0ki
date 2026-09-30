@@ -3,18 +3,11 @@
 //! docs/superpowers/specs/2026-09-20-flexo-write-path-design.md for the full design.
 //! Nodes only -- no edge/relationship sync (see that spec's §6).
 
-use crate::sync_engine::sync_managed;
+use crate::sync_engine::{diff_managed, element_identifier, sync_managed, DesiredElement};
 pub use crate::sync_engine::{SyncConfig, SyncError, MAX_SYNC_ATTEMPTS};
-use kr0ki_sysmlv2_client::{Commit, DataVersion, Element, Ref, SysmlV2Client};
-use std::collections::{BTreeMap, BTreeSet};
+use kr0ki_sysmlv2_client::{Commit, DataVersion, Element, SysmlV2Client};
+use serde_json::{Map, Value};
 pub use ufo_types::sysgraph::SysGraph;
-
-/// An element's `identifier` field, if present. `identifier` lives in `Element`'s
-/// flattened `fields` map (not a dedicated struct field) -- it's an OMG-API-defined
-/// field this crate doesn't otherwise model.
-fn element_identifier(element: &Element) -> Option<&str> {
-    element.fields.get("identifier").and_then(|v| v.as_str())
-}
 
 /// `graph` restricted to nodes whose id starts with `dbt:`. Used on the
 /// `sync_dbt_graph` side of the diff to mirror the `dbt:`-prefix filter already
@@ -32,107 +25,26 @@ fn filter_dbt_nodes(graph: &SysGraph) -> SysGraph {
     }
 }
 
-/// Diff `fetched_elements` (the project's current elements, already known to be
-/// `dbt:`-prefixed by identifier -- filtering happens before this call, in
-/// `sync_dbt_graph`) against `graph`'s nodes (also expected to be pre-filtered to
-/// `dbt:`-prefixed identifiers by the caller), producing the create/update/delete
-/// changeset. Returns an empty `Vec` when nothing changed.
+/// Map `graph`'s nodes to desired `PartUsage` elements and diff them against `fetched`
+/// (the project's existing `dbt:` elements). The create/update/delete rules, including the
+/// full-replace update payload, live in [`diff_managed`].
 pub(crate) fn build_changeset(
     fetched_elements: &[Element],
     graph: &SysGraph,
 ) -> Result<Vec<DataVersion>, SyncError> {
-    // Both sides are keyed by identifier, so a repeated identifier would silently drop
-    // an element (never updated or deleted) or create the same one twice. Refuse instead.
-    let mut duplicates = BTreeSet::new();
-    let mut by_identifier: BTreeMap<&str, &Element> = BTreeMap::new();
-    for e in fetched_elements {
-        if let Some(id) = element_identifier(e) {
-            if by_identifier.insert(id, e).is_some() {
-                duplicates.insert(id.to_string());
-            }
-        }
-    }
-    let mut graph_ids = BTreeSet::new();
-    for node in &graph.nodes {
-        if !graph_ids.insert(node.id.0.as_str()) {
-            duplicates.insert(node.id.0.clone());
-        }
-    }
-    if !duplicates.is_empty() {
-        return Err(SyncError::DuplicateIdentifier(
-            duplicates.into_iter().collect(),
-        ));
-    }
-
-    let mut changes = Vec::new();
-    let mut seen: BTreeSet<&str> = BTreeSet::new();
-
-    for node in &graph.nodes {
-        let identifier = node.id.0.as_str();
-        seen.insert(identifier);
-        let label = node.label.as_deref().unwrap_or_default();
-
-        match by_identifier.get(identifier) {
-            None => {
-                // create
-                changes.push(DataVersion {
-                    type_: "DataVersion",
-                    payload: Some(serde_json::json!({
-                        "@type": "PartUsage",
-                        "name": label,
-                        "identifier": identifier,
-                    })),
-                    identity: None,
-                });
-            }
-            Some(existing) => {
-                if existing.name() != Some(label) {
-                    // update -- DataVersion.payload is a full replacement of the
-                    // element's data-resource state, not a patch: the OMG reference
-                    // implementation (JpaCommitDao.persist) never merges an incoming
-                    // payload with the element's prior version, so any field this
-                    // payload omits comes back null/empty on the new version. Start
-                    // from the element's current fields (already fetched for the
-                    // diff above) and only overwrite `name`, so ownership/other
-                    // attributes another tool set survive this sync untouched.
-                    let mut payload = existing.fields.clone();
-                    payload.insert(
-                        "@type".to_string(),
-                        serde_json::Value::String(existing.ty().to_string()),
-                    );
-                    payload.insert(
-                        "name".to_string(),
-                        serde_json::Value::String(label.to_string()),
-                    );
-                    changes.push(DataVersion {
-                        type_: "DataVersion",
-                        payload: Some(serde_json::Value::Object(payload)),
-                        identity: Some(Ref {
-                            at_id: existing.id().to_string(),
-                            extra: Default::default(),
-                        }),
-                    });
-                }
-                // else: unchanged, emit nothing
-            }
-        }
-    }
-
-    for (identifier, existing) in &by_identifier {
-        if !seen.contains(identifier) {
-            // delete: this dbt: identifier is no longer in the fresh graph
-            changes.push(DataVersion {
-                type_: "DataVersion",
-                payload: None,
-                identity: Some(Ref {
-                    at_id: existing.id().to_string(),
-                    extra: Default::default(),
-                }),
-            });
-        }
-    }
-
-    Ok(changes)
+    let desired: Vec<DesiredElement> = graph
+        .nodes
+        .iter()
+        .map(|node| DesiredElement {
+            identifier: node.id.0.clone(),
+            type_: "PartUsage",
+            fields: Map::from_iter([(
+                "name".to_string(),
+                Value::String(node.label.clone().unwrap_or_default()),
+            )]),
+        })
+        .collect();
+    diff_managed(fetched_elements, &desired)
 }
 
 /// Sync `graph`'s `dbt:`-prefixed nodes into the project named by `config`, as at

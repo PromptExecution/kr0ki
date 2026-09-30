@@ -545,6 +545,11 @@ async fn sync_model(
             &e.to_string(),
         ),
         Err(SyncError::Client(e)) => client_error_response(e),
+        Err(e @ SyncError::Encode(_)) => error_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "sync_encode_error",
+            &e.to_string(),
+        ),
     }
 }
 
