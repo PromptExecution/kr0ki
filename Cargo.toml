@@ -38,3 +38,4 @@ axum = "0.7"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+fdg-sim = { version = "0.9.1", default-features = false }

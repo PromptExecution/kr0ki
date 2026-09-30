@@ -3,7 +3,12 @@
 //! This crate provides SVG parsing, enrichment, and transformation capabilities
 //! for the kr0ki graph representation engine.
 
+pub mod constraint;
+pub mod graph;
+pub mod solver;
+
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use thiserror::Error;
 use wasm_bindgen::prelude::*;
 
@@ -21,6 +26,12 @@ pub enum Kr0kiSvgError {
 
     #[error("Serialization error: {0}")]
     SerializationError(String),
+
+    #[error("Invalid JSON: {0}")]
+    Json(#[from] serde_json::Error),
+
+    #[error("Layout failed: {0}")]
+    Solve(#[from] solver::SolveError),
 }
 
 impl From<Kr0kiSvgError> for JsValue {
@@ -226,6 +237,47 @@ pub fn parse_svg_json(input: &str) -> Result<String, JsValue> {
     serde_json::to_string(&enriched).map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
+/// Parse the JSON inputs, solve, and serialize the full [`solver::SolveResult`]
+/// (`positions`, `iterations`, `residual`, `converged`). `previous` switches to the
+/// incremental solve. Shared by both WASM exports so they cannot drift apart.
+fn solve_json(
+    graph_json: &str,
+    constraints_json: &str,
+    previous: Option<&str>,
+) -> Result<String, Kr0kiSvgError> {
+    let graph: graph::Graph = serde_json::from_str(graph_json)?;
+    let constraints: Vec<constraint::Constraint> = serde_json::from_str(constraints_json)?;
+    let solver = solver::GraphSolver::with_constraints(constraints);
+    let result = match previous {
+        Some(json) => {
+            let positions: HashMap<String, (f64, f64)> = serde_json::from_str(json)?;
+            solver.solve_incremental(&graph, positions)?
+        }
+        None => solver.solve(&graph)?,
+    };
+    Ok(serde_json::to_string(&result)?)
+}
+
+/// WASM export: Solve graph layout
+#[wasm_bindgen]
+pub fn solve_graph_layout(graph_json: &str, constraints_json: &str) -> Result<String, JsValue> {
+    Ok(solve_json(graph_json, constraints_json, None)?)
+}
+
+/// WASM export: Solve graph layout incrementally from `positions_json`
+#[wasm_bindgen]
+pub fn solve_graph_layout_incremental(
+    graph_json: &str,
+    constraints_json: &str,
+    positions_json: &str,
+) -> Result<String, JsValue> {
+    Ok(solve_json(
+        graph_json,
+        constraints_json,
+        Some(positions_json),
+    )?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,5 +314,25 @@ mod tests {
         let svg = "not an svg";
         let result = parse_svg(svg);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn solve_json_returns_full_result_and_rejects_bad_input() {
+        let graph = serde_json::to_string(&graph::test_graph(&["a", "b"], &[])).unwrap();
+        let graph = graph.as_str();
+        let out: serde_json::Value =
+            serde_json::from_str(&solve_json(graph, "[]", None).unwrap()).unwrap();
+        assert!(out["converged"].is_boolean() && out["positions"]["a"].is_array());
+        assert!(out["iterations"].as_u64().unwrap() > 0);
+
+        let arity = r#"[{"id":"c","kind":"Distance","nodes":["a"],"params":{},"strength":1.0}]"#;
+        assert!(matches!(
+            solve_json(graph, arity, None),
+            Err(Kr0kiSvgError::Solve(_))
+        ));
+        assert!(matches!(
+            solve_json("not json", "[]", None),
+            Err(Kr0kiSvgError::Json(_))
+        ));
     }
 }
