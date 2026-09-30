@@ -1489,6 +1489,37 @@ async fn unauthorized_responses_still_carry_contract_headers() {
     );
 }
 
+/// `/health` is always reachable without a token (pod readiness probes, `just validate-server`);
+/// every other route stays guarded.
+#[tokio::test]
+async fn health_is_exempt_from_bearer_auth_but_other_routes_are_not() {
+    let app = router(
+        test_state("health-exempt"),
+        Some("secret".to_string()),
+        Arc::new(contract::ContractReference::default()),
+    );
+    let health = app
+        .clone()
+        .oneshot(Request::get("/health").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(health.status(), StatusCode::OK);
+    assert!(health.headers().contains_key("x-kr0ki-contract"));
+
+    for guarded in ["/formats", "/healthz", "/health/extra", "/cache/abc"] {
+        let resp = app
+            .clone()
+            .oneshot(Request::get(guarded).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::UNAUTHORIZED,
+            "{guarded} must stay guarded"
+        );
+    }
+}
+
 #[tokio::test]
 async fn auth_required_accepts_valid_bearer() {
     let app = router(

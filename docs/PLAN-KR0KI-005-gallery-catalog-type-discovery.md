@@ -1,6 +1,6 @@
 # PLAN-KR0KI-005 — Gallery catalog & type-discovery agent
 
-Status: proposed (2026-09-19)
+Status: **implemented** (updated 2026-09-30) — §1 catalog (`kr0ki_core::catalog`, `GET /api/catalog`, use-case filter, gallery *Agent* button), §2 type discovery (`recommend_diagram_type`, `POST /projects/lock-type` on the agent) and §3 per-syntax skills (`containers/kr0ki-storyb00k-agent/skills/`: activity, component, erd, sequence, plus magicgrid and requirements_quality) exist. Originally: proposed (2026-09-19)
 Depends on: PR #35 (revision graphs, projects, planning agent), Plan 004 Phase 0
 Supersedes: the "catalog/discovery" line item in the Plan 004 roadmap
 

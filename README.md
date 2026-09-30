@@ -23,9 +23,21 @@ and adds the one thing neither has: a caching, cross-referencing service surface
   proxies the vendored KubeDiagrams worker.
 - **b00t-graph arm** — `GET /b00t-graph/{tag}` renders committed `_b00t_` Turtle
   artifacts via holon-viz.
+- **Rust-source arm** — `POST /render/rust-source` parses one Rust file with `syn` into
+  `UfoRelation`-typed edges (`has_part`, `flows_to`, `requires`, `governed_by`, …) and renders them;
+  method and trait-dispatch calls are deliberately not resolved (needs type information).
 - **SysML v2 client** — server-agnostic OMG *Systems Modeling API* REST client
   (`kr0ki-sysmlv2-client`); `/model/*` routes light up when `KR0KI_SYSMLV2_BASE_URL`
   is configured, materializing a disposable RDF graph for querying.
+- **Write path** — `POST /model/projects/{id}/sync` (and the `sync_digital_thread` MCP tool) reconciles a
+  `SysGraph`'s `dbt:` nodes into a SysML v2 project as one commit: it diffs against the target branch's head,
+  keeps other tools' fields (payloads are full replacements), retries on concurrent commits, and never touches
+  elements it does not own. `kr0ki_core::flexo_reqif_sync` stores a ReqIF baseline the same way and reads it back.
+- **Requirements** — ReqIF/ReqIFz import from bytes or an SSRF-hardened HTTPS fetch, asserted-relation export,
+  requirement views, and `POST /model/projects/{id}/recompute` (Rego rules over the project's graph).
+- **`kr0ki-svg`** — a WASM crate for SVG parsing and constraint-aware force layout (`fdg-sim`). Built and tested;
+  not yet wired into the playbook.
+- **Contract headers** — every response carries `X-Kr0ki-Contract` and `X-Kr0ki-Request-Id`.
 - **Playb00k** — Vue 3 interactive harness at `/playbook/`: gallery of every format's
   test-backed fixtures, per-format editor with render + cache verification, Histoire
   stories, and `just test-playbook`/`just playbook-e2e` executable documentation.
@@ -74,14 +86,31 @@ NOTICE requirements. No GPL/AGPL components are vendored.
 
 ## Roadmap
 
-- **Catalog / discovery of charts & systems** (next): browse and search every
-  rendered artifact the service has produced — by format, source, model entity,
-  or tag — turning the content-addressed cache into a discoverable chart catalog.
-- **EDIT loop tightening**: diffs from StoryB00k draft approvals rendered next to
-  the authoritative version.
-- **Plan 004** ([`docs/PLAN-KR0KI-004-revisioned-procedural-workspace.md`](docs/PLAN-KR0KI-004-revisioned-procedural-workspace.md)):
-  revisioned procedural workspace — durable revision service, branches, promotion
-  (Phase 0 contracts already in `crates/kr0ki-server`).
+Shipped since earlier versions of this README: the diagram-type catalog and discovery agent
+([`PLAN-KR0KI-005`](docs/PLAN-KR0KI-005-gallery-catalog-type-discovery.md)), the Rust-source arm, the requirements
+stack, and the hardened SysML v2 write path with its Flexo ReqIF adapter. Open, roughly in priority order
+(the working list is [`docs/TODO.md`](docs/TODO.md)):
+
+- **Live validation against a real OMG-API server** of the write path: how it answers a stale `previousCommit`,
+  which fields `GET …/elements` returns, and whether custom `reqif_*` fields are accepted. The logic is covered by
+  unit tests and a faithful stub, not by a real server.
+- **Raster → diagram-as-code**: upload a diagram image from a local project directory and have a multimodal
+  model iterate until a render "matches" (planned as `PLAN-KR0KI-007`).
+- **Revisioned procedural workspace** ([`PLAN-KR0KI-004`](docs/PLAN-KR0KI-004-revisioned-procedural-workspace.md)):
+  Phase 0 contracts are done; durable revisions exist today only as the agent's `jj` chart store.
+- **Wire `kr0ki-svg`** into the playbook, and decide whether the layout engine stays in this repo.
+- **CDN tier and artifact resolver** (D5 / FR6), the dbt manifest → `SysGraph` builder (upstream in `ufo-types`),
+  and method/trait-dispatch call resolution for the Rust arm.
+
+## Documentation
+
+| Read | For |
+|---|---|
+| [`AGENTS.md`](AGENTS.md) | orientation for agents: what this is, the pipeline and its real status, scope guardrails |
+| [`docs/OPERATIONS.md`](docs/OPERATIONS.md) | running, configuring, verifying and troubleshooting the services |
+| [`docs/PRD-KR0KI-001-foundational.md`](docs/PRD-KR0KI-001-foundational.md) and the `PLAN-KR0KI-*` files | requirements and plans |
+| [`docs/LESSONS-playbook-and-agent.md`](docs/LESSONS-playbook-and-agent.md) | incidents and how they are guarded against |
+| [`docs/DESIGN-HISTORY.md`](docs/DESIGN-HISTORY.md) | earlier plans and what of them exists |
 
 ## Orientation for agents
 
@@ -105,10 +134,17 @@ NOTICE requirements. No GPL/AGPL components are vendored.
 kr0ki/
 ├── README.md
 ├── crates/
-│   ├── kr0ki-core/               ← P0 render loop (RenderService = cache + RenderBackend)
-│   ├── kr0ki-server/             ← P0 axum service
-│   └── kr0ki-sysmlv2-client/     ← generic OMG "Systems Modeling API" REST client (SysML-model path)
+│   ├── kr0ki-core/               ← render loop, recognizers, requirements, write path
+│   ├── kr0ki-server/             ← axum service
+│   ├── kr0ki-svg/                ← WASM SVG parsing + constraint layout
+│   └── kr0ki-sysmlv2-client/     ← generic OMG "Systems Modeling API" REST client (read + commit)
+├── playbook/                     ← Vue 3/Vite playb00k (gallery, code editor, agent, setup)
+├── containers/                   ← kr0ki-server, kr0ki-mcp bridge, kroki-compat, storyb00k agent images
+├── deploy/                       ← local k0s pod manifest
 ├── docs/
+│   ├── OPERATIONS.md                    ← run, configure, verify, troubleshoot
+│   ├── LESSONS-playbook-and-agent.md    ← incidents: symptom, root cause, guard
+│   ├── DESIGN-HISTORY.md                ← earlier plans and what of them exists
 │   ├── PRD-KR0KI-001-foundational.md    ← the requirements document
 │   ├── DESIGN-NOTE-typed-model-layer.md ← reviewed shape of the deferred SysML-v2 typed layer (pre-D1/D6)
 │   ├── PLAN-KR0KI-002.md                ← the SysML-model ingestion path (5-box pipeline; client path unblocked 2026-09-05)
@@ -123,92 +159,72 @@ kr0ki/
     └── kroki-mcp/                       ← submodule, PromptExecution/kroki-mcp @ 08765f64
 ```
 
-### SysML-model path (in progress)
+### SysML-model path
 
-`crates/kr0ki-sysmlv2-client` is the first increment of the SysML-model ingestion path.
-It is a **server-agnostic** async REST client for the OMG *Systems Modeling API and
+`crates/kr0ki-sysmlv2-client` is a **server-agnostic** async REST client for the OMG *Systems Modeling API and
 Services* PSM — it works against Flexo `flexo-mms-sysmlv2`, the OMG Java pilot
-`Systems-Modeling/SysML-v2-API-Services`, `Open-MBEE/OpenSysML`, and Eclipse SysON's
-`/api/rest/`. It is **not Flexo-coupled**. It reads projects / branches / tags / commits
-/ elements / relationships / roots and produces a content-hashed `ModelSnapshot` — the
-model-side cache key for PRD FR5, since no target server exposes its own content hash.
+`Systems-Modeling/SysML-v2-API-Services`, `Open-MBEE/OpenSysML`, and Eclipse SysON's `/api/rest/`. It is **not
+Flexo-coupled**. It reads projects / branches / tags / commits / elements / relationships / roots, produces a
+content-hashed `ModelSnapshot` (the model-side cache key, since no target server exposes its own content hash),
+and can create commits (`create_commit`) for the write path.
 
-This is possible now because the operator resolved decision **D3** on 2026-09-05: *kr0ki
-consumes an upstream OMG-API model server; it does not host the model.*
+kr0ki *consumes* an upstream OMG-API model server; it does not host the model (decision D3, 2026-09-05).
 
-`ModelSnapshot` feeds the **SysML-v2 source** arm of a five-box ingestion pipeline
-(`source → canonical UFO-typed semantic graph → pattern recognizers → SysML v2
-viewpoints → kr0ki renderer adapters`). kr0ki MUST NOT infer architecture from diagram
-syntax or raw `iso_ir` strings — the UFO semantic graph (owned by `ufo-types`, a
-follow-up PR in flight) is the pivot. FR1/FR4 are therefore blocked on that layer plus a
-pattern recognizer (Kubernetes first); the typed adapter and any SysML-v2 text emit stay
-blocked on D1/D6. See [`docs/PLAN-KR0KI-002.md`](docs/PLAN-KR0KI-002.md) and
-[`docs/PATTERNS-kubernetes.md`](docs/PATTERNS-kubernetes.md).
+`ModelSnapshot` feeds the SysML-v2 arm of a five-box ingestion pipeline (`source → canonical UFO-typed
+semantic graph → pattern recognizers → SysML v2 viewpoints → renderer adapters`). Which boxes exist, per arm, is
+tracked in the table in [`AGENTS.md` §1](AGENTS.md); the plan is [`docs/PLAN-KR0KI-002.md`](docs/PLAN-KR0KI-002.md)
+and the Kubernetes patterns are in [`docs/PATTERNS-kubernetes.md`](docs/PATTERNS-kubernetes.md).
 
-## P0 — the render loop (built 2026-09-05)
+## The render loop
 
-The decision-independent slice of PRD-KR0KI-001 (FR2 + FR5) is implemented and tested:
-raw Kroki-family diagram text → rendered SVG, with a content-addressed cache. This
-render loop itself has no `ufo-types` / `systhread-core` / `holon-viz` dependency;
-`kr0ki-core` additionally hosts box 2 of the ingestion pipeline (`ufo_graph`, pinned to
-`ufo-types` v0.14.0) for the SysML-v2 arm, and the Kubernetes recognizer
-(`k8s_recognizer`, kr0ki#12 — raw k8s manifests → `UfoRelation`-typed edges, ported
-from `vendor/kubediagrams` and oracle-tested against its real `dot_json` output) for
-the Kubernetes arm — see below. FR1/FR3/FR4 *rendering* for those two arms stays
-blocked on lifting a UFO graph into `ufo_types::sysml_model::Relation`
-(`docs/PATTERNS-kubernetes.md` §4, still design-only). A **separate** box-5 arm,
-`b00t_graph` (kr0ki#13), reads an already-built `elasticdotventures/_b00t_` Turtle
-graph and renders it straight to D2 via `holon-viz`'s `TypeRelationshipGraph` /
-`CytoscapeGraph` (git-rev-pinned real dependency — D1/D2/D3/D6 all resolved, see
-`docs/PRD-KR0KI-001-foundational.md` §5); it does not go through the
-`OntologicalEdge` pivot the other two arms do.
+`RenderService` is a content-addressed cache in front of a `RenderBackend`: raw Kroki-family diagram text in,
+deterministic SVG/PNG out, served from cache on every repeat. The loop itself has no `ufo-types` /
+`systhread-core` dependency. Around it, `kr0ki-core` hosts the recognizers and lifts (`k8s_recognizer`,
+`rust_recognizer`, `ufo_graph`, `sysml_lift`, `sysml_render`), a separate box-5 arm (`b00t_graph`: a committed
+`_b00t_` Turtle graph → D2 via `holon-viz`), the requirements stack, and the write path.
 
 ```
-crates/
-├── kr0ki-core/    RenderService = cache in front of a RenderBackend
-│   ├── format.rs         DiagramFormat — the 26 companion-free Kroki formats only (NFR3)
-│   ├── cache.rs          cache_key() = SHA256(domain ‖ 0x1f-delimited fields) ; FsCache (atomic writes)
-│   ├── render.rs         HttpKrokiBackend — POST {base}/{slug}/{output}
-│   ├── ufo_graph.rs      box 2 (SysML-v2 arm): ModelSnapshot -> Vec<ufo_types::ontology::OntologicalEdge>
-│   ├── k8s_recognizer.rs box 2 (Kubernetes arm): k8s manifests -> Vec<ufo_types::ontology::OntologicalEdge>
-│   └── b00t_graph.rs     box 5 (b00t-graph arm): Turtle -> holon_viz::TypeRelationshipGraph -> D2Emitter
-└── kr0ki-server/  axum service
-    GET  /health                              {"status":"ok",...}
-    GET  /formats                             supported slugs
-    POST /render/{format}?output=svg|png      body = diagram source → SVG or PNG
-                                              (X-Kr0ki-Cache: hit|miss, X-Kr0ki-Key)
-    GET  /b00t-graph/{tag}?output=svg|png     b00t-graph Turtle artifact -> D2 -> SVG/PNG (kr0ki#13)
-    GET  /cache/{key}?output=svg|png          previously rendered artifact by content hash
+crates/kr0ki-core/src/
+├── format.rs        DiagramFormat — the 26 companion-free Kroki formats only (NFR3)
+├── cache.rs         cache_key() = SHA256(domain ‖ 0x1f-delimited fields); FsCache (atomic writes)
+├── render.rs        HttpKrokiBackend — POST {base}/{slug}/{output}; flatten.rs rasterizes SVG when a format has no native PNG
+├── k8s_recognizer.rs · rust_recognizer.rs · rust_lift.rs · ufo_graph.rs · sysml_lift.rs · sysml_render.rs
+├── reqif_import.rs · reqif_export.rs · reqif_fetch.rs · requirements_*.rs · rule_eval.rs · recompute.rs
+├── sync_engine.rs · digital_thread_sync.rs · flexo_reqif_sync.rs     (write path)
+├── catalog.rs · examples.rs · mcp_tool.rs · docgen/                  (playbook catalog, tool manifest, /docs)
+└── b00t_graph.rs
 ```
 
-**Verified:** `cargo test --workspace` (17 pass) · `cargo clippy -- -D warnings` clean ·
-live render against the private `kroki-compat` backend (miss → SVG → byte-identical cache hit) · running
-server smoke-tested end to end.
-
-**Now in P0+:** caller auth (FR7 minimal — `KR0KI_AUTH_TOKEN` env var gates all routes
-except `/health` with `Authorization: Bearer <token>`), PNG output (`?output=png` on
-render and cache endpoints). **Still not in P0+:** CDN tier (FR5's real target = D5),
-the vendored `kroki-mcp` (direct HTTP is enough for raw text), PDF output, and the
-entire SysML-model path.
+Quality gates: `just check` (fmt + clippy `-D warnings`) and `just test`; live tests are `#[ignore]`d and need a
+backend or model server (see [`docs/OPERATIONS.md`](docs/OPERATIONS.md) §6). Not built yet: the CDN tier (FR5's
+real target, D5), the artifact reference resolver (FR6), PDF output, and the vendored `kroki-mcp` hop (direct
+HTTP is enough for raw text).
 
 ## Endpoints
 
-| Route | Method | Query | Body | Response |
-|---|---|---|---|---|
-| `/health` | GET | — | — | **deep report**: `{status, service, version, started_at, uptime_secs, checks:{kroki_backend, kubediagram_worker, storyb00k_agent, llm(configured, ok, model_count, latency), stores{cache_dir, capabilities_file, graph_store_triples}, caller_auth}}` — always 200; `status: ok\|degraded` |
-| `/formats` | GET | — | — | `["plantuml","c4plantuml","graphviz","d2",...]` |
-| `/render/{format}` | POST | `?output=svg\|png` | raw diagram text | rendered bytes + `Content-Type` + `X-Kr0ki-Cache` + `X-Kr0ki-Key` |
-| `/render/kubediagram` | POST | `?output=svg\|dot_json` | Kubernetes manifest (multi-doc YAML, ≤1 MiB) | proxied `kube-diagrams` output; not cached (mcp-http-parity) |
-| `/cache/{key}` | GET | `?output=svg\|png` | — | cached bytes or 404 |
-| `/mcp/tools` | GET | — | — | `[{"name":...,"description":...,"inputSchema":{...},"httpBinding":{...}},...]` — the manifest `bridge.py` dispatches from (mcp-http-parity) |
-| `/capabilities` | GET | — | — | `kroki` container's self-reported companion-required status per converter, or 503 if not (yet) written (kr0ki#20) |
-| `/b00t-graph/{tag}` | GET | `?output=svg\|png` | — | b00t-graph Turtle artifact -> D2 -> SVG/PNG, or 404/422/503 (kr0ki#13) |
-| `/docs` | GET | — | — | HTML docs (harvested from kr0ki source) |
-| `/docs/api.json` | GET | — | — | JSON symbol export |
-| `/docs/api.tomllm` | GET | — | — | b00t-format .tomllm export |
-| `/docs/api.rustdoc` | GET | — | — | rustdoc-style export |
-| `/playbook/` | GET | — | — | Vue/Vite interactive example harness |
-| `/api/examples` | GET | — | — | live test-backed example catalog |
+| Route | Method | Notes |
+|---|---|---|
+| `/health` | GET | deep report `{status, service, version, started_at, uptime_secs, contract, checks{kroki_backend, kubediagram_worker, storyb00k_agent, llm, stores, caller_auth}}`; always 200, `status: ok\|degraded`; **never requires auth** |
+| `/`, `/welcome` | GET | landing page; the welcome page shows a live health badge |
+| `/formats` | GET | the 26 supported slugs |
+| `/render/{format}` | POST | `?output=svg\|png`; body = diagram text; returns bytes + `X-Kr0ki-Cache` + `X-Kr0ki-Key` |
+| `/render/k8s-topology` | POST | `?output`, `?view`; multi-doc Kubernetes YAML → UFO graph → D2 → render |
+| `/render/kubediagram` | POST | `?output=svg\|dot_json`; manifest (≤1 MiB) proxied to the KubeDiagrams worker; not cached |
+| `/render/rust-source` | POST | `?output`, `?view`; one Rust file (≤1 MiB) |
+| `/render/requirements-view` | POST | requirement views as a diagram |
+| `/render/sysmlv2/projects/{p}/commits/{c}` | POST | `?output`, `?view`; needs `KR0KI_SYSMLV2_BASE_URL` |
+| `/requirements/import`, `/requirements/import/url`, `/requirements/views` | POST | ReqIF/ReqIFz import (bytes / HTTPS fetch) and views |
+| `/model/projects`, `/model/projects/{p}/commits`, `…/commits/{c}/snapshot`, `…/elements`, `…/roots`, `…/elements/{e}/relationships` | GET | read-only proxy of the model server; `snapshot` also loads the disposable graph |
+| `/model/graph/query` | GET | bounded query over that disposable graph |
+| `/model/projects/{p}/recompute` | POST | rules over the project's graph → violations |
+| `/model/projects/{p}/sync` | POST | `?branch_id`; body = `SysGraph` JSON; responds `{"commit": …}`; 409 conflict, 422 duplicate identifiers, 400 bad graph |
+| `/b00t-graph/{tag}` | GET | `?output`; committed `_b00t_` Turtle → D2 → render |
+| `/cache/{key}` | GET | `?output`; cached bytes or 404 |
+| `/mcp/tools` | GET | the 16-tool manifest the `containers/kr0ki-mcp` bridge dispatches from |
+| `/capabilities` | GET | backend's self-reported companion status per converter, or 503 |
+| `/api/examples`, `/playbook/api/examples.json`, `/api/catalog` | GET | fixture catalog and the intent-first diagram-type taxonomy |
+| `/playbook`, `/playbook/…` | GET | the built Vue playb00k |
+| `/docs`, `/docs/api.json`, `/docs/api.tomllm`, `/docs/api.rustdoc` | GET | docs harvested from kr0ki's own Rust source |
 
 **StoryB00k sidecar** (port `:8789`, same host; CORS-gated to the playbook origins):
 
@@ -291,7 +307,7 @@ sidecar host from the page host, so opening `http://<host>:8787/playbook/` reach
 `http://<host>:8789` on the same machine.
 
 The model/tool-round safety ceiling (`KR0KI_STORYB00K_MAX_MODEL_TOOL_ROUNDS`,
-default 64) is independent of the per-project user clarification budget
+default 15) is independent of the per-project user clarification budget
 (`KR0KI_STORYB00K_MAX_CLARIFYING_QUESTIONS`, default 6). Candidate generation,
 rendering, and image inspection use internal rounds, not clarification questions.
 

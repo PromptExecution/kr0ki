@@ -8,7 +8,11 @@ verbatim; §2 there names the Rust-source front-end as "out of scope for this PR
 front-end — Rust AST → UFO graph"*.
 **Owner:** PromptExecution (@elasticdotventures). **Created:** 2026-09-16.
 
-**Status:** proposed, unimplemented. Written to correct a false assumption made while
+**Status (2026-09-30): implemented for the structural cases.** `rust_recognizer.rs` emits the `UfoRelation`
+vocabulary, `rust_lift.rs` bridges it into the shared lift, and `POST /render/rust-source` serves it (see
+[`../AGENTS.md`](../AGENTS.md) §1 Box 3 and `PATTERNS-rust-source.md`). Deferred because they need real type
+resolution: method calls, type-qualified/trait-dispatch calls, and calls crossing a `mod foo;` file boundary.
+The text below is the original plan. Originally: proposed, unimplemented. Written to correct a false assumption made while
 landing the docgen/playbook work (`#14`, `#15`, `#16`) — see §1 — before any further
 code is written against it.
 
