@@ -3,7 +3,10 @@
 //! docs/superpowers/specs/2026-09-20-flexo-write-path-design.md for the full design.
 //! Nodes only -- no edge/relationship sync (see that spec's §6).
 
-use kr0ki_sysmlv2_client::{Commit, CommitRequest, DataVersion, Element, Ref, SysmlV2Client};
+use crate::sync_engine::sync_managed;
+pub use crate::sync_engine::{SyncConfig, SyncError, MAX_SYNC_ATTEMPTS};
+use kr0ki_sysmlv2_client::{Commit, DataVersion, Element, Ref, SysmlV2Client};
+use std::collections::{BTreeMap, BTreeSet};
 use ufo_types::sysgraph::SysGraph;
 
 /// An element's `identifier` field, if present. `identifier` lives in `Element`'s
@@ -34,16 +37,35 @@ fn filter_dbt_nodes(graph: &SysGraph) -> SysGraph {
 /// `sync_dbt_graph`) against `graph`'s nodes (also expected to be pre-filtered to
 /// `dbt:`-prefixed identifiers by the caller), producing the create/update/delete
 /// changeset. Returns an empty `Vec` when nothing changed.
-pub(crate) fn build_changeset(fetched_elements: &[Element], graph: &SysGraph) -> Vec<DataVersion> {
-    use std::collections::BTreeMap;
-
-    let by_identifier: BTreeMap<&str, &Element> = fetched_elements
-        .iter()
-        .filter_map(|e| element_identifier(e).map(|id| (id, e)))
-        .collect();
+pub(crate) fn build_changeset(
+    fetched_elements: &[Element],
+    graph: &SysGraph,
+) -> Result<Vec<DataVersion>, SyncError> {
+    // Both sides are keyed by identifier, so a repeated identifier would silently drop
+    // an element (never updated or deleted) or create the same one twice. Refuse instead.
+    let mut duplicates = BTreeSet::new();
+    let mut by_identifier: BTreeMap<&str, &Element> = BTreeMap::new();
+    for e in fetched_elements {
+        if let Some(id) = element_identifier(e) {
+            if by_identifier.insert(id, e).is_some() {
+                duplicates.insert(id.to_string());
+            }
+        }
+    }
+    let mut graph_ids = BTreeSet::new();
+    for node in &graph.nodes {
+        if !graph_ids.insert(node.id.0.as_str()) {
+            duplicates.insert(node.id.0.clone());
+        }
+    }
+    if !duplicates.is_empty() {
+        return Err(SyncError::DuplicateIdentifier(
+            duplicates.into_iter().collect(),
+        ));
+    }
 
     let mut changes = Vec::new();
-    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
 
     for node in &graph.nodes {
         let identifier = node.id.0.as_str();
@@ -110,74 +132,28 @@ pub(crate) fn build_changeset(fetched_elements: &[Element], graph: &SysGraph) ->
         }
     }
 
-    changes
-}
-
-/// Which project (and optionally branch) to sync into.
-#[derive(Debug, Clone)]
-pub struct SyncConfig {
-    pub project_id: String,
-    pub branch_id: Option<String>,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum SyncError {
-    #[error(transparent)]
-    Client(#[from] kr0ki_sysmlv2_client::ClientError),
+    Ok(changes)
 }
 
 /// Sync `graph`'s `dbt:`-prefixed nodes into the project named by `config`, as at
-/// most one new commit. Returns `Ok(Some(commit))` with the *existing* latest
-/// commit, unchanged, when the diff produces no changes but a commit already
-/// exists; returns `Ok(None)` when there is nothing to sync AND no commit exists
-/// yet to hand back -- this function never posts an empty commit. See this
-/// module's own doc comment and the design spec for the full algorithm.
+/// most one new commit. Returns `Ok(Some(commit))` with the *existing* head commit,
+/// unchanged, when the diff produces no changes but a commit already exists; returns
+/// `Ok(None)` when there is nothing to sync AND no commit exists yet -- this function
+/// never posts an empty commit. Head resolution, `previousCommit`, and conflict retry
+/// are handled by [`crate::sync_engine`]; see the design spec for the full algorithm.
 pub async fn sync_dbt_graph(
     client: &SysmlV2Client,
     graph: &SysGraph,
     config: &SyncConfig,
 ) -> Result<Option<Commit>, SyncError> {
-    let commits = client.commits(&config.project_id).await?;
-    let latest = commits.first();
-
-    let fetched_elements = match latest {
-        Some(commit) => {
-            client
-                .all_elements(&config.project_id, &commit.at_id)
-                .await?
-        }
-        None => Vec::new(),
-    };
-
-    let dbt_elements: Vec<_> = fetched_elements
-        .into_iter()
-        .filter(|e| element_identifier(e).is_some_and(|id| id.starts_with("dbt:")))
-        .collect();
-
     let dbt_graph = filter_dbt_nodes(graph);
-
-    let changes = build_changeset(&dbt_elements, &dbt_graph);
-
-    if changes.is_empty() {
-        // Nothing to sync. If a commit already exists, hand it back unchanged;
-        // otherwise there is nothing to return -- never post an empty commit.
-        return Ok(latest.cloned());
-    }
-
-    let request = CommitRequest {
-        type_: "Commit",
-        change: changes,
-        previous_commit: latest.map(|c| Ref {
-            at_id: c.at_id.clone(),
-            extra: Default::default(),
-        }),
-    };
-
-    Ok(Some(
-        client
-            .create_commit(&config.project_id, config.branch_id.as_deref(), request)
-            .await?,
-    ))
+    sync_managed(
+        client,
+        config,
+        |e| element_identifier(e).is_some_and(|id| id.starts_with("dbt:")),
+        |managed| build_changeset(managed, &dbt_graph),
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -210,7 +186,7 @@ mod tests {
         let mut graph = SysGraph::new();
         graph.push_node(node("dbt:model.a", "A (marts)"));
 
-        let changes = build_changeset(&[], &graph);
+        let changes = build_changeset(&[], &graph).unwrap();
 
         assert_eq!(changes.len(), 1);
         assert!(changes[0].identity.is_none());
@@ -225,7 +201,7 @@ mod tests {
         graph.push_node(node("dbt:model.a", "A (marts)"));
         let fetched = vec![element("srv-1", "dbt:model.a", "A (marts)")];
 
-        let changes = build_changeset(&fetched, &graph);
+        let changes = build_changeset(&fetched, &graph).unwrap();
 
         assert!(changes.is_empty());
     }
@@ -236,7 +212,7 @@ mod tests {
         graph.push_node(node("dbt:model.a", "A (staging)"));
         let fetched = vec![element("srv-1", "dbt:model.a", "A (marts)")];
 
-        let changes = build_changeset(&fetched, &graph);
+        let changes = build_changeset(&fetched, &graph).unwrap();
 
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].identity.as_ref().unwrap().at_id, "srv-1");
@@ -259,7 +235,7 @@ mod tests {
         );
         let fetched = vec![existing];
 
-        let changes = build_changeset(&fetched, &graph);
+        let changes = build_changeset(&fetched, &graph).unwrap();
 
         assert_eq!(changes.len(), 1);
         let payload = changes[0].payload.as_ref().unwrap();
@@ -274,7 +250,7 @@ mod tests {
         let graph = SysGraph::new();
         let fetched = vec![element("srv-1", "dbt:model.gone", "Gone")];
 
-        let changes = build_changeset(&fetched, &graph);
+        let changes = build_changeset(&fetched, &graph).unwrap();
 
         assert_eq!(changes.len(), 1);
         assert!(changes[0].payload.is_none());
@@ -299,8 +275,35 @@ mod tests {
         graph.push_node(node("not-dbt:model.b", "B (unrelated)"));
 
         let filtered = filter_dbt_nodes(&graph);
-        let changes = build_changeset(&[], &filtered);
+        let changes = build_changeset(&[], &filtered).unwrap();
 
         assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn duplicate_identifier_on_the_server_is_an_error_not_a_silent_collapse() {
+        let fetched = vec![
+            element("srv-1", "dbt:model.a", "A"),
+            element("srv-2", "dbt:model.a", "A again"),
+            element("srv-3", "dbt:model.b", "B"),
+        ];
+        let mut graph = SysGraph::new();
+        graph.push_node(node("dbt:model.a", "A"));
+        let err = build_changeset(&fetched, &graph).unwrap_err();
+        assert!(
+            matches!(&err, SyncError::DuplicateIdentifier(ids) if ids == &["dbt:model.a"]),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn duplicate_identifier_in_the_graph_is_an_error_not_two_creates() {
+        let mut graph = SysGraph::new();
+        graph.push_node(node("dbt:model.a", "A"));
+        graph.push_node(node("dbt:model.a", "A (dup)"));
+        assert!(matches!(
+            build_changeset(&[], &graph),
+            Err(SyncError::DuplicateIdentifier(_))
+        ));
     }
 }

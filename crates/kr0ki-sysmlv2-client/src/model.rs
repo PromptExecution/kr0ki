@@ -49,6 +49,26 @@ pub struct Branch {
     pub extra: Map<String, Value>,
 }
 
+/// `extra[key]` as a `{"@id": ...}` reference, if it is one.
+fn ref_id<'a>(extra: &'a Map<String, Value>, key: &str) -> Option<&'a str> {
+    extra.get(key)?.get("@id")?.as_str()
+}
+
+impl Branch {
+    /// The commit this branch currently points at (`head`), if it has one. An empty
+    /// branch has no head.
+    pub fn head_id(&self) -> Option<&str> {
+        ref_id(&self.extra, "head")
+    }
+}
+
+impl Project {
+    /// The project's default branch (`defaultBranch`), if the server reports one.
+    pub fn default_branch_id(&self) -> Option<&str> {
+        ref_id(&self.extra, "defaultBranch")
+    }
+}
+
 /// A tag within a project (a named, immutable pointer at a commit).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tag {
@@ -209,4 +229,25 @@ pub struct ModelSnapshot {
     pub elements: Vec<Element>,
     pub roots: Vec<String>,
     pub content_hash: String,
+}
+
+#[cfg(test)]
+mod head_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn branch_head_and_project_default_branch_are_read_from_references() {
+        let branch: Branch =
+            serde_json::from_value(json!({"@id": "b1", "head": {"@id": "c9"}})).unwrap();
+        assert_eq!(branch.head_id(), Some("c9"));
+        let empty: Branch = serde_json::from_value(json!({"@id": "b2"})).unwrap();
+        assert_eq!(empty.head_id(), None, "an empty branch has no head");
+
+        let project: Project =
+            serde_json::from_value(json!({"@id": "p", "defaultBranch": {"@id": "b1"}})).unwrap();
+        assert_eq!(project.default_branch_id(), Some("b1"));
+        let bare: Project = serde_json::from_value(json!({"@id": "p"})).unwrap();
+        assert_eq!(bare.default_branch_id(), None);
+    }
 }
