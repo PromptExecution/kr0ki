@@ -154,6 +154,11 @@ async fn require_bearer(
     next: axum::middleware::Next,
     token: String,
 ) -> Response {
+    // /health is always exempt: readiness probes and `just validate-server` must work without
+    // a token. Exact match only -- nothing under /health/ or merely prefixed with it is exempt.
+    if req.uri().path() == "/health" {
+        return next.run(req).await;
+    }
     let hdr = req
         .headers()
         .get(header::AUTHORIZATION)
