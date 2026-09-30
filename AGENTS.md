@@ -106,7 +106,7 @@ These are **upstream or sibling concerns** — build them in their proper crates
 - **SysML v2 parser** → `sysml-v2-parser` crate (consumed as dev-dependency for conformance)
 - **Kubernetes recognizer** → starts in `PATTERNS-kubernetes.md`, probably a new crate
 - **Isometric renderer** → `systhread-core` (call it, don't port it); `kr0ki-svg`'s 2D force layout is the only layout code kr0ki hosts, and only because it must run client-side in WASM
-- **Raster → diagram-as-code ingestion** → its own crate and plan, not `kr0ki-svg`
+- **Raster → diagram-as-code ingestion** → its own crate (`kr0ki-raster-ingest`, proposed) per [`docs/PLAN-KR0KI-007-raster-to-diagram-as-code.md`](docs/PLAN-KR0KI-007-raster-to-diagram-as-code.md), not `kr0ki-svg`
 - **Comic engine / joke renderer** → `kroki-b00t` (downstream leaf, not core)
 - **CDN / edge caching** → infrastructure / Cloudflare R2 (D5)
 - **Graph reasoning / SHACL** → `ledgrrr`

@@ -469,6 +469,14 @@
       "priority": 3,
       "tags": [],
       "created_at": "2026-09-28T05:06:25Z"
+    },
+    {
+      "id": 56,
+      "title": "kr0ki: PLAN-007 raster -> diagram-as-code (proposed; Phase 0 needs no model; D-7a model access is the gate)",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-09-30T22:42:52Z"
     }
   ],
   "version": "1"
