@@ -6,7 +6,7 @@ description: Use before writing or fixing D2 source for render_diagram (format d
 
 ## Rules (each checked against the renderer)
 - Layout: one statement per line. `a -> b: label` is a connection; `a: Label` sets a label; `a; b` and `a -> b; b -> c` put several on one line.
-- **Quote labels that contain `$`**: an unquoted `$` starts a variable substitution and fails (`substitutions must begin on {`). Use single quotes: `a: 'costs $5'`. `${name}` must refer to a variable defined under `vars`, otherwise: `could not resolve variable`.
+- **Quote labels that contain `$`**: an unquoted `$` starts a variable substitution and fails (`substitutions must begin on {`). Use single quotes (`a: 'costs $5'`) or, inside double quotes, escape it as `\$` (`a: "costs \$5"`); `$$` does not work. `${name}` must refer to a variable defined under `vars`, otherwise: `could not resolve variable`.
 - A `.` in a key means nesting (`a.b: hi` creates `b` inside `a`). To get a literal dot in a key, quote it: `"a.b": hi`.
 - Containers: `cloud: { api; db; api -> db }`. Reach inside from outside with dotted paths: `x.a -> x.b`.
 - Shapes: `db: DB { shape: cylinder }`, `u: User { shape: person }`, `t: { shape: sql_table; id: int {constraint: primary_key} }`, `s: { shape: sequence_diagram; a -> b: hi }`.

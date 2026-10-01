@@ -1,0 +1,22 @@
+use oxigraph::{io::RdfFormat, model::*, sparql::{QueryResults, SparqlEvaluator}, store::Store};
+use std::time::Instant;
+fn run(s:&Store,name:&str,q:&str){
+    let t=Instant::now();
+    match SparqlEvaluator::new().parse_query(q).map_err(|e|e.to_string()).and_then(|p|p.on_store(s).execute().map_err(|e|e.to_string())){
+        Ok(QueryResults::Solutions(sol))=>{let mut rows=vec![];for r in sol{let r=r.unwrap();rows.push(r.iter().map(|(v,t)|format!("{}={}",v.as_str(),t)).collect::<Vec<_>>().join(" "));}
+            println!("[{name}] {:?} {} rows: {:?}",t.elapsed(),rows.len(),&rows[..rows.len().min(3)]);}
+        Ok(_)=>println!("[{name}] other"),
+        Err(e)=>println!("[{name}] ERROR {e}")}
+}
+fn main(){
+    let s=Store::new().unwrap();
+    let t=Instant::now();
+    s.load_from_reader(RdfFormat::Turtle, std::fs::File::open("../data/reqs.ttl").unwrap()).unwrap();
+    println!("load {:?} len={}",t.elapsed(),s.len().unwrap());
+    let p="PREFIX ex: <http://example.org/req#> ";
+    run(&s,"a-subselect",&format!("{p}SELECT ?r ?c WHERE {{ ?r ex:cost ?c . {{ SELECT (MAX(?c2) AS ?m) WHERE {{ ?x ex:cost ?c2 }} }} FILTER(?c = ?m) }}"));
+    run(&s,"b-path",&format!("{p}SELECT ?r WHERE {{ ?r ex:dependsOn+ ex:R1 }} ORDER BY ?r"));
+    run(&s,"c-sum",&format!("{p}SELECT (SUM(?c) AS ?total) (COUNT(?r) AS ?n) WHERE {{ ?r ex:dependsOn+ ex:R1 ; ex:cost ?c }}"));
+    run(&s,"c2-groupby+subselect",&format!("{p}SELECT ?root (SUM(?c) AS ?total) WHERE {{ {{ SELECT ?root WHERE {{ ?root a ex:Requirement . FILTER NOT EXISTS {{ ?root ex:dependsOn ?z }} }} }} ?r ex:dependsOn* ?root ; ex:cost ?c }} GROUP BY ?root ORDER BY ?root"));
+    run(&s,"c3-union-paths",&format!("{p}SELECT (SUM(?c) AS ?t) WHERE {{ ?r (ex:dependsOn|ex:derivedFrom)+ ex:R1 ; ex:cost ?c }}"));
+}

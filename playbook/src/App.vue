@@ -6,6 +6,7 @@ import StoryB00k from './components/StoryB00k.vue'
 import Setup from './components/Setup.vue'
 import CatalogTree from './components/CatalogTree.vue'
 import PlannerView from './components/PlannerView.vue'
+import ProjectsView from './components/ProjectsView.vue'
 import { connectUiBridge, plannerSessionId } from './lib/uiBridge.js'
 import { loadLspUrls, saveLspUrls } from './lib/lsp.js'
 
@@ -263,6 +264,9 @@ onMounted(async () => {
         <button class="view-tab" :class="{ active: viewMode === 'planner' }" data-testid="tab-planner" @click="viewMode = 'planner'">
           Planner
         </button>
+        <button class="view-tab" :class="{ active: viewMode === 'projects' }" data-testid="tab-projects" @click="viewMode = 'projects'">
+          Projects
+        </button>
         <button class="view-tab" :class="{ active: viewMode === 'editor' }" data-testid="tab-editor" @click="viewMode = 'editor'">
           Code Editor
         </button>
@@ -284,7 +288,7 @@ onMounted(async () => {
     </aside>
 
     <section class="content">
-      <header v-if="viewMode !== 'planner'" class="hero">
+      <header v-if="viewMode !== 'planner' && viewMode !== 'projects'" class="hero">
         <p class="eyebrow">IAC / CODE → PROCEDURAL DIAGRAM → KROKI → SVG / PNG</p>
         <h1>Diagram-as-code, rendered.</h1>
         <p v-if="viewMode === 'gallery'">
@@ -325,6 +329,7 @@ onMounted(async () => {
         @update:llm-model="updateLlmModel"
         @update:output-format="updateOutputFormat"
       />
+      <ProjectsView v-else-if="viewMode === 'projects'" :renderer-url="rendererUrl" />
       <Gallery
         v-else-if="viewMode === 'gallery'"
         :examples="examples"
