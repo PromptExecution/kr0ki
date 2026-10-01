@@ -41,7 +41,6 @@
       }
     }
   },
-  "additionalProperties": false,
   "definitions": {
     "DescribedEdge": {
       "description": "A directed connection read off the image.",
@@ -57,8 +56,7 @@
         "to": {
           "type": "string"
         }
-      },
-      "additionalProperties": false
+      }
     },
     "DiagramKind": {
       "description": "What kind of picture the image is. `None` means \"not a diagram\" and ends a run without looping.",

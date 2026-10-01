@@ -6,6 +6,7 @@ license.workspace = true
 description = "Raster diagram -> diagram-as-code: normalize an image, then a bounded render-and-judge loop (PLAN-KR0KI-007)"
 
 [dependencies]
+bytes = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 schemars = { version = "0.8", features = ["derive"] }   # same major as ufo-types
 serde.workspace = true

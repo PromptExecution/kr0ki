@@ -43,7 +43,7 @@ pub enum SourceFormat {
 #[derive(Debug, Clone)]
 pub struct NormalizedImage {
     /// The PNG to show the model.
-    pub png: Vec<u8>,
+    pub png: bytes::Bytes,
     pub width: u32,
     pub height: u32,
     /// SHA-256 (hex) of `png`: the content identity used in cache keys.
@@ -80,6 +80,9 @@ fn undecodable(e: impl std::fmt::Display) -> NormalizeError {
     NormalizeError::Undecodable(e.to_string())
 }
 
+///
+/// **Memory bound.** It is the pixel cap, enforced from the header *before* any decoding and for every format.
+/// `image`'s own allocation limit is not relied on: it does not constrain the decoded buffer on every path.
 ///
 /// **Cost.** CPU-bound and synchronous: async callers must run it under `spawn_blocking`. Peak memory is roughly
 /// 11 bytes per declared pixel (decode buffer, RGBA copy for alpha images, flattened RGB), so the default 16 MP cap
@@ -118,8 +121,7 @@ pub fn normalize(bytes: &[u8], cfg: &NormalizeConfig) -> Result<NormalizedImage,
         });
     }
 
-    let mut limits = Limits::default();
-    limits.max_alloc = Some(512 * 1024 * 1024);
+    let limits = Limits::default();
 
     let (image, orientation) = match format {
         ImageFormat::Png => {
@@ -168,7 +170,7 @@ pub fn normalize(bytes: &[u8], cfg: &NormalizeConfig) -> Result<NormalizedImage,
     Ok(NormalizedImage {
         sha256: hex(&png),
         source_sha256: hex(bytes),
-        png,
+        png: bytes::Bytes::from(png),
         width,
         height,
         source_format,

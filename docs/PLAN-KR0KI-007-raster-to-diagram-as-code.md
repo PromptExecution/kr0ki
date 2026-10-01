@@ -95,7 +95,7 @@ unusable for a format (text drawn as paths), a *second, differently-worded judge
 
 ## 4. Contracts
 
-**Verdict** (JSON Schema at `docs/schemas/plan-007/verdict.schema.json`, added in Phase 0, `additionalProperties: false`):
+**Verdict** (JSON Schema at `docs/schemas/plan-007/verdict.schema.json`, kept in sync with the Rust type by a test). Model replies are parsed leniently: unknown keys are ignored and a `null` list counts as empty, because a stray `"reasoning"` key must not discard a whole reply; what kr0ki emits carries exactly these fields:
 `match: bool`, `score: 0..1`, `label_recall`, `label_precision`, `missing_nodes[]`, `extra_nodes[]`,
 `wrong_edges[{from,to,issue: missing|extra|reversed}]`, `label_errors[{expected,got}]`, `layout_notes[]`, `confidence`.
 

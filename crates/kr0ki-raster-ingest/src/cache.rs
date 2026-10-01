@@ -60,7 +60,7 @@ mod tests {
 
     fn image() -> NormalizedImage {
         NormalizedImage {
-            png: vec![],
+            png: bytes::Bytes::new(),
             width: 1,
             height: 1,
             sha256: "a".repeat(64),

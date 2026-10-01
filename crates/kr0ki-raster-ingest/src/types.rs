@@ -4,7 +4,18 @@
 //! keeps the files in sync with these types (regenerate with `UPDATE_SCHEMAS=1 cargo test`).
 
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// Models often send `null` for an empty list; treat it as empty. Unknown keys are likewise ignored on input
+/// (a stray `"reasoning"` or an edge `"label"` must not discard a whole reply). Output only ever carries the
+/// fields below, so consumers can rely on the committed schemas.
+fn null_as_default<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(d)?.unwrap_or_default())
+}
 
 /// What kind of picture the image is. `None` means "not a diagram" and ends a run without looping.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -24,7 +35,6 @@ pub enum DiagramKind {
 
 /// A directed connection read off the image.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct DescribedEdge {
     pub from: String,
     pub to: String,
@@ -32,15 +42,14 @@ pub struct DescribedEdge {
 
 /// The model's structured reading of the original image, produced once per run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct Description {
     pub diagram_kind: DiagramKind,
     /// Every piece of visible text, one string each.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub labels: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub nodes: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub edges: Vec<DescribedEdge>,
     #[serde(default)]
     pub confidence: Option<f64>,
@@ -55,7 +64,6 @@ pub enum EdgeIssue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct EdgeDiff {
     pub from: String,
     pub to: String,
@@ -63,7 +71,6 @@ pub struct EdgeDiff {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct LabelDiff {
     pub expected: String,
     pub got: String,
@@ -74,7 +81,6 @@ pub struct LabelDiff {
 /// `label_recall` / `label_precision` are always overwritten by the loop (or cleared when the renderer
 /// cannot supply text), never trusted from the model.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
 pub struct Verdict {
     /// Same nodes, labels and directed connections. Styling and layout alone do not count.
     #[serde(rename = "match")]
@@ -85,15 +91,15 @@ pub struct Verdict {
     pub label_recall: Option<f64>,
     #[serde(default)]
     pub label_precision: Option<f64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub missing_nodes: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub extra_nodes: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub wrong_edges: Vec<EdgeDiff>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub label_errors: Vec<LabelDiff>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub layout_notes: Vec<String>,
     #[serde(default)]
     pub confidence: Option<f64>,
@@ -160,15 +166,26 @@ mod tests {
     }
 
     #[test]
-    fn verdict_uses_the_wire_name_match_and_rejects_unknown_fields() {
+    fn verdict_uses_the_wire_name_match() {
         let ok: Verdict = serde_json::from_str(r#"{"match": true, "score": 0.9}"#).unwrap();
         assert!(ok.matches && ok.missing_nodes.is_empty());
-        assert!(
-            serde_json::from_str::<Verdict>(r#"{"match": true, "score": 1, "extra": 1}"#).is_err()
-        );
         assert!(serde_json::to_string(&ok)
             .unwrap()
             .contains(r#""match":true"#));
+    }
+
+    #[test]
+    fn model_replies_with_extra_keys_or_null_lists_are_still_understood() {
+        let v: Verdict = serde_json::from_str(r#"{"match": true, "score": 1, "reasoning": "looks right", "missing_nodes": null, "layout_notes": null}"#).unwrap();
+        assert!(v.missing_nodes.is_empty() && v.layout_notes.is_empty());
+        let d: Description = serde_json::from_str(
+            r#"{"diagram_kind":"flowchart","title":"Checkout","labels":null,"nodes":["a"],"edges":[{"from":"a","to":"b","label":"HTTP"}]}"#,
+        )
+        .unwrap();
+        assert_eq!((d.labels.len(), d.edges.len()), (0, 1));
+        // ...but what we emit is exactly the contract
+        let out = serde_json::to_value(&d).unwrap();
+        assert!(out.get("title").is_none() && out["edges"][0].get("label").is_none());
     }
 
     #[test]

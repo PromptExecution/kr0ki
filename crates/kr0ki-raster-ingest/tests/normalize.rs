@@ -274,3 +274,31 @@ fn animated_png_is_rejected() {
     // The same pixels as a still PNG are fine, so the rejection is about animation, not content.
     assert!(normalize(&png(4, 4), &cfg()).is_ok());
 }
+
+#[test]
+fn the_pixel_cap_is_the_memory_bound_and_covers_every_accepted_format() {
+    let img = DynamicImage::ImageRgb8(RgbImage::from_pixel(10, 10, Rgb([5, 6, 7])));
+    let mut tight = cfg();
+    tight.max_pixels = 50; // the image has 100
+    for (name, bytes) in [
+        ("png", encode(&img, ImageFormat::Png)),
+        ("jpeg", encode(&img, ImageFormat::Jpeg)),
+        ("webp", encode(&img, ImageFormat::WebP)),
+    ] {
+        assert!(
+            matches!(
+                normalize(&bytes, &tight).unwrap_err(),
+                NormalizeError::TooManyPixels {
+                    width: 10,
+                    height: 10,
+                    ..
+                }
+            ),
+            "{name} must be rejected from its header"
+        );
+        assert!(
+            normalize(&bytes, &cfg()).is_ok(),
+            "{name} is fine under the default cap"
+        );
+    }
+}

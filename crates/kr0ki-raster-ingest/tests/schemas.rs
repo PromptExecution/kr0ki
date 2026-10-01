@@ -33,9 +33,8 @@ fn description_schema_is_in_sync() {
 }
 
 #[test]
-fn the_verdict_schema_forbids_extra_properties_and_names_the_wire_field_match() {
+fn the_verdict_schema_names_the_wire_field_match_and_requires_it() {
     let schema = serde_json::to_value(schema_for!(Verdict)).unwrap();
-    assert_eq!(schema["additionalProperties"], false);
     assert!(
         schema["properties"].get("match").is_some(),
         "the field is `match` on the wire, not `matches`"
@@ -45,4 +44,9 @@ fn the_verdict_schema_forbids_extra_properties_and_names_the_wire_field_match() 
         .unwrap()
         .iter()
         .any(|r| r == "match"));
+    assert!(schema["required"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r == "score"));
 }

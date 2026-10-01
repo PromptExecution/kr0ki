@@ -77,7 +77,6 @@
       }
     }
   },
-  "additionalProperties": false,
   "definitions": {
     "EdgeDiff": {
       "type": "object",
@@ -96,8 +95,7 @@
         "to": {
           "type": "string"
         }
-      },
-      "additionalProperties": false
+      }
     },
     "EdgeIssue": {
       "type": "string",
@@ -120,8 +118,7 @@
         "got": {
           "type": "string"
         }
-      },
-      "additionalProperties": false
+      }
     }
   }
 }

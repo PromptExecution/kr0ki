@@ -150,7 +150,7 @@ pub fn ok(text: &str) -> Reply {
 }
 pub fn rendered(labels: Option<&[&str]>) -> Result<Rendered, RenderError> {
     Ok(Rendered {
-        png: vec![0x89, b'P', b'N', b'G'],
+        png: bytes::Bytes::from_static(&[0x89, b'P', b'N', b'G']),
         labels: labels.map(|l| l.iter().map(|s| s.to_string()).collect()),
     })
 }

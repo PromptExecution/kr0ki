@@ -21,7 +21,8 @@ pub enum Purpose {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImagePart {
     pub mime: &'static str,
-    pub bytes: Vec<u8>,
+    /// Reference-counted, so the same image is shared across requests instead of copied into each.
+    pub bytes: bytes::Bytes,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +68,14 @@ pub enum ModelError {
     Rejected(String),
 }
 
+impl ModelError {
+    /// Worth repeating the identical request: a dropped connection can succeed next time. A refusal cannot, and
+    /// repeating a timeout would double the time spent on one render.
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, ModelError::Transport(_))
+    }
+}
+
 pub trait VisionModel: Sync {
     /// Stable identifier (part of the result cache key).
     fn id(&self) -> &str;
@@ -79,7 +88,7 @@ pub trait VisionModel: Sync {
 /// A successful render.
 #[derive(Debug, Clone)]
 pub struct Rendered {
-    pub png: Vec<u8>,
+    pub png: bytes::Bytes,
     /// Text found in the rendered SVG, or `None` when it cannot be extracted (text drawn as paths).
     pub labels: Option<Vec<String>>,
 }

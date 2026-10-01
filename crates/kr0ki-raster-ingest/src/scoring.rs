@@ -19,15 +19,22 @@ pub struct LabelScore {
 const WRAPPING_PUNCTUATION: [char; 12] =
     ['"', '\'', '`', ':', ';', ',', '(', ')', '[', ']', '{', '}'];
 
-/// Case-fold, collapse whitespace, trim wrapping punctuation and a trailing full stop.
+/// Case-fold, collapse whitespace, trim wrapping punctuation and a trailing full stop (repeated until stable, so
+/// `(DB).` and `Node.:` reduce the same way as `DB` and `Node`).
 pub fn normalize_label(s: &str) -> String {
     let lowered = s.to_lowercase();
-    let collapsed = lowered.split_whitespace().collect::<Vec<_>>().join(" ");
-    collapsed
-        .trim_matches(|c: char| WRAPPING_PUNCTUATION.contains(&c))
-        .trim()
-        .trim_end_matches('.')
-        .to_string()
+    let mut cur = lowered.split_whitespace().collect::<Vec<_>>().join(" ");
+    loop {
+        let next = cur
+            .trim_matches(|c: char| WRAPPING_PUNCTUATION.contains(&c))
+            .trim()
+            .trim_end_matches('.')
+            .to_string();
+        if next == cur {
+            return cur;
+        }
+        cur = next;
+    }
 }
 
 /// Minimum normalized-Levenshtein similarity for two labels to count as the same text. At 0.85 a single misread
@@ -35,8 +42,30 @@ pub fn normalize_label(s: &str) -> String {
 /// we want because one character changes their meaning ("DB" vs "D8", "v1" vs "v2").
 const FUZZY_THRESHOLD: f64 = 0.85;
 
+fn digits(s: &str) -> String {
+    s.chars().filter(char::is_ascii_digit).collect()
+}
+
+/// Same text, allowing for a misread character, but never across an index or a one-letter qualifier:
+/// `Worker 1` vs `Worker 2` and `Server A` vs `Server B` are *different nodes*, though a character-level
+/// similarity would call them 0.875 alike.
 fn similar(a: &str, b: &str) -> bool {
-    a == b || strsim::normalized_levenshtein(a, b) >= FUZZY_THRESHOLD
+    if a == b {
+        return true;
+    }
+    if digits(a) != digits(b) {
+        return false;
+    }
+    let (wa, wb): (Vec<&str>, Vec<&str>) = (a.split(' ').collect(), b.split(' ').collect());
+    if wa.len() == wb.len() && wa.len() > 1 {
+        // Multi-word labels: every word must match exactly, or be a long word with a small misread.
+        return wa.iter().zip(&wb).all(|(x, y)| {
+            x == y
+                || (x.chars().count().min(y.chars().count()) >= 7
+                    && strsim::normalized_levenshtein(x, y) >= FUZZY_THRESHOLD)
+        });
+    }
+    strsim::normalized_levenshtein(a, b) >= FUZZY_THRESHOLD
 }
 
 /// Greedy one-to-one matching: exact matches are taken first, then the best remaining fuzzy ones.
@@ -181,5 +210,38 @@ mod tests {
         assert_eq!((blank.recall, blank.precision), (0.0, 1.0));
         let both = label_scores(&[], &[]);
         assert_eq!((both.recall, both.precision), (1.0, 1.0));
+    }
+
+    #[test]
+    fn indexed_and_lettered_siblings_are_different_labels() {
+        for (a, b) in [
+            ("Worker 1", "Worker 2"),
+            ("Web Server 1", "Web Server 2"),
+            ("Server A", "Server B"),
+            ("Zone 1a", "Zone 1b"),
+        ] {
+            assert_eq!(label_scores(&s(&[a]), &s(&[b])).recall, 0.0, "{a} vs {b}");
+        }
+        // a duplicated sibling cannot stand in for the missing one
+        assert_eq!(
+            label_scores(&s(&["Worker 1", "Worker 2"]), &s(&["Worker 1", "Worker 1"])).recall,
+            0.5
+        );
+        // but spacing and a misread in a long word are still forgiven
+        assert_eq!(
+            label_scores(&s(&["Worker 1"]), &s(&["Worker1"])).recall,
+            1.0
+        );
+        assert_eq!(
+            label_scores(&s(&["Auth Service"]), &s(&["Auth Servise"])).recall,
+            1.0
+        );
+    }
+
+    #[test]
+    fn dangling_punctuation_is_removed_in_any_order() {
+        assert_eq!(normalize_label("(DB)."), "db");
+        assert_eq!(normalize_label("Node.:"), "node");
+        assert_eq!(normalize_label("\"Auth.\""), "auth");
     }
 }

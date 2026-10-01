@@ -234,9 +234,11 @@ fn usage_since(now: Usage, before: Usage) -> Usage {
     }
 }
 
-/// One extra attempt at a judge call that failed (timeout, transport, unparsable reply) before the attempt is
-/// recorded as a model error. Re-judging the same render is cheaper than a new proposal, and a new proposal after
-/// a judge failure tends to repeat the same source and end the run as `Stalled`.
+/// One extra attempt at a judge call that failed with a *transient* error (a dropped connection, or a reply that
+/// did not parse) before the attempt is recorded as a model error. Re-judging the same render is cheaper than a new
+/// proposal, and a new proposal after a judge failure tends to repeat the same source and end the run as `Stalled`.
+/// Timeouts and refusals are not retried: a timeout would double the time spent on one render, and a refusal
+/// cannot succeed the second time.
 const JUDGE_RETRIES: u32 = 1;
 /// Consecutive render timeouts before the renderer is treated as unavailable instead of the source as too complex.
 const RENDER_TIMEOUTS_BEFORE_UNAVAILABLE: u32 = 2;
@@ -245,7 +247,9 @@ const RENDER_TIMEOUTS_BEFORE_UNAVAILABLE: u32 = 2;
 #[derive(Default)]
 struct State {
     attempts: Vec<AttemptRecord>,
-    scores: Vec<f64>,
+    /// Scores of *judged* attempts only, which is what the stall rule looks at: a run recovering from syntax errors
+    /// has not had a chance to improve the content yet.
+    judged_scores: Vec<f64>,
     seen: HashSet<String>,
     /// Index into `attempts` of the best *rendered* attempt.
     best: Option<usize>,
@@ -270,11 +274,6 @@ impl State {
         })
     }
 
-    fn push(&mut self, record: AttemptRecord) {
-        self.scores.push(record.score);
-        self.attempts.push(record);
-    }
-
     /// Track the best *rendered* attempt: strictly better scores win, so ties keep the earlier attempt.
     fn consider_best(&mut self) {
         let idx = self.attempts.len() - 1;
@@ -284,20 +283,23 @@ impl State {
         }
     }
 
-    /// The best score has not improved over the last `stall_window` attempts. Only counts once something has
-    /// rendered; before that the repeated-source check and the error caps bound a run stuck at the renderer.
+    /// The best judged score has not improved over the last `stall_window` judged attempts.
     fn stalled(&self, window: u32) -> bool {
         let window = window as usize;
-        if self.best.is_none() || window == 0 || self.scores.len() <= window {
+        if self.best.is_none() || window == 0 || self.judged_scores.len() <= window {
             return false;
         }
-        let (earlier, recent) = self.scores.split_at(self.scores.len() - window);
+        let (earlier, recent) = self
+            .judged_scores
+            .split_at(self.judged_scores.len() - window);
         let max = |s: &[f64]| s.iter().copied().fold(f64::MIN, f64::max);
         max(recent) <= max(earlier)
     }
 
-    fn best_source(&self) -> Option<String> {
-        self.best.map(|i| self.attempts[i].source.clone())
+    /// Owned copy of the best attempt's source and score, for building the next prompt.
+    fn best_so_far(&self) -> Option<(String, f64)> {
+        self.best
+            .map(|i| (self.attempts[i].source.clone(), self.attempts[i].score))
     }
 }
 
@@ -358,31 +360,27 @@ where
         renderer,
     };
     let mut st = State::default();
-    let mut outcome = Outcome::Exhausted {
-        reason: ExhaustReason::MaxIterations,
-        best: None,
-    };
+    let mut outcome = None;
     for n in 1..=cfg.max_iterations {
         if let Some(reason) = clock.exhausted() {
             if let Step::Done(o) = st.exhausted(reason) {
-                outcome = o;
+                outcome = Some(o);
             }
             break;
         }
-        match attempt(n, &ctx, &mut clock, &mut st).await {
-            Step::Next => {}
-            Step::Done(o) => {
-                outcome = o;
-                break;
-            }
-        }
-        // Ran out of iterations: report the best rendered attempt.
-        if n == cfg.max_iterations {
-            if let Step::Done(o) = st.exhausted(ExhaustReason::MaxIterations) {
-                outcome = o;
-            }
+        if let Step::Done(o) = attempt(n, &ctx, &mut clock, &mut st).await {
+            outcome = Some(o);
+            break;
         }
     }
+    // Ran out of iterations without any other verdict: report the best rendered attempt.
+    let outcome = match outcome {
+        Some(o) => o,
+        None => match st.exhausted(ExhaustReason::MaxIterations) {
+            Step::Done(o) => o,
+            Step::Next => unreachable!("State::exhausted always returns Step::Done"),
+        },
+    };
     Ok(LoopResult {
         outcome,
         description,
@@ -411,11 +409,15 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
     let before = clock.usage;
 
     // ---- propose ---------------------------------------------------------------------------------
+    let best = st.best_so_far();
     let request = prompts::propose_request(
         ctx.image,
         ctx.description,
         &cfg.format,
-        st.best_source().as_deref(),
+        best.as_ref().map(|(source, score)| prompts::BestSoFar {
+            source,
+            score: *score,
+        }),
         st.feedback.as_ref(),
     );
     let proposed = match clock.call(ctx.proposer, request).await {
@@ -430,7 +432,7 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
         }
         Err(message) => {
             st.propose_errors += 1;
-            st.push(failed(
+            st.attempts.push(failed(
                 n,
                 String::new(),
                 None,
@@ -445,6 +447,14 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
         }
     };
     if !st.seen.insert(sha256_hex(&source)) {
+        // Recorded, so the proposal's tokens and the offending source can be audited.
+        st.attempts.push(failed(
+            n,
+            source,
+            None,
+            Some("repeated an earlier source".into()),
+            usage_since(clock.usage, before),
+        ));
         return st.exhausted(ExhaustReason::Stalled);
     }
 
@@ -455,7 +465,7 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
             r
         }
         Err(RenderFail::Unavailable(message)) => {
-            st.push(failed(
+            st.attempts.push(failed(
                 n,
                 source,
                 Some(message),
@@ -465,32 +475,46 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
             return st.exhausted(ExhaustReason::RendererUnavailable);
         }
         Err(RenderFail::TimedOut(limit)) => {
+            // If the wall clock is what ran out, the renderer is not to blame and the source was never given a
+            // fair chance: end the run for the real reason instead of counting a renderer timeout.
+            if let Some(reason) = clock.exhausted() {
+                st.attempts.push(failed(
+                    n,
+                    source,
+                    Some(format!("render cut short: {reason:?} reached")),
+                    None,
+                    usage_since(clock.usage, before),
+                ));
+                return st.exhausted(reason);
+            }
             st.render_timeouts += 1;
             let message = format!("rendering timed out after {}s", limit.as_secs());
-            st.push(failed(
+            st.feedback = Some(Feedback {
+                source: source.clone(),
+                render_error: Some(format!(
+                    "{message}; the diagram may be too complex, simplify it"
+                )),
+                verdict: None,
+            });
+            st.attempts.push(failed(
                 n,
                 source,
-                Some(message.clone()),
+                Some(message),
                 None,
                 usage_since(clock.usage, before),
             ));
             if st.render_timeouts >= RENDER_TIMEOUTS_BEFORE_UNAVAILABLE {
                 return st.exhausted(ExhaustReason::RendererUnavailable);
             }
-            st.feedback = Some(Feedback {
-                render_error: Some(format!(
-                    "{message}; the diagram may be too complex, simplify it"
-                )),
-                verdict: None,
-            });
             return Step::Next;
         }
         Err(RenderFail::Rejected(message)) => {
             st.feedback = Some(Feedback {
+                source: source.clone(),
                 render_error: Some(message.clone()),
                 verdict: None,
             });
-            st.push(failed(
+            st.attempts.push(failed(
                 n,
                 source,
                 Some(message),
@@ -525,7 +549,13 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
                 }
                 Err(e) => last_error = Some(e.to_string()),
             },
-            Err(Stop::Model(e)) => last_error = Some(e.to_string()),
+            Err(Stop::Model(e)) => {
+                let retry = e.is_retryable();
+                last_error = Some(e.to_string());
+                if !retry {
+                    break;
+                }
+            }
             Err(Stop::Budget(reason)) => {
                 // The render exists but cannot be judged: keep it as an unjudged attempt, then stop.
                 let message = last_error.map_or_else(
@@ -586,25 +616,27 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
         }
     };
 
-    st.push(AttemptRecord {
+    st.feedback = Some(Feedback {
+        source: source.clone(),
+        render_error: None,
+        verdict: Some(verdict.clone()),
+    });
+    st.attempts.push(AttemptRecord {
         n,
         source_sha256: sha256_hex(&source),
         source,
         render_error: None,
         model_error: None,
-        verdict: Some(verdict.clone()),
+        verdict: Some(verdict),
         score,
         usage: usage_since(clock.usage, before),
     });
+    st.judged_scores.push(score);
     st.consider_best();
 
     if let Some(via) = accepted {
         return Step::Done(Outcome::Accepted { attempt: n, via });
     }
-    st.feedback = Some(Feedback {
-        render_error: None,
-        verdict: Some(verdict),
-    });
     if st.stalled(cfg.stall_window) {
         return st.exhausted(ExhaustReason::Stalled);
     }
@@ -646,7 +678,7 @@ fn record_unjudged(
 ) {
     let mut record = failed(n, source, None, Some(message), usage);
     record.score = composite_score(true, None, labels);
-    st.push(record);
+    st.attempts.push(record);
     st.consider_best();
 }
 
@@ -656,7 +688,7 @@ async fn confirm<J: VisionModel>(
     clock: &mut Clock<'_>,
     judge: &J,
     image: &NormalizedImage,
-    render_png: &[u8],
+    render_png: &bytes::Bytes,
     description: &Description,
     source: &str,
 ) -> bool {
