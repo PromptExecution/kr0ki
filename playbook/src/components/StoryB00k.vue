@@ -43,17 +43,17 @@ if (!globalThis.crypto?.randomUUID) {
 }
 
 const input = ref(props.prefill)
-const handoffImage = ref(null)
 const comparisonPanels = ref([])
 const currentOrigin = ref(typeof window !== 'undefined' ? window.location.origin : '')
 // Fresh handoffs replace a still-untouched composer; a half-typed draft wins.
 watch(() => props.prefill, (next) => {
   if (next && (!input.value.trim() || input.value === props.prefill)) input.value = next
 })
-// Editor handoff: validate, capture image, show banner
+// Editor handoff: the "starting point" is derived straight from the prop (no copied state), so it is
+// present on first mount, survives sending, and cannot be dismissed -- only collapsed. The user must always
+// be able to see where the session started.
 const handoffError = ref('')
-const handoffDismissed = ref(false)
-const handoffActive = computed(() => !!props.editorHandoff && !handoffDismissed.value)
+const startOpen = ref(true)
 
 function validateHandoff(h) {
   if (!h) return 'No handoff data'
@@ -62,21 +62,12 @@ function validateHandoff(h) {
   return null
 }
 
+const startingPoint = computed(() => (validateHandoff(props.editorHandoff) ? null : props.editorHandoff))
+const handoffProblem = computed(() => (props.editorHandoff ? validateHandoff(props.editorHandoff) : null))
 watch(() => props.editorHandoff, (handoff) => {
-  handoffDismissed.value = false
   handoffError.value = ''
-  const err = validateHandoff(handoff)
-  if (err) {
-    handoffError.value = err
-    console.error('[storyb00k] handoff validation failed:', err, handoff)
-    return
-  }
-  if (handoff?.imageData) {
-    handoffImage.value = handoff.imageData
-  } else {
-    handoffImage.value = null
-  }
-  console.info('[storyb00k] handoff received:', {
+  startOpen.value = true
+  if (handoff) console.info('[storyb00k] handoff received:', {
     format: handoff.format, detectedType: handoff.detectedType,
     title: handoff.title, sourceLen: handoff.source?.length ?? 0,
   })
@@ -429,7 +420,6 @@ async function sendMessage() {
   }
   
   input.value = ''
-  handoffImage.value = null
   console.info('[storyb00k] send →', text, '| thread:', threadId.value, '| agent:', agentUrl)
   try {
     if (props.lockedType) {
@@ -623,6 +613,18 @@ function formatTokens(u) {
         </div>
         <p v-if="projectError" class="storyb00k__error">{{ projectError }}</p>
       </div>
+      <!-- Starting point: the code and diagram transferred from the editor; always visible, collapsible only -->
+      <section v-if="startingPoint" class="storyb00k__start" data-testid="starting-point">
+        <button type="button" class="storyb00k__start-head" :aria-expanded="startOpen" @click="startOpen = !startOpen">
+          <span>{{ startOpen ? '▾' : '▸' }} 📋 Starting point — from Code Editor</span>
+          <span class="storyb00k__handoff-meta">{{ startingPoint.title }}<template v-if="startingPoint.title"> · </template>{{ startingPoint.detectedType && startingPoint.detectedType !== 'unknown' ? startingPoint.detectedType + ' · ' : '' }}{{ startingPoint.format }}</span>
+        </button>
+        <div v-show="startOpen" class="storyb00k__start-body">
+          <img v-if="startingPoint.imageData" :src="startingPoint.imageData" alt="Diagram transferred from the Code Editor" data-testid="starting-image" />
+          <p v-else class="storyb00k__empty">No rendered image was captured with this transfer.</p>
+          <pre data-testid="starting-source">{{ startingPoint.source }}</pre>
+        </div>
+      </section>
       <p class="storyb00k__lede">Read the live model, assemble evidence panels, and narrate without changing the authoritative model.</p>
 
       <div ref="transcriptEl" class="storyb00k__messages" @scroll="onTranscriptScroll">
@@ -718,17 +720,7 @@ function formatTokens(u) {
       </p>
 
       <div class="storyb00k__composer">
-        <div v-if="handoffActive" class="storyb00k__handoff-banner" data-testid="handoff-banner">
-          <span class="storyb00k__handoff-badge">📋 from Code Editor</span>
-          <span v-if="editorHandoff?.detectedType" class="storyb00k__handoff-meta">{{ editorHandoff.detectedType }} · {{ editorHandoff.format }}</span>
-          <span v-if="editorHandoff?.title" class="storyb00k__handoff-meta">{{ editorHandoff.title }}</span>
-          <button class="storyb00k__handoff-dismiss" @click="handoffDismissed = true" title="Dismiss handoff">×</button>
-        </div>
-        <p v-if="handoffError" class="storyb00k__handoff-error" data-testid="handoff-error">{{ handoffError }}</p>
-        <div v-if="handoffImage && handoffActive" class="storyb00k__handoff-preview">
-          <img :src="handoffImage" alt="Diagram from Code Editor" />
-          <button class="storyb00k__handoff-dismiss" @click="handoffImage = null" title="Dismiss image">×</button>
-        </div>
+        <p v-if="handoffError || handoffProblem" class="storyb00k__handoff-error" data-testid="handoff-error">{{ handoffError || handoffProblem }}</p>
         <textarea
           v-model="input"
           class="storyb00k__input"
@@ -817,15 +809,13 @@ function formatTokens(u) {
 .storyb00k__error-hint code { display: block; margin-top: .3rem; padding: .3rem; background: #0f172a; word-break: break-all; }
 .storyb00k__empty { opacity: .65; font-size: .9rem; }
 .storyb00k__composer { display: grid; gap: .4rem; }
-.storyb00k__handoff-banner { display: flex; align-items: center; gap: .5rem; padding: .35rem .6rem; background: #0c2d48; border: 1px solid #38bdf8; border-radius: .4rem; font-size: .8rem; color: #bae6fd; animation: handoff-slide .3s ease; }
-@keyframes handoff-slide { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
-.storyb00k__handoff-badge { font-weight: 700; white-space: nowrap; }
-.storyb00k__handoff-meta { opacity: .7; font-size: .75rem; }
+.storyb00k__start { border: 1px solid #38bdf8; border-radius: .45rem; background: #0c2d48; color: #bae6fd; }
+.storyb00k__start-head { all: unset; box-sizing: border-box; width: 100%; display: flex; flex-wrap: wrap; gap: .5rem; justify-content: space-between; padding: .4rem .6rem; font-weight: 700; font-size: .85rem; cursor: pointer; }
+.storyb00k__start-body { display: grid; gap: .5rem; padding: 0 .6rem .6rem; }
+.storyb00k__start-body img { max-width: 100%; max-height: 260px; object-fit: contain; background: #fff; border-radius: .3rem; justify-self: start; }
+.storyb00k__start-body pre { margin: 0; max-height: 220px; overflow: auto; padding: .5rem; background: #091127; border-radius: .3rem; font-size: .75rem; white-space: pre-wrap; }
+.storyb00k__handoff-meta { opacity: .7; font-size: .75rem; font-weight: 400; }
 .storyb00k__handoff-error { color: #fca5a5; background: #450a0a; padding: .3rem .5rem; border-radius: .3rem; font-size: .8rem; margin: 0; }
-.storyb00k__handoff-preview { position: relative; display: inline-block; max-width: 300px; max-height: 200px; border: 2px solid #38bdf8; border-radius: .45rem; overflow: hidden; background: #091127; }
-.storyb00k__handoff-preview img { display: block; max-width: 100%; max-height: 200px; object-fit: contain; }
-.storyb00k__handoff-dismiss { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border: none; border-radius: 50%; background: rgba(0,0,0,0.7); color: #fff; font-size: 16px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-.storyb00k__handoff-dismiss:hover { background: rgba(239, 68, 68, 0.9); }
 .storyb00k__input { width: 100%; resize: vertical; font: inherit; border: 1px solid #3b4d7d; border-radius: .45rem; background: #091127; color: #edf5ff; padding: .55rem .65rem; }
 .storyb00k__edit-box textarea, .storyb00k__freetext, .storyb00k__project-title input { font: inherit; border: 1px solid #3b4d7d; border-radius: .45rem; background: #091127; color: #edf5ff; padding: .4rem .5rem; }
 .storyb00k__project-title input { font-weight: 700; }
