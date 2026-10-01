@@ -126,6 +126,35 @@ PLANNER_PREAMBLE = (
 )
 
 
+LANGUAGE_SKILLS_DIR = SKILLS_DIR / "diagrams"
+MAX_SKILL_CHARS = 6000
+
+
+def language_skill(fmt):
+    """Body of skills/diagrams/<format>/SKILL.md (portable SKILL.md: frontmatter stripped), or None."""
+    if not isinstance(fmt, str) or not fmt.replace("-", "").replace("_", "").isalnum():
+        return None
+    path = LANGUAGE_SKILLS_DIR / fmt.lower() / "SKILL.md"
+    try:
+        text = path.read_text()
+    except OSError:
+        return None
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        text = parts[2] if len(parts) == 3 else text
+    return text.strip()[:MAX_SKILL_CHARS]
+
+
+class SkillRequiredError(Exception):
+    """A render named a language whose syntax guide has not yet been delivered this run: deliver it first.
+    This is the deterministic gate: unlike a model-judged skill load, it cannot be skipped."""
+
+    def __init__(self, fmt, guide):
+        super().__init__(f"{fmt} syntax guide delivered")
+        self.fmt = fmt
+        self.guide = guide
+
+
 class DuplicateCallError(Exception):
     """The model repeated a successful render with byte-identical arguments."""
 
@@ -887,6 +916,7 @@ class Handler(BaseHTTPRequestHandler):
         usage_total = {"promptTokens": 0, "completionTokens": 0}
         rounds = 0
         completed_calls = set()  # successful render calls this run, to refuse identical repeats
+        skills_delivered = set()  # languages whose syntax guide the model has been given this run
         while True:
             rounds += 1
             run_log.event("llm.round.start", {"round": rounds})
@@ -1121,6 +1151,7 @@ class Handler(BaseHTTPRequestHandler):
                 stream.try_write({"type": "TOOL_CALL_ARGS", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "delta": call["function"]["arguments"] or "{}"})
                 started = time.time()
                 tool_image_data_url = None
+                ui_note = None
                 try:
                     call_key = call_signature(name, arguments) if name.startswith("render_") else None
                     if call_key in completed_calls:
@@ -1128,6 +1159,13 @@ class Handler(BaseHTTPRequestHandler):
                             "you already rendered exactly this source and it succeeded; the result is above. "
                             "Change the source to refine it, or present the result to the user."
                         )
+                    if name == "render_diagram":
+                        fmt = str(arguments.get("format") or "").lower().strip()
+                        guide = language_skill(fmt) if fmt not in skills_delivered else None
+                        if guide:
+                            skills_delivered.add(fmt)
+                            run_log.event("skill.gate", {"format": fmt, "chars": len(guide)})
+                            raise SkillRequiredError(fmt, guide)
                     method, url, body = apply_binding(tool, bind_arguments(name, arguments, thread_id), KR0KI_URL)
                     content_type, result = http_call(method, url, body)
                     if call_key:
@@ -1139,6 +1177,15 @@ class Handler(BaseHTTPRequestHandler):
                     consecutive_failures = 0  # Reset on success
                     stream._consecutive_failures = 0
                     run_log.tool_call(name, True, int((time.time() - started) * 1000))
+                except SkillRequiredError as gate:
+                    # Not a failure: the call was held back so the model reads the syntax guide first.
+                    tool_content = (
+                        f"Your {gate.fmt} render was NOT run yet. Read this {gate.fmt} syntax guide, then call "
+                        f"render_diagram again with a corrected source.\n\n{gate.guide}"
+                    )
+                    ui_note = f"Loaded the {gate.fmt} syntax guide ({len(gate.guide)} chars); retrying with it."
+                    tool_ok = False
+                    run_log.tool_call(name, False, int((time.time() - started) * 1000), error=gate)
                 except Exception as tool_error:  # noqa: BLE001 — feed the failure back to the LLM
                     tool_content = f"tool {name} failed: {describe_tool_error(tool_error)}"
                     tool_ok = False
@@ -1150,10 +1197,10 @@ class Handler(BaseHTTPRequestHandler):
                         tool_content += f"\n\n[WARNING: {consecutive_failures} consecutive failures. Consider a different approach or format.]"
                 # TOOL_CALL_END carries only ids; results are TOOL_CALL_RESULT.
                 stream.try_write({"type": "TOOL_CALL_END", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id})
-                stream.try_write({"type": "TOOL_CALL_RESULT", "threadId": thread_id, "runId": stream.run_id, "messageId": parent_message_id, "toolCallId": tool_call_id, "content": truncate(tool_content)[:2000], "role": "tool"})
+                stream.try_write({"type": "TOOL_CALL_RESULT", "threadId": thread_id, "runId": stream.run_id, "messageId": parent_message_id, "toolCallId": tool_call_id, "content": ui_note or truncate(tool_content)[:2000], "role": "tool"})
                 if tool_ok:
                     stream.try_write({"type": "STATE_DELTA", "threadId": thread_id, "runId": stream.run_id, "delta": [{"op": "add", "path": "/panels/-", "value": panel}]})
-                llm_tool_content = truncate(tool_content)[:2000]
+                llm_tool_content = tool_content[:MAX_SKILL_CHARS + 400] if ui_note else truncate(tool_content)[:2000]
                 messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": llm_tool_content})
                 if tool_image_data_url:
                     messages.append({

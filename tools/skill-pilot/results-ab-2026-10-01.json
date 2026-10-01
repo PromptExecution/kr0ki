@@ -1,0 +1,266 @@
+{
+ "d2": {
+  "plain": [
+   {
+    "task": "a three-tier web app: browser, load balancer, two app servers, a Postgres database drawn as a cylinder",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "an order workflow with a decision node and labelled arrows, blue fill on the start node",
+    "ok": false,
+    "err": "Error 400: err: failed to compile -: -:3:7: fill must be style.fill (exit code 1)"
+   },
+   {
+    "task": "a service named 'Billing ($)' that calls 'Auth' and 'Ledger', grouped inside a container called platform",
+    "ok": false,
+    "err": "Error 400: err: failed to compile -: -:2:22: substitutions must begin on { (exit code 1)"
+   },
+   {
+    "task": "a database table 'users' with id, email and created_at columns",
+    "ok": false,
+    "err": "Error 400: err: failed to compile -: -:2:10: unknown shape \"table\" (exit code 1)"
+   },
+   {
+    "task": "a sequence of messages between client, api and cache",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "three boxes in a row with a dotted arrow from the first to the last and a markdown note",
+    "ok": false,
+    "err": "Error 400: err: failed to compile -: -:19:12: unknown shape \"note\" (exit code 1)"
+   }
+  ],
+  "skill": [
+   {
+    "task": "a three-tier web app: browser, load balancer, two app servers, a Postgres database drawn as a cylinder",
+    "ok": false,
+    "err": "Error 400: err: failed to compile -: -:2:10: unknown shape \"browser\" err: -:12:10: unknown shape \"server\" err: -:17:10: unknown shape \"server\" (exit code 1)"
+   },
+   {
+    "task": "an order workflow with a decision node and labelled arrows, blue fill on the start node",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "a service named 'Billing ($)' that calls 'Auth' and 'Ledger', grouped inside a container called platform",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "a database table 'users' with id, email and created_at columns",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "a sequence of messages between client, api and cache",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "three boxes in a row with a dotted arrow from the first to the last and a markdown note",
+    "ok": false,
+    "err": "Error 400: err: failed to compile -: -:24:10: unknown shape \"note\" err: -:20:9: invalid style keyword: \"dashed\" (exit code 1)"
+   }
+  ]
+ },
+ "graphviz": {
+  "plain": [
+   {
+    "task": "a build pipeline: source, build, test, deploy as left-to-right boxes",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "a record-shaped node listing name|age|address fields and an edge to a second record",
+    "ok": false,
+    "err": "Error 400: Error: <stdin>: syntax error in line 3 near ']' (exit code 1)"
+   },
+   {
+    "task": "two clusters, frontend and backend, with edges between their nodes",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "a decision flow with diamonds and yes/no edge labels",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "services whose names contain spaces: 'Auth Service' calls 'User DB'",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "same-rank nodes a, b, c under a common parent",
+    "ok": true,
+    "err": ""
+   }
+  ],
+  "skill": [
+   {
+    "task": "a build pipeline: source, build, test, deploy as left-to-right boxes",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "a record-shaped node listing name|age|address fields and an edge to a second record",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "two clusters, frontend and backend, with edges between their nodes",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "a decision flow with diamonds and yes/no edge labels",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "services whose names contain spaces: 'Auth Service' calls 'User DB'",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "same-rank nodes a, b, c under a common parent",
+    "ok": true,
+    "err": ""
+   }
+  ]
+ },
+ "plantuml": {
+  "plain": [
+   {
+    "task": "a class diagram: Animal with subclasses Dog and Cat, Dog has a list of Toy",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "an interface Repository<T> implemented by UserRepository, with private and public members",
+    "ok": false,
+    "err": "Error 400: Syntax Error? (Assumed diagram type: class) (line: 15)"
+   },
+   {
+    "task": "a package 'billing' containing Invoice and Payment classes, Invoice aggregates Payment",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "an abstract class Shape with Circle and Square, plus a note on Shape",
+    "ok": false,
+    "err": "Error 400: Syntax Error? (Assumed diagram type: class) (line: 18)"
+   },
+   {
+    "task": "an enum Status with three values used by an Order class",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "a class diagram with a stereotype <<Entity>> and hidden empty members",
+    "ok": true,
+    "err": ""
+   }
+  ],
+  "skill": [
+   {
+    "task": "a class diagram: Animal with subclasses Dog and Cat, Dog has a list of Toy",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "an interface Repository<T> implemented by UserRepository, with private and public members",
+    "ok": false,
+    "err": "Error 400: Syntax Error? (Assumed diagram type: class) (line: 12)"
+   },
+   {
+    "task": "a package 'billing' containing Invoice and Payment classes, Invoice aggregates Payment",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "an abstract class Shape with Circle and Square, plus a note on Shape",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "an enum Status with three values used by an Order class",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "a class diagram with a stereotype <<Entity>> and hidden empty members",
+    "ok": true,
+    "err": ""
+   }
+  ]
+ },
+ "nwdiag": {
+  "plain": [
+   {
+    "task": "a DMZ with two web servers and an internal network with a database, web servers on both",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "an office LAN 192.168.0.0/24 with a NAS, a laptop and a printer",
+    "ok": false,
+    "err": "Error 400: ERROR: 1,1-1,7: got unexpected token: 'network', expected: '{' (exit code 255)"
+   },
+   {
+    "task": "an internet cloud connected to a router that sits on a LAN with two hosts",
+    "ok": false,
+    "err": "Error 400: ERROR: Got unexpected token at line 34 column 10 (exit code 255)"
+   },
+   {
+    "task": "a front-end network and a back-end network joined by a gateway node with two addresses",
+    "ok": false,
+    "err": "Error 400: ERROR: 1,1-1,7: got unexpected token: 'network', expected: '{' (exit code 255)"
+   },
+   {
+    "task": "a labelled, coloured management network with three switches",
+    "ok": false,
+    "err": "Error 400: ERROR: Got unexpected token at line 7 column 9 (exit code 255)"
+   },
+   {
+    "task": "a database server on an internal network and an app server on both internal and public networks",
+    "ok": false,
+    "err": "Error 400: ERROR: Got unexpected token at line 22 column 10 (exit code 255)"
+   }
+  ],
+  "skill": [
+   {
+    "task": "a DMZ with two web servers and an internal network with a database, web servers on both",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "an office LAN 192.168.0.0/24 with a NAS, a laptop and a printer",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "an internet cloud connected to a router that sits on a LAN with two hosts",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "a front-end network and a back-end network joined by a gateway node with two addresses",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "a labelled, coloured management network with three switches",
+    "ok": true,
+    "err": ""
+   },
+   {
+    "task": "a database server on an internal network and an app server on both internal and public networks",
+    "ok": true,
+    "err": ""
+   }
+  ]
+ }
+}

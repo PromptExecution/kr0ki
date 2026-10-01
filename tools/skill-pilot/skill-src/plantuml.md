@@ -1,0 +1,6 @@
+- **Every source must start with `@startuml` and end with `@enduml`.** Without the wrapper the renderer fails with `Syntax Error? (Assumed diagram type: sequence)` (seen in real runs).
+- Class diagrams: `class Name { +publicField : Type ; -privateMethod() }`, `abstract class`, `interface`, `enum`; relationships `<|--` (inherits), `*--` (composition), `o--` (aggregation), `-->` (association), `..>` (dependency); labels after a colon.
+- Generics go in angle brackets on the class name: `class Box<T>`; stereotypes use guillemets: `class A <<Entity>>`.
+- Group with `package "Name" { ... }`; attach text with `note right of A : text` or `note "text" as N1`.
+- Style with `skinparam` lines before the elements; `hide empty members` removes empty compartments.
+- A line PlantUML cannot place gives `Syntax Error? (Assumed diagram type: class) (line: N)`: fix that line, do not rewrite everything.

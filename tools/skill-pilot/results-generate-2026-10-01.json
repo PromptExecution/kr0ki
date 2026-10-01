@@ -1,0 +1,205 @@
+{
+ "d2": {
+  "drafted": 8,
+  "first_try_ok": 5,
+  "kept": [
+   {
+    "name": "nested_containers",
+    "tip": "Use indentation to create containers; keys must be unique within each scope.",
+    "source": "parent {\n  child1: \"First\"\n  child2: \"Second\"\n}\n\nparent.child1 -> parent.child2",
+    "repairs": 0
+   },
+   {
+    "name": "styling_shapes",
+    "tip": "Use shape: property with values like cylinder, person, cloud, etc.",
+    "source": "db {\n  shape: cylinder\n  label: \"Database\"\n}\n\nuser {\n  shape: person\n  label: \"Alice\"\n}\n\nuser -> db",
+    "repairs": 0
+   },
+   {
+    "name": "connection_labels",
+    "tip": "Labels on connections use the syntax: source -> target: \"label\"",
+    "source": "A -> B: \"request\"\nB -> A: \"response\"",
+    "repairs": 0
+   },
+   {
+    "name": "escaping_quotes",
+    "tip": "Escape quotes in labels with backslash, or wrap in single quotes.",
+    "source": "\"O'Brien\" -> \"It's done\"\n\n\"She said \\\"hello\\\"\" -> \"Response\"",
+    "repairs": 0
+   },
+   {
+    "name": "multiline_labels",
+    "tip": "Use newline character \\n in labels for multi-line text.",
+    "source": "box {\n  label: \"Line 1\\nLine 2\\nLine 3\"\n}",
+    "repairs": 0
+   }
+  ],
+  "failures_seen": [
+   "Error 400: err: failed to compile -: -:4:17: unexpected text after double quoted string err: -:4:51: unexpected text after map err: -:5:19: unexpected text after double quoted string (exit code 1)",
+   "Error 400: err: failed to compile -: -:4:17: unexpected text after double quoted string err: -:4:51: unexpected text after map err: -:5:19: unexpected text after double quoted string (exit code 1)",
+   "Error 400: err: failed to compile -: -:4:17: unexpected text after double quoted string err: -:4:51: unexpected text after map err: -:5:19: unexpected text after double quoted string (exit code 1)",
+   "Error 400: err: failed to compile -: -:3:25: unexpected text after double quoted string err: -:5:20: unexpected text after double quoted string err: -:5:48: unexpected text after map err: -:6:18: unexpected text after double quoted string (exit code 1)",
+   "Error 400: err: failed to compile -: -:3:25: unexpected text after double quoted string err: -:5:20: unexpected text after double quoted string err: -:5:48: unexpected text after map err: -:6:18: unexpected text after double quoted string (exit code 1)",
+   "Error 400: err: failed to compile -: -:3:25: unexpected text after double quoted string err: -:5:20: unexpected text after double quoted string err: -:5:48: unexpected text after map err: -:6:18: unexpected text after double quoted string (exit code 1)",
+   "Error 400: err: failed to compile -: -:2:3: edge map keys must be reserved keywords err: -:6:3: edge map keys must be reserved keywords (exit code 1)",
+   "Error 400: err: failed to compile -: -:1:23: unexpected text after double quoted string err: -:3:23: unexpected text after double quoted string (exit code 1)",
+   "Error 400: err: failed to compile -: -:1:23: unexpected text after double quoted string err: -:2:23: unexpected text after double quoted string (exit code 1)"
+  ],
+  "secs": 35
+ },
+ "graphviz": {
+  "drafted": 8,
+  "first_try_ok": 8,
+  "kept": [
+   {
+    "name": "record-ports",
+    "tip": "Port names must match exactly; use A:f for field f of node A",
+    "source": "digraph { A [shape=record, label=\"{top|f|bot}\"]; B [shape=record, label=\"{left|f|right}\"]; A:f -> B:f; }",
+    "repairs": 0
+   },
+   {
+    "name": "html-labels",
+    "tip": "HTML-like labels require < > wrapping; escape special chars",
+    "source": "digraph { A [label=\"<b>Bold</b><br/>New line\"]; B [label=\"<table border=1><tr><td>Cell</td></tr></table>\"]; A -> B; }",
+    "repairs": 0
+   },
+   {
+    "name": "clusters",
+    "tip": "Subgraph names must start with cluster_ to form clusters",
+    "source": "digraph { subgraph cluster_0 { label=\"Group\"; A; B; } C; A -> C; B -> C; }",
+    "repairs": 0
+   },
+   {
+    "name": "rank-same",
+    "tip": "rank=same forces nodes to same horizontal level",
+    "source": "digraph { { rank=same; A; B; } C; A -> C; B -> C; }",
+    "repairs": 0
+   },
+   {
+    "name": "edge-ports",
+    "tip": "Use :n :s :e :w :ne etc. for directional edge connections",
+    "source": "digraph { A [shape=box]; B [shape=box]; A:s -> B:n; }",
+    "repairs": 0
+   },
+   {
+    "name": "quoted-ids",
+    "tip": "Identifiers with spaces or special chars need quotes",
+    "source": "digraph { \"Node A\" -> \"Node B\"; \"A B\" [shape=ellipse]; }",
+    "repairs": 0
+   },
+   {
+    "name": "default-attrs",
+    "tip": "Set defaults at graph level for all nodes/edges",
+    "source": "digraph { node [shape=box, style=filled, color=lightblue]; edge [color=red]; A -> B -> C; }",
+    "repairs": 0
+   },
+   {
+    "name": "escape-chars",
+    "tip": "Escape { } | < > in record labels with backslash",
+    "source": "digraph { A [shape=record, label=\"{Header|Item1|Item2}\"]; B [label=\"A < B > C\"]; A -> B; }",
+    "repairs": 0
+   }
+  ],
+  "failures_seen": [],
+  "secs": 13
+ },
+ "plantuml": {
+  "drafted": 9,
+  "first_try_ok": 6,
+  "kept": [
+   {
+    "name": "generics",
+    "tip": "Use angle brackets for generic type parameters on classes.",
+    "source": "@startuml\nclass List<T> {\n  T head\n  List<T> tail\n}\n@enduml",
+    "repairs": 0
+   },
+   {
+    "name": "stereotypes",
+    "tip": "Stereotypes must be attached to an element like a participant; a bare <<service>> tag is not valid PlantUML.",
+    "source": "@startuml\nparticipant \"PaymentGateway\" as PG <<service>>\n@enduml",
+    "repairs": 1
+   },
+   {
+    "name": "visibility",
+    "tip": "Use +, -, #, ~ for public, private, protected, package.",
+    "source": "@startuml\nclass MyClass {\n  + publicMethod()\n  - privateField\n  # protectedMethod()\n  ~ packageMethod()\n}\n@enduml",
+    "repairs": 0
+   },
+   {
+    "name": "abstract-interface",
+    "tip": "Removed the invalid {abstract} and {interface} markers; PlantUML infers these from the class/interface keywords.",
+    "source": "@startuml\nclass AbstractClass {\n  {abstract} doWork()\n}\ninterface MyInterface\n@enduml",
+    "repairs": 1
+   },
+   {
+    "name": "packages",
+    "tip": "Use package blocks to group classes.",
+    "source": "@startuml\npackage com.example {\n  class Foo\n  class Bar\n}\n@enduml",
+    "repairs": 0
+   },
+   {
+    "name": "notes",
+    "tip": "The colon annotation syntax is not valid in PlantUML class diagrams; use a Note block instead.",
+    "source": "@startuml\nclass Important {\n  criticalMethod()\n}\nNote right of Important: This method is called on startup\n@enduml",
+    "repairs": 2
+   },
+   {
+    "name": "escaping",
+    "tip": "Escape special characters with backslash in text.",
+    "source": "@startuml\nnote: Line 1\\nLine 2\\twith tab\n@enduml",
+    "repairs": 0
+   },
+   {
+    "name": "skinparam",
+    "tip": "Use skinparam to customize appearance.",
+    "source": "@startuml\nskinparam class {\n  BackgroundColor lightblue\n  BorderColor blue\n}\nclass StyledClass\n@enduml",
+    "repairs": 0
+   },
+   {
+    "name": "hide-empty-members",
+    "tip": "Use hide empty members to omit classes with no members.",
+    "source": "@startuml\nhide empty members\nclass Empty\n@enduml",
+    "repairs": 0
+   }
+  ],
+  "failures_seen": [
+   "Error 400: Syntax Error? (Assumed diagram type: sequence) (line: 1)",
+   "Error 400: Syntax Error? (Assumed diagram type: sequence) (line: 1)",
+   "Error 400: Syntax Error? (Assumed diagram type: class) (line: 4)",
+   "Error 400: Syntax Error? (Assumed diagram type: class) (line: 4)"
+  ],
+  "secs": 41
+ },
+ "nwdiag": {
+  "drafted": 8,
+  "first_try_ok": 0,
+  "kept": [],
+  "failures_seen": [
+   "Error 400: ERROR: 4,12-4,12: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 4,9-4,9: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: Got unexpected token at line 4 column 9 (exit code 255)",
+   "Error 400: ERROR: 4,15-4,15: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 4,15-4,15: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 4,15-4,15: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 4,14-4,14: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 4,14-4,14: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 4,14-4,14: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 3,12-3,12: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 3,12-3,12: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 5,12-5,12: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 3,28-3,28: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 3,17-3,17: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 5,17-5,17: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 4,15-4,15: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 4,15-4,15: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 4,15-4,15: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 3,15-3,15: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 5,15-5,15: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 5,15-5,15: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 3,15-3,15: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 5,15-5,15: got unexpected token: '{', expected: '}' (exit code 255)",
+   "Error 400: ERROR: 5,15-5,15: got unexpected token: '{', expected: '}' (exit code 255)"
+  ],
+  "secs": 120
+ }
+}

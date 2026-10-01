@@ -72,9 +72,9 @@ real value, **and the renderer is a free, automatic judge of every example** (th
 | WP | Task | Who | Acceptance |
 |---|---|---|---|
 | **0** | **Quick win, ~1 hour:** make tool errors carry the HTTP body (`manifest_dispatch.http_call` / `server.py` catch of `HTTPError`); dedupe identical consecutive render calls; show the real error in the UI step | Claude agent | A bad PlantUML source yields `Syntax Error? (Assumed diagram type: sequence)` to the model; an identical re-render is refused with a hint; unit tests |
-| 1 | **Skill corpus pipeline:** per language, generate candidate examples with the local model through pi (`tools/skill-pilot/pilot.py` is the seed), **keep only those that render**, store source + the gotcha sentence. Start with the 13 syntaxes that have no skill and PlantUML's 6 missing types | Local model via pi for drafting; Claude agent reviews | Each skill has >=8 render-verified examples; script re-verifies all examples in CI against a Kroki backend |
+| 1 | **(first slice DONE: d2, graphviz, plantuml-class, nwdiag; 13 syntaxes + 6 PlantUML types remain)** **Skill corpus pipeline:** per language, generate candidate examples with the local model through pi (`tools/skill-pilot/pilot.py` is the seed), **keep only those that render**, store source + the gotcha sentence. Start with the 13 syntaxes that have no skill and PlantUML's 6 missing types | Local model via pi for drafting; Claude agent reviews | Each skill has >=8 render-verified examples; script re-verifies all examples in CI against a Kroki backend |
 | 2 | **Skills content** (syntax, type quality, brand): human-reviewed; trigger-rich descriptions; size budget (<4 KB per skill body, longer material in `references/`) | Claude agent + user review of brand/palette | Review checklist per skill; spot-check by rendering |
-| 3 | **pi package + gate extension** (`kr0ki-diagram-harness`): `skills/`, `extensions/gate.ts`, `prompts/`; kr0ki MCP tools via `pi-mcp-adapter` with `directTools: true` | Claude agent | Run 20 canned prompts per language against :8002: with the gate, **0 renders happen before the matching skill is read**; render-success rate vs the no-skill baseline (§2) |
+| 3 | **(gate DONE in the Python agent, see §7 of the design note; the pi extension is NOT built)** **pi package + gate extension** (`kr0ki-diagram-harness`): `skills/`, `extensions/gate.ts`, `prompts/`; kr0ki MCP tools via `pi-mcp-adapter` with `directTools: true` | Claude agent | Run 20 canned prompts per language against :8002: with the gate, **0 renders happen before the matching skill is read**; render-success rate vs the no-skill baseline (§2) |
 | 4 | **Harness mode in kr0ki:** run pi as a sidecar (`--mode rpc`), adapt the AG-UI `/run` endpoint (or a feature flag next to the Python agent) so the UI is unchanged; planner threads keep their own tool set | Claude agent | Same UI works against either backend; existing 50 agent tests + playbook tests pass |
 | 5 | **UX legibility** in `StoryB00k.vue`: a **plan card** before acting (mode, chosen type, skills loaded, round x/15, question budget); tool steps expandable with arguments, format and the real error; "stopped because ..." as a structured message with Retry/Edit | Claude agent | Component tests; a screenshot walk-through against a real run |
 | 6 | **b00t + UFO registration:** datums for every skill; `b00t lfmf` tips; usage events (skill loaded-for type, outcome verdict) written as a `SysGraph` snapshot or `b00t influence` entry; propose the Skill type upstream in `ufo-types` | Claude agent; user decides upstream | `b00t skill search diagram` lists them; a usage report answers "which skills were loaded, and did the render pass?" |
@@ -105,3 +105,27 @@ real value, **and the renderer is a free, automatic judge of every example** (th
 3. Where skills are hosted/auto-loaded ("GitHub auto-loaded", see §1).
 4. `Skill` **is a UFO stereotype** (decided). Still to approve: the upstream `ufo-types` change (a Kind in a `CapabilityDomain` with an identifier and an icon reference); see design note §6.
 5. MBSE: whether to proceed to a read-only live demo against the organisation's SysML v2 server (needs a URL/token).
+
+## 7. Status update (end of 2026-10-01) and how to add a language skill
+**Built and live (v0.0.7 + the gate):** `skills/diagrams/{d2,graphviz,plantuml,nwdiag}/SKILL.md` (portable `SKILL.md`; hand-written rules
+**each checked against the renderer** + examples **that all render**, 27/27); a **deterministic gate** in the Python agent
+(`language_skill`, `SkillRequiredError` in `server.py`): the first `render_diagram` in a language that has a skill is held back
+and the model receives the guide (the user sees one line: "Loaded the d2 syntax guide"); the retry runs. Gating does not
+count as a failure. Verified live: an nwdiag request was gated, then rendered. Mutation-checked.
+
+**Measured (single sample, local 27B model, new drawing tasks, renderer as judge; `tools/skill-pilot/results-ab-2026-10-01.json`):**
+without the skill 12/24 rendered, with it 21/24 (nwdiag 1->6, d2 2->4, graphviz 5->6, plantuml 4->5). The model could not
+learn nwdiag or much D2 from error messages alone (repair loop: plantuml 6->9 of 9, d2 stuck at 5/8, nwdiag 0/8), so those
+rules had to be hand-written from verified behaviour. Indicative, not statistical.
+
+**Add a language skill (process):**
+1. Pick the format slug (`GET /formats`). Start the stack (kr0ki :8787 + Kroki :8010) and the local model (:8002).
+2. `PI_SMOKE_DIR=<isolated pi dir> python3 tools/skill-pilot/generate.py out.json <lang>`: the model drafts examples, the renderer judges,
+   failures are repaired with the real error. If first-try success is poor (nwdiag was 0/8), write examples by hand.
+3. Probe each rule you intend to write with a one-line render (`/render/<fmt>`) and record both the passing and the failing form; write
+   only what the renderer confirmed into `tools/skill-pilot/skill-src/<lang>.md`. Add the language to `build_skills.py` (IDENT, DESC, example source).
+4. `python3 tools/skill-pilot/build_skills.py out.json containers/kr0ki-storyb00k-agent/skills/diagrams` (re-renders every example; skips failures; <=5800 chars).
+5. `python3 tools/skill-pilot/verify_skills.py containers/kr0ki-storyb00k-agent/skills/diagrams` must print `N/N examples render`.
+6. `AB_ONLY=<lang> PI_SMOKE_DIR=... python3 tools/skill-pilot/ab.py <skills dir> ab.json` to measure with vs without; keep the result file.
+7. Agent tests: `cd containers/kr0ki-storyb00k-agent && .venv/bin/python -m unittest discover -p "test_*.py"` (static shape check covers the new skill); restart the agent (`just stop-agent && just start-agent`).
+Pitfall: the SysML/graphviz `D2` cache token and skills are independent; but if you change what a renderer route emits, bump its cache version token.

@@ -155,6 +155,14 @@ class ToolErrorTest(unittest.TestCase):
 
 
 class DuplicateRenderTest(PlannerRunTest):
+    def setUp(self):
+        super().setUp()
+        import tempfile
+        # isolate from the shipped skills so the language gate does not hold back the first render here
+        p = patch.object(server, "LANGUAGE_SKILLS_DIR", Path(tempfile.mkdtemp(prefix="kr0ki-noskills-")))
+        p.start()
+        self.addCleanup(p.stop)
+
     def run_two_identical_renders(self):
         call = {"id": "c1", "function": {"name": "render_diagram", "arguments": json.dumps({"format": "d2", "source": "a -> b"})}}
         call2 = {"id": "c2", "function": {"name": "render_diagram", "arguments": json.dumps({"format": "d2", "source": "a -> b"})}}
@@ -178,3 +186,92 @@ class DuplicateRenderTest(PlannerRunTest):
     test_a_planner_run_steers_only_its_own_session_whatever_the_model_asks_for = None
     test_planner_runs_use_the_planner_prompt_and_tool_set = None
     test_a_regular_thread_cannot_call_navigate_ui = None
+
+
+class LanguageSkillTest(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self.tmp = Path(tempfile.mkdtemp(prefix="kr0ki-skills-"))
+        (self.tmp / "d2").mkdir()
+        (self.tmp / "d2" / "SKILL.md").write_text("---\nname: d2\ndescription: D2 syntax\n---\n# D2\nKeys are identifiers; put names in labels.\n")
+        p = patch.object(server, "LANGUAGE_SKILLS_DIR", self.tmp)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_frontmatter_is_stripped_and_missing_or_unsafe_names_yield_nothing(self):
+        self.assertTrue(server.language_skill("d2").startswith("# D2"))
+        self.assertNotIn("description:", server.language_skill("D2"))
+        for bad in ("nope", "../d2", "d2/../d2", "", None, 7):
+            self.assertIsNone(server.language_skill(bad), bad)
+
+
+class SkillGateRunTest(DuplicateRenderTest):
+    """A render in a language that has a skill is held back once, with the guide, then allowed."""
+
+    def setUp(self):
+        super().setUp()
+        import tempfile
+        tmp = Path(tempfile.mkdtemp(prefix="kr0ki-skills-"))
+        (tmp / "d2").mkdir()
+        (tmp / "d2" / "SKILL.md").write_text("---\nname: d2\ndescription: x\n---\n# D2 guide\nUse |md for markdown labels.\n")
+        p = patch.object(server, "LANGUAGE_SKILLS_DIR", tmp)
+        p.start()
+        self.addCleanup(p.stop)
+
+    test_an_identical_successful_render_is_refused_not_repeated = None  # inherited; the gate changes call 1
+
+    def run_calls(self, calls):
+        self.client.chat_completion.side_effect = [
+            {"model": "m", "choices": [{"message": {"content": "", "tool_calls": [{"id": f"c{i}", "function": {"name": "render_diagram", "arguments": json.dumps(a)}}]}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
+            for i, a in enumerate(calls)
+        ] + [{"model": "m", "choices": [{"message": {"content": "Done."}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}}]
+        body = json.dumps({"threadId": "regular-gate", "runId": "rg", "messages": [{"role": "user", "content": "draw"}]}).encode()
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/run", data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.read().decode()
+
+    def renders(self):
+        return [c for c in self.calls if c[1].endswith("/render_diagram")]
+
+    def test_first_render_is_held_back_and_the_guide_reaches_the_model_then_the_retry_runs(self):
+        raw = self.run_calls([{"format": "d2", "source": "a -> b"}, {"format": "d2", "source": "a -> b: x"}])
+        self.assertEqual(len(self.renders()), 1, self.calls)  # only the retry rendered
+        self.assertIn("Loaded the d2 syntax guide", raw)  # the user sees a short note, not the whole guide
+        self.assertNotIn("Use |md for markdown labels", raw)
+        second_round_messages = self.client.chat_completion.call_args_list[1].args[0]
+        tool_msgs = [m for m in second_round_messages if m.get("role") == "tool"]
+        # (the mock keeps a reference to the growing message list, so the gate's reply is the FIRST tool message)
+        self.assertIn("Use |md for markdown labels", tool_msgs[0]["content"])  # but the model gets it all
+        self.assertIn("was NOT run yet", tool_msgs[0]["content"])
+
+    def test_the_guide_is_delivered_once_per_run_and_languages_without_a_skill_are_not_gated(self):
+        self.run_calls([{"format": "d2", "source": "a"}, {"format": "d2", "source": "b"}, {"format": "d2", "source": "c"}, {"format": "graphviz", "source": "digraph{a->b}"}])
+        self.assertEqual(len(self.renders()), 3)  # d2 gated once; d2 x2 and graphviz ran
+
+    def test_gating_does_not_consume_the_consecutive_failure_budget(self):
+        server_budget = server.MAX_CONSECUTIVE_FAILURES
+        # one gate hold + (budget - 1) real failures must still leave room for the successful final render
+        self.assertGreaterEqual(server_budget, 2)
+        raw = self.run_calls([{"format": "d2", "source": "a"}, {"format": "d2", "source": "b"}])
+        self.assertNotIn("consecutive tool failures", raw)
+        self.assertEqual(len(self.renders()), 1)
+
+
+class ShippedSkillsTest(unittest.TestCase):
+    """Offline shape checks on the real skills/diagrams/*. Rendering every example needs a Kroki backend:
+    run tools/skill-pilot/verify_skills.py for that."""
+
+    def test_every_shipped_skill_is_well_formed_and_fits_the_gate(self):
+        root = server.SKILLS_DIR / "diagrams"
+        langs = sorted(p.name for p in root.iterdir() if p.is_dir())
+        self.assertTrue({"d2", "graphviz", "plantuml", "nwdiag"} <= set(langs), langs)
+        for fmt in langs:
+            raw = (root / fmt / "SKILL.md").read_text()
+            self.assertTrue(raw.startswith("---\nname: kr0ki-"), fmt)
+            self.assertIn("description: Use before", raw, fmt)
+            self.assertLessEqual(len(raw), server.MAX_SKILL_CHARS, f"{fmt} would be truncated by the gate")
+            self.assertGreaterEqual(raw.count(f"```{fmt}\n"), 3, f"{fmt} needs worked examples")
+            self.assertIn("## Identifiers", raw, fmt)
+            self.assertIn("Never invent identifiers", raw, fmt)
+            body = server.language_skill(fmt)
+            self.assertTrue(body.startswith(f"# {fmt}"), fmt)
