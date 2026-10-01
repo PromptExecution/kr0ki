@@ -1,6 +1,8 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { fetchSkill } from '../lib/skills.js'
+import { LANGUAGES, lspCapable } from '../lib/lsp.js'
+import CodeEditor from './CodeEditor.vue'
 
 const props = defineProps({
   example: { type: Object, required: true },
@@ -14,6 +16,8 @@ const props = defineProps({
   rendererUrl: { type: String, default: '' },
   // The diagram agent, which serves the syntax skill shown under the source.
   agentUrl: { type: String, default: '' },
+  // Optional language servers configured in Setup: { format: ws:// URL }
+  lspUrls: { type: Object, default: () => ({}) },
   // Output format from Setup (persisted to localStorage). Defaults to 'svg'.
   outputFormat: { type: String, default: 'svg' },
 })
@@ -40,6 +44,18 @@ const artifactUrl = ref('')
 const result = ref('Ready')
 const busy = ref(false)
 const autoRender = ref(true)
+// Language-server status line under the editor: honest about whether one exists, is configured, and connected.
+const lsp = ref({ status: 'none' })
+const lspLabel = computed(() => {
+  const f = props.example.format
+  if (!lspCapable(f)) return { status: 'none', text: `No language server exists for ${f}; plain editor.` }
+  const kind = LANGUAGES[f].lsp
+  if (!props.lspUrls[f]) return { status: 'idle', text: `A ${kind} language server can be used for ${f}: not configured (Setup → Language servers).` }
+  if (lsp.value.status === 'connected') return { status: 'connected', text: `Language server: connected (${kind}) — completion, hover and diagnostics are on.` }
+  if (lsp.value.status === 'unavailable') return { status: 'unavailable', text: `Language server unavailable (${lsp.value.message || 'no connection'}); editing without it.` }
+  return { status: 'connecting', text: 'Language server: connecting…' } // configured, and no verdict yet
+})
+
 // The syntax skill for this format, shown under the source (what the agent reads before it renders).
 const skill = ref({ status: 'loading' })
 let skillRequest = 0
@@ -317,11 +333,12 @@ async function sendToAgent() {
 
     <div class="workspace">
       <div class="editor-col">
-        <label class="source-label">
-          Diagram source — edit, paste, or upload your own {{ example.format }} source; not
-          limited to the example shown
-          <textarea v-model="source" spellcheck="false" data-testid="source-editor" />
-        </label>
+        <div class="source-label">
+          <span class="source-caption">Diagram source — edit, paste, or upload your own {{ example.format }} source; not
+          limited to the example shown</span>
+          <CodeEditor v-model="source" :format="example.format" :lsp-url="lspUrls[example.format] || ''" @lsp-status="lsp = $event" />
+          <p class="lsp-badge" :data-status="lspLabel.status" data-testid="lsp-badge">{{ lspLabel.text }}</p>
+        </div>
         <details class="skill-panel" open data-testid="skill-panel">
           <summary>Syntax skill · {{ example.format }} <span class="skill-hint">what the agent reads before it renders this language</span></summary>
           <pre v-if="skill.status === 'ok'" class="skill-text" data-testid="skill-text">{{ skill.text }}</pre>

@@ -1,12 +1,15 @@
 <script setup>
 import { ref, onMounted } from 'vue'
+import { LANGUAGES, isWsUrl, lspFormats } from '../lib/lsp.js'
 
 const props = defineProps({
   rendererUrl: { type: String, default: '' },
   agentUrl: { type: String, default: '' },
+  // Optional language servers: { format: ws:// URL }
+  lspUrls: { type: Object, default: () => ({}) },
 })
 
-const emit = defineEmits(['update:rendererUrl', 'update:llmUrl', 'update:llmKey', 'update:llmModel', 'update:agentUrl', 'update:outputFormat'])
+const emit = defineEmits(['update:rendererUrl', 'update:llmUrl', 'update:llmKey', 'update:llmModel', 'update:agentUrl', 'update:outputFormat', 'update:lspUrls'])
 
 // Local state for form inputs
 const localRendererUrl = ref(props.rendererUrl)
@@ -26,6 +29,10 @@ const agentTestStatus = ref('')
 const agentTestMessage = ref('')
 const availableModels = ref([])
 const outputFormat = ref('svg')
+// Language servers: one optional ws:// URL per language that has a server we can run (vega, vegalite, wireviz).
+const lspFormatList = lspFormats()
+const localLspUrls = ref({ ...props.lspUrls })
+const lspUrlError = (format) => (localLspUrls.value[format] && !isWsUrl(localLspUrls.value[format]) ? 'Must start with ws:// or wss://' : '')
 
 // Computed for template access to window
 const defaultLlmPlaceholder = ref('')
@@ -65,6 +72,7 @@ function saveSettings() {
   emit('update:llmModel', llmModel.value)
   emit('update:agentUrl', localAgentUrl.value)
   emit('update:outputFormat', outputFormat.value)
+  emit('update:lspUrls', Object.fromEntries(Object.entries(localLspUrls.value).filter(([, u]) => isWsUrl(u))))
   
   // Show saved indicator
   saved.value = true
@@ -264,6 +272,20 @@ async function testAgent() {
             {{ agentTestMessage }}
           </span>
         </div>
+      </section>
+
+      <section class="setup__section" data-testid="lsp-settings">
+        <h3>Language servers (optional)</h3>
+        <p class="setup__section-desc">
+          The code editor can use a Language Server for completion, hover and diagnostics. Only some languages have a server we can run:
+          JSON (vega, vegalite) and YAML (wireviz). Start the bridge with <code>just lsp-bridge</code> and paste its URL; if it is not
+          reachable the editor simply works without it.
+        </p>
+        <label v-for="format in lspFormatList" :key="format" class="setup__field">
+          <span class="setup__label">{{ format }} <span class="setup__hint">({{ LANGUAGES[format].lsp }} server)</span></span>
+          <input v-model="localLspUrls[format]" type="text" :placeholder="`ws://127.0.0.1:8791/${LANGUAGES[format].lsp}`" class="setup__input" :data-testid="`lsp-url-${format}`" />
+          <span v-if="lspUrlError(format)" class="setup__hint" style="color:#fca5a5">{{ lspUrlError(format) }}</span>
+        </label>
       </section>
 
       <section class="setup__section">

@@ -1,0 +1,13 @@
+{
+  "name": "kr0ki-lsp-bridge",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Exposes stdio language servers to the playbook editor over WebSocket, with an allowlist, Origin check and limits.",
+  "scripts": { "start": "node bridge.mjs", "test": "node --test \"test/*.test.mjs\"" },
+  "dependencies": {
+    "vscode-langservers-extracted": "^4.10.0",
+    "ws": "^8.18.0",
+    "yaml-language-server": "^1.24.0"
+  }
+}

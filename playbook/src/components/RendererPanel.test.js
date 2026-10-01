@@ -62,12 +62,28 @@ describe('RendererPanel syntax skill', () => {
     expect(down.find('[data-testid="skill-error"]').text()).toContain('connection refused')
   })
 
-  it('does not break the editor: the textarea is still the source and stays editable', async () => {
+  it('uses the code editor for the source: it holds the example, and edits flow back through v-model', async () => {
     const w = mountPanel()
     await flushPromises()
-    const ta = w.find('[data-testid="source-editor"]')
-    expect(ta.element.value).toContain('a -> b')
-    await ta.setValue('x -> y')
-    expect(ta.element.value).toBe('x -> y')
+    const editor = w.findComponent({ name: 'CodeEditor' })
+    expect(editor.exists()).toBe(true)
+    expect(editor.vm.getText()).toContain('a -> b')
+    expect(w.find('[data-testid="source-editor"] .cm-content').text()).toContain('a -> b')
+    editor.vm.$emit('update:modelValue', 'x -> y')
+    await flushPromises()
+    expect(editor.vm.getText()).toBe('x -> y')
+  })
+
+  it('says plainly whether a language server exists, is configured, or is connected', async () => {
+    const plain = mountPanel(d2)
+    await flushPromises()
+    expect(plain.find('[data-testid="lsp-badge"]').text()).toContain('No language server exists for d2')
+    const vega = { id: 'e4', format: 'vegalite', title: 'V', description: '', input_kind: 'json', source: '{"a":1}', outputs: ['svg'] }
+    const idle = mountPanel(vega)
+    await flushPromises()
+    expect(idle.find('[data-testid="lsp-badge"]').text()).toContain('not configured')
+    const down = mountPanel(vega, { lspUrls: { vegalite: 'ws://127.0.0.1:1/json' } })
+    await vi.waitFor(() => expect(down.find('[data-testid="lsp-badge"]').attributes('data-status')).toBe('unavailable'), { timeout: 8000 })
+    expect(down.find('[data-testid="lsp-badge"]').text()).toContain('editing without it')
   })
 })

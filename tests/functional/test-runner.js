@@ -319,7 +319,7 @@ const UI_TESTS = [
     steps: [
       { action: 'navigate', url: `${CONFIG.baseUrl}/playbook/`, description: 'Navigate to playbook' },
       { action: 'wait', condition: 'element', selector: '.version-tag', description: 'Wait for version tag' },
-      { action: 'assert', type: 'text', selector: '.version-tag', expected: 'v0.0.11', description: 'Verify version text' },
+      { action: 'assert', type: 'text', selector: '.version-tag', expected: 'v0.0.12', description: 'Verify version text' },
       { action: 'screenshot', name: 'ui-002-version', description: 'Take screenshot' },
     ],
   },

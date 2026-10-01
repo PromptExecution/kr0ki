@@ -24,6 +24,20 @@ test:
     just build-assistant-ui-vue
     pnpm --dir playbook install --frozen-lockfile
     pnpm --dir playbook test
+    just test-lsp-bridge
+
+# Optional language-server bridge for the playbook's code editor (JSON for vega/vegalite, YAML for wireviz).
+# Binds 127.0.0.1:8791 only, runs a fixed allowlist of servers, checks the browser Origin. Add your playbook's
+# address to LSP_BRIDGE_ORIGINS (comma separated) if it is not localhost, e.g. your KR0KI_PUBLIC_URL (picked up from .env).
+# Then paste ws://127.0.0.1:8791/json (or /yaml) in the playbook's Setup -> Language servers.
+lsp-bridge:
+    pnpm --dir tools/lsp-bridge install --frozen-lockfile
+    node tools/lsp-bridge/bridge.mjs
+
+# Tests for the language-server bridge (against a fake stdio server; no real language server needed).
+test-lsp-bridge:
+    pnpm --dir tools/lsp-bridge install --frozen-lockfile
+    pnpm --dir tools/lsp-bridge test
 
 # Live render test against the private Kroki-compatible backend (needs it running).
 test-live backend="http://127.0.0.1:8010":

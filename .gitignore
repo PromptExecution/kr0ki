@@ -6,6 +6,7 @@
 /node_modules
 /test-results
 /playbook/node_modules
+/tools/lsp-bridge/node_modules
 /playbook/dist
 /playbook/.vite
 /.kr0ki-cache

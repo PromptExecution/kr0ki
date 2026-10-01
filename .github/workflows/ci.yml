@@ -52,6 +52,10 @@ jobs:
         run: |
           pnpm --dir playbook install --frozen-lockfile
           pnpm --dir playbook test
+      - name: lsp-bridge tests
+        run: |
+          pnpm --dir tools/lsp-bridge install --frozen-lockfile
+          pnpm --dir tools/lsp-bridge test
 
   # SysML-v2-Release conformance harness (phase 1). Runs in parallel with
   # `check` and does not block it: the corpus fetch (~110 MB tarball) and the

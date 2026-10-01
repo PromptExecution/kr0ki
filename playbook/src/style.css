@@ -26,7 +26,11 @@ nav { display: grid; gap: .35rem; }.format-link { border: 0; border-radius: .45r
 /* The editor is top-aligned, with the language's syntax skill directly below it; the preview is top-aligned beside them. */
 .editor-col { min-width: 0; border-right: 1px solid #2a3966; display: flex; flex-direction: column; align-self: start; }
 .source-label { display: block; padding: 1rem 1rem .5rem; }
-.source-label textarea { display: block; margin-top: .4rem; height: 20rem; min-height: 10rem; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; line-height: 1.5; }
+.source-caption { display: block; font-size: .85rem; color: #cdd8ee; }
+.lsp-badge { margin: .35rem 0 0; font-size: .72rem; color: #6f7fa3; }
+.lsp-badge[data-status="connected"] { color: #4ade80; }
+.lsp-badge[data-status="unavailable"] { color: #fbbf24; }
+.lsp-badge[data-status="connecting"] { color: #7dd3fc; }
 .skill-panel { margin: 0 1rem 1rem; border: 1px solid #2a3966; border-radius: .5rem; background: #0b1226; }
 .skill-panel summary { cursor: pointer; padding: .4rem .7rem; font-size: .8rem; font-weight: 700; color: #9cc9ff; }
 .skill-hint { margin-left: .5rem; font-weight: 400; color: #6f7fa3; font-size: .7rem; }
