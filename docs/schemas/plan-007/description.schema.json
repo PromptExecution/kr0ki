@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Description",
+  "description": "The model's structured reading of the original image, produced once per run.",
+  "type": "object",
+  "required": [
+    "diagram_kind"
+  ],
+  "properties": {
+    "confidence": {
+      "default": null,
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "diagram_kind": {
+      "$ref": "#/definitions/DiagramKind"
+    },
+    "edges": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/DescribedEdge"
+      }
+    },
+    "labels": {
+      "description": "Every piece of visible text, one string each.",
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "nodes": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "DescribedEdge": {
+      "description": "A directed connection read off the image.",
+      "type": "object",
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "DiagramKind": {
+      "description": "What kind of picture the image is. `None` means \"not a diagram\" and ends a run without looping.",
+      "type": "string",
+      "enum": [
+        "none",
+        "flowchart",
+        "sequence",
+        "class",
+        "er",
+        "state",
+        "architecture",
+        "network",
+        "other"
+      ]
+    }
+  }
+}
