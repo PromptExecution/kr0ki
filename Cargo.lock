@@ -1374,7 +1374,7 @@ dependencies = [
 
 [[package]]
 name = "kr0ki-core"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -1407,7 +1407,7 @@ dependencies = [
 
 [[package]]
 name = "kr0ki-raster-ingest"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "bytes",
  "image",
@@ -1423,7 +1423,7 @@ dependencies = [
 
 [[package]]
 name = "kr0ki-server"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "anyhow",
  "axum",
@@ -1464,7 +1464,7 @@ dependencies = [
 
 [[package]]
 name = "kr0ki-sysmlv2-client"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "reqwest",
  "serde",

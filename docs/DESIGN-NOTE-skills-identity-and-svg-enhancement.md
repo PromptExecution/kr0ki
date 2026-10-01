@@ -37,7 +37,7 @@ against a **real SysML v2 render** (fixture OMG-API server -> kr0ki `/render/sys
 | Finding | Detail |
 |---|---|
 | **Identifiers survive (FACT)** | D2 puts each element key on its `<g>` as an **unpadded base64 class name** (decodes to the exact `@id`). Opaque but deterministic: since the model's ids are known, compute `base64(id)` and select `g.<that>`. |
-| **Labels are raw UUIDs (FACT, a real defect)** | `crates/kr0ki-core/src/sysml_render.rs` labels every node with its id ("a richer label needs an id -> display-name lookup this module doesn't have"). A person sees `00000000-0000-4000-...0004` instead of `battery`. Names are in the snapshot. |
+| **Labels were raw UUIDs (FACT; FIXED in v0.0.7)** | `crates/kr0ki-core/src/sysml_render.rs` labels every node with its id ("a richer label needs an id -> display-name lookup this module doesn't have"). A person sees `00000000-0000-4000-...0004` instead of `battery`. Names are in the snapshot. Fixed: `sysml_render::to_d2_named` keeps the id as the D2 key and uses the name as the label; the route's cache version token was bumped to `sysmlv2-ufo-graph-v2` (**any change to the emitted D2 for the same model must bump it, or stale SVGs are served**). Verified live: labels `Vehicle/engine/transmission/battery`, 4 elements still stampable by id. |
 | Not every element is drawn | The fixture's `RequirementUsage` and `SatisfyRequirementUsage` did not appear (indexed 4 of 5). UNVERIFIED whether my fixture shape matches what `sysml_lift` expects; the next agent should check before claiming a renderer gap. |
 | **Two-pass design works (FACT)** | Pass 1 *index*: stamp `data-kr0ki-*`. Pass 2 *rules*: plain CSS selectors over the stamped DOM add classes, inject `<use>` icons from `<symbol>`s and restore display names. Verified in headless Chromium: `querySelectorAll('[data-kr0ki-type="PartUsage"]')` returned 3; labels became `Vehicle/engine/transmission/battery`; 0 UUID labels left; 4 icons rendered. |
 | **D2 CSS outranks brand CSS (FACT)** | D2 ships `.d2-<hash> .stroke-B1 {...}` (specificity 0,2,0). A plain `.k-part rect` rule had **no effect** in the browser; `!important` (or >=3-class specificity) fixed it. Brand rules must account for this. |
@@ -105,7 +105,7 @@ curl -s http://127.0.0.1:18081/projects/p1/commits/c1/elements > snapshot.json
 cd tools/svg-enhance-spike && python3 -m unittest test_enhance && python3 enhance.py ../../sysml.svg ../../snapshot.json brand.example.json enhanced.svg
 # 3. verify in a browser (serve enhanced.svg, evaluate querySelectorAll / getComputedStyle); headless Chromium on CDP :9222
 ```
-Order of work: **(1)** `sysml_render` display-name lookup (id as key, name as label) + test; **(2)** identifier stamping at render time
+Order of work: **(1)** ~~`sysml_render` display-name lookup~~ done in v0.0.7; **(2)** identifier stamping at render time
 (server returns an id map, or `kr0ki-svg` indexes) for D2 first, then graphviz/plantuml; **(3)** `kr0ki-svg` rules engine
 (brand JSON, CSS select, idempotent) + wasm export; **(4)** brand package loader + Setup UI; **(5)** live-state layer in the
 playbook (class toggling from an SSE/OTLP-derived stream) reusing the `/ui` SSE pattern; **(6)** skills with the identifier rule

@@ -1930,3 +1930,63 @@ async fn mcp_manifest_advertises_the_planner_tools() {
         assert!(names.contains(&n), "{n} missing from {names:?}");
     }
 }
+
+#[tokio::test]
+async fn sysmlv2_render_labels_nodes_with_names_but_keys_them_by_id() {
+    let server = wiremock::MockServer::start().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path(
+            "/projects/proj-1/commits/c1/elements",
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {"@id": "0000-assembly", "@type": "PartDefinition", "name": "Assembly"},
+                {"@id": "0000-engine", "@type": "PartUsage", "name": "Engine"},
+                {"@id": "owns-engine", "@type": "FeatureMembership",
+                 "owner": {"@id": "0000-assembly"}, "member": {"@id": "0000-engine"}}
+            ])),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path(
+            "/projects/proj-1/commits/c1/roots",
+        ))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!(["0000-assembly"])),
+        )
+        .mount(&server)
+        .await;
+    // The backend only answers when the D2 it receives has id keys AND name labels.
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/d2/svg"))
+        .and(wiremock::matchers::body_string_contains(
+            "\"0000-engine\": \"Engine\"",
+        ))
+        .and(wiremock::matchers::body_string_contains(
+            "\"0000-assembly\" -> \"0000-engine\"",
+        ))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_string("<svg>named</svg>"))
+        .mount(&server)
+        .await;
+    let mut state = test_state_with_sysmlv2_client("render-sysmlv2-names", server.uri());
+    state.service = Arc::new(RenderService::new(
+        HttpKrokiBackend::new(server.uri()),
+        FsCache::new(std::env::temp_dir().join(format!(
+            "kr0ki-http-test-{}-render-sysmlv2-names",
+            std::process::id()
+        ))),
+    ));
+    let response = test_app(state)
+        .oneshot(
+            Request::post("/render/sysmlv2/projects/proj-1/commits/c1?output=svg")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body, "<svg>named</svg>");
+}

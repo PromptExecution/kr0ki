@@ -604,7 +604,13 @@ async fn render_sysmlv2_snapshot(
         }
         None => lifted.into_iter().map(|l| l.relation).collect(),
     };
-    let d2 = kr0ki_core::sysml_render::to_d2(&relations);
+    // Node key = the element's `@id` (stable, selectable); label = its human name when the model has one.
+    let names: std::collections::BTreeMap<String, String> = snapshot
+        .elements
+        .iter()
+        .filter_map(|e| e.name().map(|n| (e.id().to_owned(), n.to_owned())))
+        .collect();
+    let d2 = kr0ki_core::sysml_render::to_d2_named(&relations, &names);
     let output = params
         .get("output")
         .and_then(|value| OutputKind::from_param(value))
@@ -618,7 +624,9 @@ async fn render_sysmlv2_snapshot(
             output,
             &d2,
             &snapshot.content_hash,
-            "sysmlv2-ufo-graph-v1",
+            // Part of the cache key: bump whenever the D2 emitted for the same model changes
+            // (v2: nodes are labelled with element names; the id stays the key).
+            "sysmlv2-ufo-graph-v2",
         )
         .await
     {

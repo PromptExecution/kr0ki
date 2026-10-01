@@ -124,3 +124,57 @@ class PlannerRunTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+import urllib.error as _ue
+import io as _io
+
+
+class ToolErrorTest(unittest.TestCase):
+    def http_error(self, code, body):
+        return _ue.HTTPError("http://x", code, "Bad", {}, _io.BytesIO(body.encode()))
+
+    def test_http_errors_carry_the_servers_own_message(self):
+        e = self.http_error(422, json.dumps({"error": "bad_source", "message": "Error 400: Syntax Error? (Assumed diagram type: sequence)"}))
+        self.assertEqual(server.describe_tool_error(e), "HTTP 422: Error 400: Syntax Error? (Assumed diagram type: sequence)")
+
+    def test_non_json_bodies_are_collapsed_and_bounded(self):
+        e = self.http_error(500, "line one\n\n  line two " + "x" * 2000)
+        out = server.describe_tool_error(e, limit=50)
+        self.assertTrue(out.startswith("HTTP 500: line one line two"))
+        self.assertLessEqual(len(out), len("HTTP 500: ") + 50)
+
+    def test_empty_body_falls_back_to_the_status_line_and_other_errors_pass_through(self):
+        self.assertEqual(server.describe_tool_error(self.http_error(400, "")), "HTTP 400 Bad")
+        self.assertEqual(server.describe_tool_error(ValueError("boom")), "boom")
+
+    def test_call_signature_ignores_key_order_but_not_content(self):
+        a = server.call_signature("render_diagram", {"format": "d2", "source": "a->b"})
+        self.assertEqual(a, server.call_signature("render_diagram", {"source": "a->b", "format": "d2"}))
+        self.assertNotEqual(a, server.call_signature("render_diagram", {"format": "d2", "source": "a->c"}))
+
+
+class DuplicateRenderTest(PlannerRunTest):
+    def run_two_identical_renders(self):
+        call = {"id": "c1", "function": {"name": "render_diagram", "arguments": json.dumps({"format": "d2", "source": "a -> b"})}}
+        call2 = {"id": "c2", "function": {"name": "render_diagram", "arguments": json.dumps({"format": "d2", "source": "a -> b"})}}
+        self.client.chat_completion.side_effect = [
+            {"model": "m", "choices": [{"message": {"content": "", "tool_calls": [call]}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+            {"model": "m", "choices": [{"message": {"content": "", "tool_calls": [call2]}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+            {"model": "m", "choices": [{"message": {"content": "Done."}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+        ]
+        body = json.dumps({"threadId": "regular-9", "runId": "r9", "messages": [{"role": "user", "content": "draw a to b"}]}).encode()
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/run", data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.read().decode()
+
+    def test_an_identical_successful_render_is_refused_not_repeated(self):
+        raw = self.run_two_identical_renders()
+        renders = [c for c in self.calls if c[1].endswith("/render_diagram")]
+        self.assertEqual(len(renders), 1, self.calls)
+        self.assertIn("already rendered exactly this source", raw)
+
+    # the inherited planner tests are not re-run here
+    test_a_planner_run_steers_only_its_own_session_whatever_the_model_asks_for = None
+    test_planner_runs_use_the_planner_prompt_and_tool_set = None
+    test_a_regular_thread_cannot_call_navigate_ui = None
