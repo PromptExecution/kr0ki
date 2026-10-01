@@ -6,9 +6,12 @@ use std::{path::Component, path::PathBuf};
 
 use axum::{
     body::Bytes,
-    extract::{DefaultBodyLimit, Path, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::{header, StatusCode},
-    response::{IntoResponse, Redirect, Response},
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        IntoResponse, Redirect, Response,
+    },
     routing::{get, post},
     Json, Router,
 };
@@ -50,6 +53,8 @@ pub struct AppState {
     /// Disposable RDF triples materialized from model-query results. This is a
     /// derived cache, never an authoritative model store.
     pub model_graph: Arc<kr0ki_core::graph_store::GraphStore>,
+    /// Steers the playbook UI from the planning agent / MCP clients (`/ui/:session/*`).
+    pub ui_bus: Arc<kr0ki_core::ui_bus::UiBus>,
     /// AG-UI storyb00k sidecar base URL (deep /health probe). `None` skips it.
     pub storyb00k_agent_url: Option<String>,
     /// OpenAI-compatible LLM endpoint for the storyb00k agent. The /health LLM
@@ -82,6 +87,9 @@ pub fn router(
         .route("/api/examples", get(examples))
         .route("/playbook/api/examples.json", get(examples))
         .route("/api/catalog", get(catalog))
+        .route("/api/catalog/suggest", post(suggest_diagram_type))
+        .route("/ui/:session/events", get(ui_events))
+        .route("/ui/:session/navigate", post(ui_navigate))
         .route("/playbook", get(playbook_index))
         .route("/playbook/", get(playbook_index))
         .route("/playbook/*path", get(playbook_asset))
@@ -763,24 +771,198 @@ async fn examples() -> Json<&'static [kr0ki_core::examples::PlaybookExample]> {
     Json(kr0ki_core::examples::ALL)
 }
 
-/// `GET /api/catalog` — the intent-first diagram-type taxonomy (Plan 005):
+/// `GET /api/catalog[?use_case=<tag>]` — the intent-first diagram-type taxonomy (Plan 005):
 /// distinct addressible typeIds, use-case tags for the gallery filter, and
-/// per-type sample prompts for the Agent handoff button.
-async fn catalog() -> Json<serde_json::Value> {
+/// per-type sample prompts for the Agent handoff button. `use_case` narrows `types`
+/// (the planning agent's `list_diagram_types` tool); an unknown tag is a 422, not an empty list.
+async fn catalog(Query(q): Query<std::collections::HashMap<String, String>>) -> Response {
     use kr0ki_core::catalog;
+    let filter = q
+        .get("use_case")
+        .map(|u| u.trim().to_lowercase())
+        .filter(|u| !u.is_empty() && u != "all");
+    if let Some(u) = &filter {
+        if !catalog::USE_CASES.contains(&u.as_str()) {
+            return error_json(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "unknown_use_case",
+                &format!(
+                    "unknown use case '{u}'; valid: {}",
+                    catalog::USE_CASES.join(", ")
+                ),
+            );
+        }
+    }
     Json(serde_json::json!({
         "useCases": catalog::used_use_cases(),
-        "types": catalog::TYPES.iter().map(|t| serde_json::json!({
-            "id": t.id,
-            "syntax": t.syntax,
-            "exampleId": t.example_id,
-            "name": t.name,
-            "useCases": t.use_cases,
-            "blurb": t.blurb,
-            "samplePrompt": t.sample_prompt,
-        })).collect::<Vec<_>>(),
+        "types": catalog::TYPES.iter()
+            .filter(|t| filter.as_deref().is_none_or(|u| t.use_cases.contains(&u)))
+            .map(|t| serde_json::json!({
+                "id": t.id,
+                "syntax": t.syntax,
+                "exampleId": t.example_id,
+                "name": t.name,
+                "useCases": t.use_cases,
+                "blurb": t.blurb,
+                "samplePrompt": t.sample_prompt,
+            })).collect::<Vec<_>>(),
         "discoveryGuide": catalog::discovery_guide(),
     }))
+    .into_response()
+}
+
+const MAX_REQUIREMENTS_BYTES: usize = 16 * 1024;
+
+/// `POST /api/catalog/suggest[?use_cases=a,b&limit=n]` — body is the user's requirements as plain text.
+/// Returns a ranked, explained shortlist (deterministic; the planning agent supplies the judgement).
+async fn suggest_diagram_type(
+    Query(q): Query<std::collections::HashMap<String, String>>,
+    body: Bytes,
+) -> Response {
+    use kr0ki_core::catalog;
+    if body.len() > MAX_REQUIREMENTS_BYTES {
+        return error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "requirements_too_large",
+            "requirements are limited to 16 KiB",
+        );
+    }
+    let Ok(text) = std::str::from_utf8(&body) else {
+        return error_json(
+            StatusCode::BAD_REQUEST,
+            "invalid_utf8",
+            "requirements must be UTF-8 text",
+        );
+    };
+    let known: Vec<String> = q
+        .get("use_cases")
+        .map(|v| {
+            v.split(',')
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some(bad) = known
+        .iter()
+        .find(|u| !catalog::USE_CASES.contains(&u.as_str()))
+    {
+        return error_json(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "unknown_use_case",
+            &format!("unknown use case '{bad}'"),
+        );
+    }
+    let use_cases: Vec<&str> = known.iter().map(String::as_str).collect();
+    let limit = q
+        .get("limit")
+        .and_then(|l| l.parse::<usize>().ok())
+        .unwrap_or(5)
+        .clamp(1, 10);
+    let suggestions = catalog::suggest(
+        &catalog::Requirements {
+            text,
+            use_cases: &use_cases,
+        },
+        limit,
+    );
+    Json(serde_json::json!({
+        "suggestions": suggestions.iter().map(|s| {
+            let t = catalog::by_id(s.type_id);
+            serde_json::json!({
+                "typeId": s.type_id,
+                "name": t.map(|t| t.name),
+                "syntax": t.map(|t| t.syntax),
+                "blurb": t.map(|t| t.blurb),
+                "score": s.score,
+                "reasons": s.reasons,
+            })
+        }).collect::<Vec<_>>(),
+        "note": if suggestions.is_empty() {
+            "No type matched. Ask the user what they want to convey (see the use-case vocabulary from list_diagram_types)."
+        } else {
+            "Ranked by keyword/intent evidence only; weigh it against what the user actually said before recommending."
+        },
+    }))
+    .into_response()
+}
+
+/// `GET /ui/:session/events` — SSE of [`UiEnvelope`]s for one playbook session.
+async fn ui_events(State(state): State<AppState>, Path(session): Path<String>) -> Response {
+    let rx = match state.ui_bus.subscribe(&session) {
+        Ok(rx) => rx,
+        Err(e @ kr0ki_core::ui_bus::UiBusError::BadSessionId) => {
+            return error_json(StatusCode::BAD_REQUEST, "bad_session", &e.to_string())
+        }
+        Err(e) => {
+            return error_json(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "ui_sessions_full",
+                &e.to_string(),
+            )
+        }
+    };
+    let stream = futures_util::stream::unfold(rx, |mut rx| async move {
+        loop {
+            match rx.recv().await {
+                Ok(envelope) => {
+                    let event = Event::default()
+                        .id(envelope.seq.to_string())
+                        .event("ui")
+                        .json_data(&envelope)
+                        .unwrap_or_else(|_| Event::default().comment("unserializable"));
+                    return Some((Ok::<_, std::convert::Infallible>(event), rx));
+                }
+                // A slow client missed some commands; keep going from the oldest retained one.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+            }
+        }
+    });
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+/// `POST /ui/:session/navigate?view=&use_case=&type_id=&suggest=a,b&note=` — steer one playbook session.
+/// 200 with `delivered` = listeners reached; 0 means no UI is connected for that session.
+async fn ui_navigate(
+    State(state): State<AppState>,
+    Path(session): Path<String>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    use kr0ki_core::ui_bus::{commands_from_navigation, UiBusError};
+    let commands = match commands_from_navigation(
+        q.get("view").map(String::as_str),
+        q.get("use_case").map(String::as_str),
+        q.get("type_id").map(String::as_str),
+        q.get("suggest").map(String::as_str),
+        q.get("note").map(String::as_str),
+    ) {
+        Ok(c) => c,
+        Err(e) => {
+            return error_json(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "bad_ui_command",
+                &e.to_string(),
+            )
+        }
+    };
+    let sent = commands.len();
+    match state.ui_bus.publish(&session, commands) {
+        Ok(delivered) => Json(serde_json::json!({
+            "delivered": delivered,
+            "commands": sent,
+            "message": if delivered == 0 {
+                "No playbook UI is connected for this session; nothing moved. Tell the user in chat instead."
+            } else {
+                "The playbook UI has been updated."
+            },
+        }))
+        .into_response(),
+        Err(e @ UiBusError::BadSessionId) => error_json(StatusCode::BAD_REQUEST, "bad_session", &e.to_string()),
+        Err(e) => error_json(StatusCode::SERVICE_UNAVAILABLE, "ui_sessions_full", &e.to_string()),
+    }
 }
 
 async fn playbook_index(State(state): State<AppState>) -> Response {

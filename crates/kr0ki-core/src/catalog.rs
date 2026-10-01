@@ -286,6 +286,267 @@ pub fn by_use_case(tag: &str) -> Vec<&'static DiagramType> {
         .collect()
 }
 
+/// Words in a user's requirements that signal an intent family. The suggester is deliberately
+/// deterministic and explainable (every score comes with the words that earned it); the planning agent
+/// supplies the judgement, this supplies a grounded shortlist it can cite.
+const INTENT_WORDS: &[(&str, &[&str])] = &[
+    (
+        "process flow",
+        &[
+            "process",
+            "workflow",
+            "flow",
+            "steps",
+            "step",
+            "decision",
+            "branch",
+            "approval",
+            "pipeline",
+            "procedure",
+            "swimlane",
+        ],
+    ),
+    (
+        "interaction",
+        &[
+            "sequence",
+            "request",
+            "response",
+            "message",
+            "messages",
+            "call",
+            "calls",
+            "api",
+            "handshake",
+            "protocol",
+            "who talks",
+            "actors",
+            "actor",
+        ],
+    ),
+    (
+        "data model",
+        &[
+            "database",
+            "schema",
+            "table",
+            "tables",
+            "entity",
+            "entities",
+            "class",
+            "classes",
+            "field",
+            "fields",
+            "relationship",
+            "relationships",
+            "foreign key",
+            "model",
+        ],
+    ),
+    (
+        "network",
+        &[
+            "network",
+            "topology",
+            "subnet",
+            "server",
+            "servers",
+            "host",
+            "hosts",
+            "ip",
+            "segment",
+            "cluster",
+            "kubernetes",
+            "k8s",
+        ],
+    ),
+    (
+        "state machine",
+        &[
+            "state",
+            "states",
+            "lifecycle",
+            "transition",
+            "transitions",
+            "status",
+            "statuses",
+            "fsm",
+        ],
+    ),
+    (
+        "architecture",
+        &[
+            "architecture",
+            "component",
+            "components",
+            "system",
+            "service",
+            "services",
+            "module",
+            "modules",
+            "context",
+            "container",
+            "deployment",
+            "layers",
+        ],
+    ),
+    (
+        "chart",
+        &[
+            "chart",
+            "metrics",
+            "bar",
+            "line",
+            "plot",
+            "graph of",
+            "statistics",
+            "quantitative",
+            "data series",
+        ],
+    ),
+    (
+        "sketch",
+        &[
+            "sketch",
+            "whiteboard",
+            "rough",
+            "quick",
+            "simple",
+            "boxes",
+            "ascii",
+            "hand-drawn",
+        ],
+    ),
+    (
+        "timeline",
+        &[
+            "timeline",
+            "schedule",
+            "gantt",
+            "milestone",
+            "milestones",
+            "timing",
+            "over time",
+            "deadline",
+            "roadmap",
+            "waveform",
+        ],
+    ),
+    (
+        "hardware",
+        &[
+            "hardware",
+            "wiring",
+            "wire",
+            "cable",
+            "rack",
+            "register",
+            "packet",
+            "byte",
+            "bytes",
+            "circuit",
+            "pin",
+            "connector",
+        ],
+    ),
+];
+
+/// What the user told the planner. `use_cases` are intents already confirmed (they weigh more than text).
+#[derive(Debug, Default, Clone)]
+pub struct Requirements<'a> {
+    pub text: &'a str,
+    pub use_cases: &'a [&'a str],
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Suggestion {
+    pub type_id: &'static str,
+    pub score: f32,
+    /// Human-readable evidence for the score (intent families and the matched words).
+    pub reasons: Vec<String>,
+}
+
+fn words(text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+fn mentions(text_lower: &str, tokens: &[String], term: &str) -> bool {
+    if term.contains(' ') {
+        text_lower.contains(term)
+    } else {
+        tokens.iter().any(|t| t == term)
+    }
+}
+
+/// Rank catalog types against stated requirements, best first, at most `limit`, zero-score types omitted.
+/// A confirmed intent counts 3; a word that signals an intent family counts 1 (capped at 3 per family so
+/// one repeated word cannot dominate); a word from the type's own id/name/blurb counts 2.
+pub fn suggest(req: &Requirements<'_>, limit: usize) -> Vec<Suggestion> {
+    let lower = req.text.to_lowercase();
+    let tokens = words(req.text);
+    // Evidence per intent family from the free text.
+    let mut family_hits: Vec<(&str, Vec<&str>)> = Vec::new();
+    for (family, terms) in INTENT_WORDS {
+        let hit: Vec<&str> = terms
+            .iter()
+            .copied()
+            .filter(|t| mentions(&lower, &tokens, t))
+            .take(3)
+            .collect();
+        if !hit.is_empty() {
+            family_hits.push((family, hit));
+        }
+    }
+    let mut out: Vec<Suggestion> = TYPES
+        .iter()
+        .filter_map(|t| {
+            let mut score = 0.0_f32;
+            let mut reasons = Vec::new();
+            for uc in t.use_cases {
+                if req.use_cases.contains(uc) {
+                    score += 3.0;
+                    reasons.push(format!("you want to show a {uc}"));
+                }
+                if let Some((_, hit)) = family_hits.iter().find(|(f, _)| f == uc) {
+                    score += hit.len() as f32;
+                    reasons.push(format!("{uc}: you mentioned {}", hit.join(", ")));
+                }
+            }
+            let own: Vec<String> = words(&format!(
+                "{} {} {}",
+                t.id.replace('-', " "),
+                t.name,
+                t.blurb
+            ))
+            .into_iter()
+            .filter(|w| w.len() > 3 && tokens.contains(w))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .take(3)
+            .collect();
+            if !own.is_empty() {
+                score += 2.0 * own.len() as f32;
+                reasons.push(format!(
+                    "matches this type's own description: {}",
+                    own.join(", ")
+                ));
+            }
+            (score > 0.0).then_some(Suggestion {
+                type_id: t.id,
+                score,
+                reasons,
+            })
+        })
+        .collect();
+    out.sort_by(|a, b| b.score.total_cmp(&a.score).then(a.type_id.cmp(b.type_id)));
+    out.truncate(limit);
+    out
+}
+
 /// The type-discovery series (Plan 005 §2.2) as agent-consumable text: the
 /// intent vocabulary and one line per use case so the LLM asks grounded
 /// questions instead of inventing categories.
@@ -421,5 +682,58 @@ mod tests {
             assert!(guide.contains(tag), "guide missing family {tag}");
         }
         assert!(guide.contains("sequence"));
+    }
+
+    #[test]
+    fn suggest_ranks_by_stated_intent_and_explains_itself() {
+        let r = suggest(
+            &Requirements {
+                text: "I need to show the database tables and their foreign key relationships",
+                use_cases: &[],
+            },
+            3,
+        );
+        assert!(!r.is_empty());
+        let top = by_id(r[0].type_id).unwrap();
+        assert!(
+            top.use_cases.contains(&"data model"),
+            "top was {}",
+            r[0].type_id
+        );
+        assert!(r[0].reasons.iter().any(|x| x.contains("data model")));
+        assert!(r.windows(2).all(|w| w[0].score >= w[1].score));
+    }
+
+    #[test]
+    fn a_confirmed_intent_outweighs_ambiguous_text_and_empty_input_suggests_nothing() {
+        let r = suggest(
+            &Requirements {
+                text: "",
+                use_cases: &["timeline"],
+            },
+            5,
+        );
+        assert!(r
+            .iter()
+            .all(|s| by_id(s.type_id).unwrap().use_cases.contains(&"timeline")));
+        assert!(suggest(&Requirements::default(), 5).is_empty());
+        assert!(suggest(
+            &Requirements {
+                text: "zzz qqq",
+                use_cases: &[]
+            },
+            5
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn suggest_respects_the_limit_and_is_deterministic() {
+        let req = Requirements {
+            text: "system architecture with services and a request sequence",
+            use_cases: &[],
+        };
+        assert!(suggest(&req, 2).len() <= 2);
+        assert_eq!(suggest(&req, 5), suggest(&req, 5));
     }
 }

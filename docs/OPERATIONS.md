@@ -23,6 +23,7 @@ day to day:
 | Variable | Used by | Notes |
 |---|---|---|
 | `OPENAI_API_URL`, `OPENAI_API_KEY` | agent, `/health` LLM probe | `just start-agent` refuses to start without `OPENAI_API_URL` |
+
 | `KR0KI_PUBLIC_URL`, `KR0KI_AGENT_PUBLIC_URL` | Vite dev proxy, `tests/functional`, agent CORS | where a browser/test reaches the services; loopback if unset |
 | `KR0KI_STORYB00K_ALLOWED_ORIGINS` | agent CORS allowlist | `just start-agent` defaults to loopback + `KR0KI_PUBLIC_URL` |
 | `KR0KI_STORYB00K_PORT` | agent bind port | `just start-agent <port>` sets it for you |
@@ -135,3 +136,15 @@ tools. What a healthy run looks like, from the last full check:
   formats; Mermaid, BPMN and Excalidraw need a headless-browser companion). The server rejects those at render time.
 - **LLM key in `localStorage`** (Setup tab) is readable by any script on the page.
 - **`just test-playbook` / `playbook-e2e`** need a built `playbook/dist` and a running server.
+
+## Diagram planner (gallery side panel)
+
+The gallery's chat is a planning agent (thread ids start with `planner-`; the id doubles as the UI session id).
+It has four tools only: `list_diagram_types`, `suggest_diagram_type`, `navigate_ui`, `ask_user`. `navigate_ui`
+is bound by the agent to its own session, so a model cannot steer another tab; any MCP client can steer a tab by
+passing that tab's session id (shown under the chat). The page subscribes over SSE
+(`GET /ui/{session}/events`); `POST /ui/{session}/navigate` reports `delivered: 0` when no page is listening.
+
+`OPENAI_API_URL` must point at a **vision-capable, reachable** model: `http://<host>:8002/v1` (podman container
+`b00t-heretic`, see `~/.b00t/_b00t_/inference-heretic-neo-coder.hive.toml`). `:8001` is the unrelated, unfixed
+`ch0nky` deployment; the agent fails with `Connection refused` if `.env` still points there.

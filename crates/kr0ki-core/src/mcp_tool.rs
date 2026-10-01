@@ -28,6 +28,9 @@ pub enum McpTool {
     QueryModelGraph,
     RecomputeAndEvaluate,
     SyncDigitalThread,
+    ListDiagramTypes,
+    SuggestDiagramType,
+    NavigateUi,
 }
 
 impl McpTool {
@@ -48,6 +51,9 @@ impl McpTool {
         Self::QueryModelGraph,
         Self::RecomputeAndEvaluate,
         Self::SyncDigitalThread,
+        Self::ListDiagramTypes,
+        Self::SuggestDiagramType,
+        Self::NavigateUi,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -68,6 +74,9 @@ impl McpTool {
             Self::QueryModelGraph => "query_model_graph",
             Self::RecomputeAndEvaluate => "recompute_and_evaluate",
             Self::SyncDigitalThread => "sync_digital_thread",
+            Self::ListDiagramTypes => "list_diagram_types",
+            Self::SuggestDiagramType => "suggest_diagram_type",
+            Self::NavigateUi => "navigate_ui",
         }
     }
 
@@ -117,11 +126,53 @@ impl McpTool {
                  (create/update/delete; other elements untouched). Diffs against the branch head \
                  and retries on concurrent commits."
             }
+            Self::ListDiagramTypes => {
+                "List the diagram types kr0ki can draw, each with the intent it serves (use_cases), a one-line \
+                 'when to choose it', and its syntax. Optionally narrow to one use_case. Also returns the \
+                 use-case vocabulary to ask the user about."
+            }
+            Self::SuggestDiagramType => {
+                "Rank diagram types against the user's stated requirements (plain text) and return an explained \
+                 shortlist. Deterministic keyword/intent evidence only: weigh it against what the user said \
+                 before recommending."
+            }
+            Self::NavigateUi => {
+                "Steer the user's playbook UI: open a view (gallery/editor/agent/setup), filter the gallery by \
+                 use_case ('All' resets), highlight a shortlist (suggest) and/or select one diagram type. \
+                 Reports how many UI sessions received it; 0 means the UI is not connected."
+            }
         }
     }
 
     pub fn input_schema(self) -> serde_json::Value {
         match self {
+            Self::ListDiagramTypes => serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "use_case": {"type": "string", "description": "Only types serving this intent (e.g. 'data model'). Omit or 'All' for every type."}
+                }
+            }),
+            Self::SuggestDiagramType => serde_json::json!({
+                "type": "object",
+                "required": ["requirements"],
+                "properties": {
+                    "requirements": {"type": "string", "description": "What the user wants to convey, in their words (max 16 KiB)."},
+                    "use_cases": {"type": "string", "description": "Comma-separated intents already confirmed with the user."},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 10, "default": 5}
+                }
+            }),
+            Self::NavigateUi => serde_json::json!({
+                "type": "object",
+                "required": ["session_id"],
+                "properties": {
+                    "session_id": {"type": "string", "description": "The playbook UI session (shown in the Planner panel; the storyb00k agent fills it in for you)."},
+                    "view": {"type": "string", "enum": ["gallery", "editor", "agent", "setup"]},
+                    "use_case": {"type": "string", "description": "Filter the gallery by this intent; 'All' resets."},
+                    "type_id": {"type": "string", "description": "Select this diagram type card."},
+                    "suggest": {"type": "string", "description": "Comma-separated type ids to highlight as the planner's shortlist (max 8)."},
+                    "note": {"type": "string", "description": "Short reason shown with the shortlist (max 280 chars)."}
+                }
+            }),
             Self::RenderDiagram => serde_json::json!({
                 "type": "object",
                 "required": ["format", "source"],
@@ -226,6 +277,32 @@ impl McpTool {
 
     pub const fn http_binding(self) -> HttpBinding {
         match self {
+            Self::ListDiagramTypes => HttpBinding {
+                method: HttpMethod::Get,
+                path_template: "/api/catalog",
+                args: &[ArgBinding { name: "use_case", placement: ArgPlacement::Query }],
+            },
+            Self::SuggestDiagramType => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/api/catalog/suggest",
+                args: &[
+                    ArgBinding { name: "requirements", placement: ArgPlacement::Body },
+                    ArgBinding { name: "use_cases", placement: ArgPlacement::Query },
+                    ArgBinding { name: "limit", placement: ArgPlacement::Query },
+                ],
+            },
+            Self::NavigateUi => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/ui/{session_id}/navigate",
+                args: &[
+                    ArgBinding { name: "session_id", placement: ArgPlacement::Path },
+                    ArgBinding { name: "view", placement: ArgPlacement::Query },
+                    ArgBinding { name: "use_case", placement: ArgPlacement::Query },
+                    ArgBinding { name: "type_id", placement: ArgPlacement::Query },
+                    ArgBinding { name: "suggest", placement: ArgPlacement::Query },
+                    ArgBinding { name: "note", placement: ArgPlacement::Query },
+                ],
+            },
             Self::RenderDiagram => HttpBinding {
                 method: HttpMethod::Post,
                 path_template: "/render/{format}",
@@ -470,7 +547,7 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), before, "duplicate McpTool name in ALL");
-        assert_eq!(McpTool::ALL.len(), 16);
+        assert_eq!(McpTool::ALL.len(), 19);
     }
 
     #[test]
@@ -650,5 +727,38 @@ mod tests {
         assert!(matches!(placement("project_id"), Some(ArgPlacement::Path)));
         assert!(matches!(placement("branch_id"), Some(ArgPlacement::Query)));
         assert!(matches!(placement("graph"), Some(ArgPlacement::Body)));
+    }
+
+    #[test]
+    fn planner_tools_bind_to_the_catalog_and_ui_routes() {
+        let b = McpTool::ListDiagramTypes.http_binding();
+        assert!(matches!(b.method, HttpMethod::Get));
+        assert_eq!(b.path_template, "/api/catalog");
+        let b = McpTool::SuggestDiagramType.http_binding();
+        assert!(matches!(b.method, HttpMethod::Post));
+        assert!(b
+            .args
+            .iter()
+            .any(|a| a.name == "requirements" && matches!(a.placement, ArgPlacement::Body)));
+        let b = McpTool::NavigateUi.http_binding();
+        assert_eq!(b.path_template, "/ui/{session_id}/navigate");
+        assert!(b
+            .args
+            .iter()
+            .any(|a| a.name == "session_id" && matches!(a.placement, ArgPlacement::Path)));
+        // every `{placeholder}` in a path template must have a Path arg bound to it
+        for t in McpTool::ALL {
+            let b = t.http_binding();
+            for seg in b.path_template.split('/').filter(|s| s.starts_with('{')) {
+                let name = seg.trim_matches(|c| c == '{' || c == '}');
+                assert!(
+                    b.args
+                        .iter()
+                        .any(|a| a.name == name && matches!(a.placement, ArgPlacement::Path)),
+                    "{} lacks path arg {name}",
+                    t.name()
+                );
+            }
+        }
     }
 }

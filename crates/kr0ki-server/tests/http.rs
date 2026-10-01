@@ -32,6 +32,7 @@ fn test_state(tag: &str) -> AppState {
         kubediagram_worker_url: None,
         sysmlv2_client: None,
         model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
+        ui_bus: Arc::new(kr0ki_core::ui_bus::UiBus::new()),
         storyb00k_agent_url: None,
         llm_api_url: None,
         llm_api_key: None,
@@ -196,7 +197,7 @@ async fn mcp_tools_lists_all_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 16);
+    assert_eq!(tools.len(), 19);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
@@ -1719,4 +1720,213 @@ async fn import_requirements_url_rejects_disallowed_address() {
     let (status, body) = body_string(response).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body}");
     assert!(body.contains("reqif_fetch_rejected"), "body: {body}");
+}
+
+// ---- planning agent: catalog tools + UI steering ---------------------------------------------
+
+async fn get_json(app: axum::Router, uri: &str) -> (StatusCode, serde_json::Value) {
+    let resp = app
+        .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    (
+        status,
+        serde_json::from_str(&body).unwrap_or(serde_json::Value::Null),
+    )
+}
+
+async fn post_json(app: axum::Router, uri: &str, body: &str) -> (StatusCode, serde_json::Value) {
+    let resp = app
+        .oneshot(
+            Request::post(uri)
+                .body(Body::from(body.to_owned()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    (
+        status,
+        serde_json::from_str(&body).unwrap_or(serde_json::Value::Null),
+    )
+}
+
+#[tokio::test]
+async fn catalog_can_be_narrowed_to_one_use_case_and_rejects_unknown_ones() {
+    let state = test_state("catalog-filter");
+    let (s, all) = get_json(test_app(state.clone()), "/api/catalog").await;
+    assert_eq!(s, StatusCode::OK);
+    let (s, narrowed) = get_json(
+        test_app(state.clone()),
+        "/api/catalog?use_case=data%20model",
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let n = narrowed["types"].as_array().unwrap();
+    assert!(!n.is_empty() && n.len() < all["types"].as_array().unwrap().len());
+    assert!(n.iter().all(|t| t["useCases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|u| u == "data model")));
+    // 'All' and empty mean no filter
+    let (_, same) = get_json(test_app(state.clone()), "/api/catalog?use_case=All").await;
+    assert_eq!(same["types"], all["types"]);
+    let (s, err) = get_json(test_app(state), "/api/catalog?use_case=vibes").await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(err["error"], "unknown_use_case");
+}
+
+#[tokio::test]
+async fn suggest_returns_an_explained_ranking_and_validates_input() {
+    let state = test_state("suggest");
+    let (s, v) = post_json(
+        test_app(state.clone()),
+        "/api/catalog/suggest?limit=3",
+        "show the database tables and their foreign key relationships",
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let sug = v["suggestions"].as_array().unwrap();
+    assert!(!sug.is_empty() && sug.len() <= 3);
+    assert!(sug[0]["reasons"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|r| r.as_str().unwrap().contains("data model")));
+    assert!(sug[0]["name"].is_string());
+    let (s, v) = post_json(test_app(state.clone()), "/api/catalog/suggest", "zzz qqq").await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(v["suggestions"].as_array().unwrap().is_empty());
+    let (s, _) = post_json(
+        test_app(state.clone()),
+        "/api/catalog/suggest?use_cases=vibes",
+        "x",
+    )
+    .await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
+    let (s, _) = post_json(
+        test_app(state),
+        "/api/catalog/suggest",
+        &"x".repeat(17 * 1024),
+    )
+    .await;
+    assert_eq!(s, StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn navigate_reaches_a_connected_ui_over_sse_and_reports_zero_when_none_is_connected() {
+    use http_body_util::BodyExt;
+    let state = test_state("ui-nav");
+    // Nobody listening yet: honest zero, nothing allocated.
+    let (s, v) = post_json(
+        test_app(state.clone()),
+        "/ui/sess-1/navigate?view=gallery",
+        "",
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["delivered"], 0);
+
+    // The UI connects.
+    let events = test_app(state.clone())
+        .oneshot(
+            Request::get("/ui/sess-1/events")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(events.status(), StatusCode::OK);
+    assert_eq!(events.headers()["content-type"], "text/event-stream");
+    let mut body = events.into_body();
+
+    let type_id = kr0ki_core::catalog::TYPES[0].id;
+    let (s, v) = post_json(
+        test_app(state.clone()),
+        &format!("/ui/sess-1/navigate?view=gallery&use_case=process%20flow&type_id={type_id}"),
+        "",
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["delivered"], 1);
+    assert_eq!(v["commands"], 3);
+
+    let mut text = String::new();
+    while text.matches("event: ui").count() < 3 {
+        let frame = tokio::time::timeout(std::time::Duration::from_secs(5), body.frame())
+            .await
+            .expect("SSE frame in time")
+            .expect("stream open")
+            .unwrap();
+        if let Some(data) = frame.data_ref() {
+            text.push_str(&String::from_utf8_lossy(data));
+        }
+    }
+    assert!(
+        text.contains(r#""type":"open_view""#) && text.contains(r#""view":"gallery""#),
+        "{text}"
+    );
+    assert!(
+        text.contains(r#""type":"filter_gallery""#) && text.contains("process flow"),
+        "{text}"
+    );
+    assert!(
+        text.contains(r#""type":"select_type""#) && text.contains(type_id),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn navigate_rejects_anything_outside_the_catalog_and_bad_session_ids() {
+    let state = test_state("ui-nav-bad");
+    for q in [
+        "view=nowhere",
+        "use_case=vibes",
+        "type_id=%3Cscript%3E",
+        "suggest=,",
+        "",
+    ] {
+        let (s, v) = post_json(
+            test_app(state.clone()),
+            &format!("/ui/sess-1/navigate?{q}"),
+            "",
+        )
+        .await;
+        assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{q}");
+        assert_eq!(v["error"], "bad_ui_command");
+    }
+    let (s, v) = post_json(
+        test_app(state.clone()),
+        "/ui/bad%20id/navigate?view=gallery",
+        "",
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert_eq!(v["error"], "bad_session");
+    let resp = test_app(state)
+        .oneshot(
+            Request::get("/ui/bad%20id/events")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn mcp_manifest_advertises_the_planner_tools() {
+    let (s, v) = get_json(test_app(test_state("mcp-planner")), "/mcp/tools").await;
+    assert_eq!(s, StatusCode::OK);
+    let names: Vec<&str> = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    for n in ["list_diagram_types", "suggest_diagram_type", "navigate_ui"] {
+        assert!(names.contains(&n), "{n} missing from {names:?}");
+    }
 }

@@ -19,6 +19,10 @@ const props = defineProps({
   agentUrl: { type: String, default: '' },
   // Editor → Agent handoff: full diagram data from the editor
   editorHandoff: { type: Object, default: null },
+  // Planner mode (gallery side panel): a chat-only column whose thread id doubles as the UI session id, so
+  // the planning agent's navigate_ui tool steers this very browser tab. No dashboard, no project banner.
+  planner: { type: Boolean, default: false },
+  threadId: { type: String, default: '' },
 })
 
 // Preserve the browser-visible host so LAN users reach this pod's sidecar instead
@@ -76,6 +80,7 @@ const autoScroll = ref(true)
 const transcriptEl = ref(null)
 const chat = useChat({
   url: `${agentUrl}/run`,
+  ...(props.threadId ? { threadId: props.threadId } : {}),
   initialState: { panels: [], drafts: [] },
   // Our submitAnswer() drives continuation explicitly via chat.send(answer);
   // the client's auto-resume fires resume() the moment all interrupts have
@@ -561,10 +566,10 @@ function formatTokens(u) {
 </script>
 
 <template>
-  <div class="storyb00k">
+  <div class="storyb00k" :class="{ 'storyb00k--planner': planner }" :data-planner="planner || undefined">
     <section class="storyb00k__transcript">
       <header class="storyb00k__header">
-        <h2>storyb00k</h2>
+        <h2>{{ planner ? 'planner' : 'storyb00k' }}</h2>
         <span class="storyb00k__status" :data-status="status">{{ statusLabel }}</span>
         <span v-if="formatTokens(usage[usage.length - 1])" class="storyb00k__usage">{{ formatTokens(usage[usage.length - 1]) }}</span>
         <span class="storyb00k__agent-status" :data-status="agentConnectionStatus" :title="agentConnectionError || `Agent: ${agentUrl}`">
@@ -576,7 +581,7 @@ function formatTokens(u) {
       </header>
 
       <!-- Project banner: the conceptual unit of work in this session -->
-      <div v-if="project" class="storyb00k__project" data-testid="project-banner">
+      <div v-if="project && !planner" class="storyb00k__project" data-testid="project-banner">
         <div class="storyb00k__project-title">
           <template v-if="editingTitle">
             <input v-model="editedTitle" @keydown.enter="renameProject" @blur="renameProject" data-testid="project-title-input" />
@@ -625,10 +630,11 @@ function formatTokens(u) {
           <pre data-testid="starting-source">{{ startingPoint.source }}</pre>
         </div>
       </section>
-      <p class="storyb00k__lede">Read the live model, assemble evidence panels, and narrate without changing the authoritative model.</p>
+      <p v-if="planner" class="storyb00k__lede">Tell me what you want to show. I'll narrow the gallery and suggest the best-fit diagram type.</p>
+      <p v-else class="storyb00k__lede">Read the live model, assemble evidence panels, and narrate without changing the authoritative model.</p>
 
       <div ref="transcriptEl" class="storyb00k__messages" @scroll="onTranscriptScroll">
-        <p v-if="!items.length" class="storyb00k__empty">
+        <p v-if="!items.length && !planner" class="storyb00k__empty">
           Ask about this system — e.g. “summarize the physical architecture” or
           “render the deployment as a diagram”. The agent reads the live model;
           changes land only in a disposable draft you approve.
@@ -725,7 +731,7 @@ function formatTokens(u) {
           v-model="input"
           class="storyb00k__input"
           rows="2"
-          placeholder="Ask about the model, request a diagram, or propose a draft change…"
+          :placeholder="planner ? 'e.g. I need to show how our services call each other…' : 'Ask about the model, request a diagram, or propose a draft change…'"
           :disabled="false"
           @keydown.enter.exact.prevent="sendMessage"
         />
@@ -738,7 +744,7 @@ function formatTokens(u) {
       </div>
     </section>
 
-    <section class="storyb00k__dashboard" aria-label="Agent dashboard">
+    <section v-if="!planner" class="storyb00k__dashboard" aria-label="Agent dashboard">
       <header class="storyb00k__dash-header">
         <h3>Evidence panels</h3>
         <span>{{ panels.length }} panel{{ panels.length === 1 ? '' : 's' }}</span>
@@ -780,6 +786,7 @@ function formatTokens(u) {
 
 <style scoped>
 .storyb00k { display: grid; gap: 1rem; grid-template-columns: minmax(18rem, .8fr) minmax(22rem, 1.2fr); }
+.storyb00k--planner { grid-template-columns: 1fr; }
 .storyb00k__transcript, .storyb00k__dashboard { min-width: 0; display: flex; flex-direction: column; gap: .5rem; }
 .storyb00k__header { display: flex; align-items: baseline; gap: .6rem; }
 .storyb00k__header h2 { margin: 0; }

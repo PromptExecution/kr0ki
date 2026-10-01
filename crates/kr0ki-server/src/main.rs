@@ -115,6 +115,7 @@ async fn main() -> anyhow::Result<()> {
         kubediagram_worker_url,
         sysmlv2_client,
         model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
+        ui_bus: Arc::new(kr0ki_core::ui_bus::UiBus::new()),
         storyb00k_agent_url,
         llm_api_url,
         llm_api_key,
