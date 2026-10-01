@@ -1,0 +1,6 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ex: <http://example.org/req#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+ex:ReqShape a sh:NodeShape ; sh:targetClass ex:Requirement ;
+  sh:property [ sh:path ex:id ; sh:minCount 1 ; sh:datatype xsd:string ] ;
+  sh:property [ sh:path ex:cost ; sh:minCount 1 ; sh:datatype xsd:integer ] .

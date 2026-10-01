@@ -1,0 +1,15 @@
+@prefix ex: <http://example.org/req#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+ex:R1 a ex:Requirement ; ex:id "R1" ; ex:cost 10 .
+ex:R2 a ex:Requirement ; ex:id "R2" ; ex:cost 20 ; ex:dependsOn ex:R1 .
+ex:R3 a ex:Requirement ; ex:id "R3" ; ex:cost 30 ; ex:dependsOn ex:R1 .
+ex:R4 a ex:Requirement ; ex:id "R4" ; ex:cost 40 ; ex:dependsOn ex:R2 .
+ex:R5 a ex:Requirement ; ex:id "R5" ; ex:cost 50 ; ex:dependsOn ex:R2 ; ex:dependsOn ex:R3 .
+ex:R6 a ex:Requirement ; ex:id "R6" ; ex:cost 60 ; ex:dependsOn ex:R4 .
+ex:R7 a ex:Requirement ; ex:id "R7" ; ex:cost 70 ; ex:dependsOn ex:R5 .
+ex:R8 a ex:Requirement ; ex:id "R8" ; ex:cost 80 ; ex:dependsOn ex:R6 ; ex:dependsOn ex:R7 .
+ex:R9 a ex:Requirement ; ex:id "R9" ; ex:cost 90 .
+ex:R10 a ex:Requirement ; ex:id "R10" ; ex:cost 100 ; ex:dependsOn ex:R9 .
+ex:R11 a ex:Requirement ; ex:id "R11" ; ex:cost 110 ; ex:dependsOn ex:R10 .
+ex:R12 a ex:Requirement ; ex:id "R12" ; ex:dependsOn ex:R8 .
+ex:R13 a ex:Requirement ; ex:cost 5 ; ex:derivedFrom ex:R1 .  # no id on purpose
