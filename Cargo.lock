@@ -1409,6 +1409,7 @@ dependencies = [
 name = "kr0ki-raster-ingest"
 version = "0.0.4"
 dependencies = [
+ "bytes",
  "image",
  "png",
  "schemars",
