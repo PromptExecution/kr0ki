@@ -1,0 +1,26 @@
+{
+ "description": "Use before writing or fixing WaveDrom timing diagrams for render_diagram (format wavedrom): WaveJSON syntax, silent failure modes, groups, edges, register bitfields, worked examples, identifier rule.",
+ "identifier": "This language cannot separate a key from a label: the text you draw is the only name. Draw the display name, put the identifier in the signal `name` only when the reader needs it (for example `{ name: \"n0002 engine\", wave: \"01.0\" }`). Never invent identifiers.",
+ "examples": [
+  {
+   "name": "clock and data bus",
+   "source": "{ signal: [ { name: \"clk\", wave: \"p......\" }, { name: \"dat\", wave: \"x.345x.\", data: [\"head\",\"body\",\"tail\"] }, { name: \"req\", wave: \"01.0...\" } ] }"
+  },
+  {
+   "name": "signal group with spacer and phase",
+   "source": "{ signal: [ [\"bus\", { name: \"a\", wave: \"01.0\" }, { name: \"b\", wave: \"10.1\" }], {}, { name: \"c\", wave: \"0..1\", phase: 0.5 } ] }"
+  },
+  {
+   "name": "head, foot and horizontal scale",
+   "source": "{ signal: [ { name: \"a\", wave: \"01.0\" } ], head: { text: \"Timing\", tock: 0 }, foot: { text: \"end\" }, config: { hscale: 2 } }"
+  },
+  {
+   "name": "edges between nodes",
+   "source": "{ signal: [ { name: \"a\", wave: \"01..0\", node: \".a..b\" } ], edge: [\"a~>b delay\"] }"
+  },
+  {
+   "name": "register bitfield",
+   "source": "{ reg: [ { bits: 8, name: \"data\" }, { bits: 8, name: \"addr\" } ] }"
+  }
+ ]
+}

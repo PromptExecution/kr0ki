@@ -1,0 +1,6 @@
+- The source is plain ASCII art; it never raises syntax errors (only an empty source gives 400 `empty_source`). Mistakes show up as a wrong drawing.
+- A box is only recognised when every edge lines up: `+---+ / | A | / +--+` produces loose lines and no rectangle. Keep top and bottom the same width.
+- `+---+` corners give a square `<rect>`; `.---.` on top with `'---'` below gives a rounded rect (`rx="4"`). Unicode box-drawing characters also render as a box.
+- Wrap text in double quotes to keep it verbatim as one label (`"A | B"` stays one text with the quotes removed). Square brackets such as `[Hello]` stay literal text.
+- `*` corners/line ends render as filled circle markers; a lone `v` or `^` under/over a `|` or after `-` becomes an arrowhead.
+- Style footnotes such as `[a]: {fill: red}` are NOT applied by this backend: they are drawn as plain text.

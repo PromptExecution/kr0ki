@@ -1,0 +1,7 @@
+- Start with the C4 stdlib include, then use macros: `@startuml` / `!include <C4/C4_Container>` / `Person(u, "User")` / `@enduml`. Without any include, the macros are unknown: `Syntax Error? (Assumed diagram type: sequence) (line: 1)`.
+- The include decides which macros exist: `C4_Context` (Person, System, System_Ext, Enterprise_Boundary), `C4_Container` (adds Container, ContainerDb, ContainerQueue, System_Boundary, Container_Ext), `C4_Component` (adds Component, Container_Boundary), `C4_Dynamic`, `C4_Deployment` (Deployment_Node). `Container(...)` under `C4_Context` fails (`Assumed diagram type: component`); higher levels include the lower ones (`System` works under `C4_Container`).
+- Macro names are case-sensitive: `ContainerDb` works, **`ContainerDB` fails**.
+- Aliases (first argument) may contain letters, digits, `_` and `.`; **a hyphen fails** (`my-user` gave `Syntax Error? (Assumed diagram type: activity)`). Write labels and descriptions as double-quoted strings.
+- **Backslash-escaped quotes inside a string fail**: `$descr="Handles \"x\""` gave `unquoted function/procedure cannot use expression.` Use single quotes or rephrase.
+- Relationships: `Rel(from, to, "label", "technology")`, direction variants `Rel_R`, `Rel_D`, `Rel_L`, `Rel_U`, and `BiRel`. A boundary is `System_Boundary(id, "Name") { ... }` with the closing brace.
+- Optional: `LAYOUT_LEFT_RIGHT()`, `SHOW_LEGEND()`, `title ...`, `AddElementTag("t", $bgColor="#ccc")` then `$tags="t"` on an element: all rendered.

@@ -1,6 +1,10 @@
-- **Every source must start with `@startuml` and end with `@enduml`.** Without the wrapper the renderer fails with `Syntax Error? (Assumed diagram type: sequence)` (seen in real runs).
-- Class diagrams: `class Name { +publicField : Type ; -privateMethod() }`, `abstract class`, `interface`, `enum`; relationships `<|--` (inherits), `*--` (composition), `o--` (aggregation), `-->` (association), `..>` (dependency); labels after a colon.
-- Generics go in angle brackets on the class name: `class Box<T>`; stereotypes use guillemets: `class A <<Entity>>`.
-- Group with `package "Name" { ... }`; attach text with `note right of A : text` or `note "text" as N1`.
-- Style with `skinparam` lines before the elements; `hide empty members` removes empty compartments.
-- A line PlantUML cannot place gives `Syntax Error? (Assumed diagram type: class) (line: N)`: fix that line, do not rewrite everything.
+- The renderer wraps plain source in `@startuml ... @enduml` for you, but write the wrapper anyway. **Gantt must use `@startgantt ... @endgantt`**: gantt lines inside `@startuml` fail with `Syntax Error? (Assumed diagram type: sequence) (line: 1)`. `@startmindmap`/`@startwbs` also render.
+- A bad line gives `Syntax Error? (Assumed diagram type: <type>) (line: N)`: the type shows what PlantUML guessed; fix line N, do not rewrite everything.
+- **Names with spaces or hyphens must be declared with a quoted alias**: `participant "Web App" as W`, `state "Idle mode" as s1`, `class "Engine" as e2`. Bare `Web App -> DB`, `class My Class`, `participant my-w` and `[*] --> my-state` all fail; `class my-class` rendered.
+- Sequence: `A -> B : msg`, `-->` dotted return, `->>` async, `activate`/`deactivate`, `alt x ... else y ... end`, `loop`, `opt`, `group`, `autonumber`, `note right of B : t`, `note over A,B : t`.
+- Activity (new syntax): `start`, `:action;`, `if (c?) then (yes) ... else (no) ... endif`, `while (c?) ... endwhile`, `repeat ... repeat while (c?)`, `fork ... fork again ... end fork`, `|Lane|` swimlanes, `partition "P" { }`, `stop`. **Every action needs the closing `;`** (`:Read input` fails).
+- State: `[*] --> A`, `A --> B : event`, nested `state X { ... }`, `state f <<fork>>`, `<<choice>>`, `A : description`. Use case: `actor U`, `usecase "Login" as UC1`, `(Logout) as UC2`, `rectangle Sys { }`, `.>` for include/extend labels.
+- Component/deployment: `[Svc A] --> [Svc B]`, `component`, `interface`, `package`, `node`, `cloud`, `database`, `artifact`, nesting in braces.
+- Timing: `concise "Web" as W`, `robust`, `binary`, `clock clk with period 50`, `@0` / `W is Idle`, `@100`.
+- Gantt: `Project starts 2024-01-01` (needed for absolute dates, else `No starting date for the project`), `[Design] lasts 5 days`, `[Build] starts at [Design]'s end`, `then [Test] lasts 3 days`, `[A] is colored in Lime/Green`, `saturday are closed`. A reference to a missing task fails: `No such task Ghost`; `[B] starts after [A]` fails.
+- Class: `class A { +f : T }`, `abstract class`, `interface`, `enum`, `<|--`, `*--`, `o--`, `-->`, `..>`, generics `class Box<T>`, `<<Entity>>`, `package "P" { }`, `hide empty members`, `skinparam` lines first.

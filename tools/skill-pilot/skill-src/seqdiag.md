@@ -1,0 +1,7 @@
+- Wrapper `seqdiag { ... }`. Participants appear in first-mention order. `A -> B;` is a call, `B --> A;` is a dashed reply, `<-`, `->>`, `<<-`, `-->>` and `=>` all render. `A -x B` fails (`Got unexpected token`).
+- **Put spaces around arrows**: `A->B` fails (`Got unexpected token at line 1 column 13`).
+- Edge text goes in brackets, quoted: `A -> B [label = "req"];`. `[label=two words]` fails (`got unexpected token: 'words', expected: ']'`). Unknown attributes fail: `Unknown attribute: DiagramEdge.foo`, same for nodes; `color=nope` fails (`not defined as a named color in css3`).
+- Working edge options: `label`, `note`, `leftnote`, `rightnote`, `color`, `style = dotted|dashed`, `thick`, `failed`, `diagonal`, `folded`, `return = "done"`. Self-calls `A -> A;` work.
+- Nested calls use a brace body: `A -> B { B -> C; }` (activation boxes). Separators `=== text ===;` and `... delay ...;` work between messages.
+- Rename participants with `A [label = "Alice", color = "#fcc"];` before the messages. Diagram options such as `autonumber = True;` and `edge_length = 300;` work.
+- Mermaid syntax (`sequenceDiagram`) is rejected with `Got unexpected token`.

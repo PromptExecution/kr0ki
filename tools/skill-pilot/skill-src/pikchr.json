@@ -1,0 +1,26 @@
+{
+ "description": "Use before writing or fixing pikchr diagrams for render_diagram (format pikchr): statement separators, label naming, string and colour syntax, error meanings, worked examples, identifier rule.",
+ "identifier": "Name objects with the identifier as the capitalised label and the display name as the string: `N0002: box \"engine\"` then `arrow from N0002.e to N0003.w`. Labels must start with an uppercase letter and may not contain `.` or `-` (use `_`). Never invent identifiers.",
+ "examples": [
+  {
+   "name": "flow of boxes",
+   "source": "box \"A\"; arrow; box \"B\"; arrow; box \"C\""
+  },
+  {
+   "name": "named objects and labelled arrow",
+   "source": "Src: box \"Source\"\nDst: box \"Sink\" at 2 right of Src\narrow from Src.e to Dst.w \"data\" above"
+  },
+  {
+   "name": "shapes and fill colours",
+   "source": "oval \"Start\" fill lightblue\narrow\nbox \"Work\" rad 10px fill 0xffeeaa\narrow\ncylinder \"DB\"\narrow\ndiamond \"Done?\""
+  },
+  {
+   "name": "direction change and bidirectional arrow",
+   "source": "down\nA1: box \"Top\"\narrow <-> down 1\nA2: box \"Bottom\" dashed"
+  },
+  {
+   "name": "group in brackets",
+   "source": "G1: [ box \"in\"; arrow; box \"out\" ]\narrow from G1.e right 0.5\ncircle \"end\""
+  }
+ ]
+}

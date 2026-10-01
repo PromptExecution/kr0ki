@@ -1,0 +1,26 @@
+{
+ "description": "Use before writing or fixing seqdiag sequence diagrams for render_diagram (format seqdiag): rules checked against the renderer, worked examples, identifier rule.",
+ "identifier": "Participant names are the key and `label` is the display text: `n0002 [label = \"engine\"];` then use `n0002` in edges. Declare participants first: `n0002 [label = \"engine\"];`. Never invent identifiers.",
+ "examples": [
+  {
+   "name": "request/response with labels",
+   "source": "seqdiag {\n  browser -> server [label = \"GET /\"];\n  server --> browser [label = \"200 OK\", color = \"#2a7\"];\n  browser -> server [label = \"POST /x\", failed];\n}"
+  },
+  {
+   "name": "nested calls (activation)",
+   "source": "seqdiag {\n  client -> api [label = \"order\"] {\n    api -> db [label = \"insert\"];\n    api -> mail [label = \"notify\"];\n  }\n  api --> client [label = \"id\"];\n}"
+  },
+  {
+   "name": "notes, separators, delay",
+   "source": "seqdiag {\n  autonumber = True;\n  A -> B [label = \"hello\", note = \"first\"];\n  === phase two ===;\n  B -> C [leftnote = \"left\", rightnote = \"right\"];\n  ... wait ...;\n  C -> A [label = \"done\", style = dotted];\n}"
+  },
+  {
+   "name": "id as key, name as label",
+   "source": "seqdiag {\n  n0002 [label = \"engine\", color = \"#fcc\"];\n  n0003 [label = \"gearbox\"];\n  n0002 -> n0003 [label = \"torque\"];\n  n0003 --> n0002 [label = \"ack\"];\n  n0002 -> n0002 [label = \"self\"];\n}"
+  },
+  {
+   "name": "diagonal edge and arrow forms",
+   "source": "seqdiag {\n  A -> B [label = \"slow\", diagonal];\n  B ->> C [label = \"async\"];\n  C <<- B;\n  A <- C [label = \"back\"];\n}"
+  }
+ ]
+}

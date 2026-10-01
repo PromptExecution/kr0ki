@@ -4,7 +4,7 @@ description: Use before writing or fixing D2 source for render_diagram (format d
 ---
 # d2 (render_diagram format `d2`)
 
-## Rules (each checked against the renderer, 2026-10-01)
+## Rules (each checked against the renderer)
 - Layout: one statement per line. `a -> b: label` is a connection; `a: Label` sets a label; `a; b` and `a -> b; b -> c` put several on one line.
 - **Quote labels that contain `$`**: an unquoted `$` starts a variable substitution and fails (`substitutions must begin on {`). Use single quotes: `a: 'costs $5'`. `${name}` must refer to a variable defined under `vars`, otherwise: `could not resolve variable`.
 - A `.` in a key means nesting (`a.b: hi` creates `b` inside `a`). To get a literal dot in a key, quote it: `"a.b": hi`.

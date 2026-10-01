@@ -1,0 +1,26 @@
+{
+ "description": "Use before writing or fixing ditaa ASCII-art diagrams for render_diagram (format ditaa): column alignment, colour and shape tags, rounded corners, worked examples, identifier rule.",
+ "identifier": "This language cannot separate a key from a label: the text you draw is the only name. Draw the display name, put the identifier in the text only when the reader needs it (for example `n0002 engine`). Never invent identifiers.",
+ "examples": [
+  {
+   "name": "two boxes joined by a vertical arrow",
+   "source": "+-----+\n| A   |\n+--+--+\n   |\n   v\n+--+--+\n| B   |\n+-----+"
+  },
+  {
+   "name": "colour tags on boxes",
+   "source": "+-------+\n|cBLU   |\n| Web   |\n+---+---+\n    |\n    v\n+---+---+\n|cRED   |\n| DB    |\n+-------+"
+  },
+  {
+   "name": "rounded boxes",
+   "source": "/-------\\\n| Rounded |\n\\-------/"
+  },
+  {
+   "name": "document and storage shapes",
+   "source": "+-------+  +-------+\n|{d}    |  |{s}    |\n| Report|  | Store |\n|       |  |       |\n+-------+  +-------+"
+  },
+  {
+   "name": "dashed vertical connector",
+   "source": "+-----+\n| A   |\n+--+--+\n   :\n   :\n   v\n+--+--+\n| B   |\n+-----+"
+  }
+ ]
+}

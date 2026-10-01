@@ -1,0 +1,6 @@
+- Source is a full **Vega** spec as strict JSON (double quotes, no trailing commas). Vega-Lite specs (`mark`/`encoding`) belong to format `vegalite`: sent to `vega` they return HTTP 200 with an empty `width="0" height="0"` SVG and no error.
+- Data must be inline `{"name":"t","values":[...]}`. `"url"` fails: `Unable to load data from an URL while running in secure mode`.
+- Everything referenced must be declared: `Unrecognized scale name: "y"` (mark uses a scale you did not define), `Undefined data set name: "nope"` (bad `from.data`), `Unrecognized scale type: "ordinal2"`, `Unrecognized scale range value: "w"` (use `"width"`, `"height"`, or an array).
+- Mark `type` must be a Vega mark (`rect`, `line`, `symbol`, `arc`, `text`, `area`, ...). `"type":"bar"` fails with `Cannot read properties of undefined (reading 'bound')`; use `rect` for bars.
+- A wrong `field` name does not error; the marks just misplace or vanish. `width`/`height` may be omitted, and `$schema` is optional.
+- Pie: data `transform` `{"type":"pie","field":"v"}` then an `arc` mark with `startAngle`/`endAngle` from the data. Stacked bars: `{"type":"stack","groupby":["c"],"field":"v"}` then `y0`/`y1` fields.

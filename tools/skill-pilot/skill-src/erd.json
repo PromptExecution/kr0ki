@@ -1,0 +1,9 @@
+{"description":"Use before writing or fixing erd (Haskell erd) entity-relationship source for render_diagram (format erd): [Entity] blocks, attribute markers, valid cardinalities, quoted names and options, worked examples, identifier rule.",
+"identifier":"When an identifier exists (schema.table) use it as the entity name with dots turned into underscores or quoted (`[\"core.users\"]`), and the display name as a label option: `[core_users] {label: \"Users\"}`. Never invent identifiers.",
+"examples":[
+{"name":"basic with keys","source":"[Person]\n*id\nname\n+location_id\n\n[Location]\n*id\ncity\n\nPerson *--1 Location"},
+{"name":"cardinalities and labels","source":"[Customer]\n*id\n[Order]\n*id\n+customer_id\n[Invoice]\n*id\n[Note]\n*id\n\nCustomer 1--* Order {label: \"places\"}\nOrder 1--? Invoice {label: \"billed by\", color: \"#ff0000\"}\nOrder +--* Note"},
+{"name":"title and entity colours","source":"title {label: \"Shop schema\", size: \"24\", color: \"#1b4f72\"}\n\n[Product] {bgcolor: \"#ececfc\", size: \"18\"}\n*sku\nprice\n\n[Category] {border: \"2\", border-color: \"#0000ff\"}\n*id\nname\n\nProduct *--1 Category"},
+{"name":"quoted entity and attributes","source":"[\"Order Line\"]\n*+order_id\n*\"line no\"\nqty {label: \"int, not null\"}\n\n[Order]\n*id\n\n\"Order Line\" *--1 Order"},
+{"name":"composite key and many-to-many","source":"[student]\n*id\nname\n[course]\n*id\ntitle\n[enrolment]\n*+student_id\n*+course_id\ngrade\n\nenrolment *--1 student\nenrolment *--1 course"}
+]}

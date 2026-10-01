@@ -1,0 +1,26 @@
+{
+ "description": "Use before writing or fixing TikZ/LaTeX diagrams for render_diagram (format tikz): full-document wrapper, required libraries, LaTeX escaping, node-name restrictions, error meanings, worked examples, identifier rule.",
+ "identifier": "Use the identifier as the node name and the display name as the text: `\\node[draw] (n0002) {engine};`. Node names may use letters, digits and `_` but NOT `.` (`public.orders` fails), so convert dots/slashes to `_` in the name and keep the real id in the label text. Never invent identifiers.",
+ "examples": [
+  {
+   "name": "two nodes with positioning and an arrow",
+   "source": "\\documentclass[tikz]{standalone}\n\\usetikzlibrary{positioning}\n\\begin{document}\n\\begin{tikzpicture}\n\\node[draw] (n0002) {engine};\n\\node[draw,right=of n0002] (n0003) {wheel};\n\\draw[->] (n0002) -- node[above]{drives} (n0003);\n\\end{tikzpicture}\n\\end{document}"
+  },
+  {
+   "name": "foreach loop of circles",
+   "source": "\\documentclass[tikz]{standalone}\n\\begin{document}\n\\begin{tikzpicture}\n\\foreach \\i in {0,1,2} \\node[draw,circle] at (\\i*1.5,0) {\\i};\n\\end{tikzpicture}\n\\end{document}"
+  },
+  {
+   "name": "modern arrow tips",
+   "source": "\\documentclass[tikz]{standalone}\n\\usetikzlibrary{arrows.meta}\n\\begin{document}\n\\begin{tikzpicture}\n\\draw[-{Stealth[length=3mm]},thick,blue] (0,0) -- (3,0);\n\\fill[red!30] (0,0.3) rectangle (2,1);\n\\end{tikzpicture}\n\\end{document}"
+  },
+  {
+   "name": "finite automaton",
+   "source": "\\documentclass[tikz]{standalone}\n\\usetikzlibrary{automata}\n\\begin{document}\n\\begin{tikzpicture}\n\\node[state,initial] (q0) {$q_0$};\n\\node[state,accepting,right of=q0] (q1) {$q_1$};\n\\path[->] (q0) edge node[above]{a} (q1);\n\\end{tikzpicture}\n\\end{document}"
+  },
+  {
+   "name": "grouping box with fit",
+   "source": "\\documentclass[tikz]{standalone}\n\\usetikzlibrary{positioning,fit}\n\\begin{document}\n\\begin{tikzpicture}\n\\node[draw] (a) {A};\n\\node[draw,right=of a] (b) {B};\n\\node[draw,dashed,fit=(a)(b),inner sep=6pt] {};\n\\end{tikzpicture}\n\\end{document}"
+  }
+ ]
+}

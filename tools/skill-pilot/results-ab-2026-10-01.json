@@ -141,7 +141,7 @@
    {
     "task": "an interface Repository<T> implemented by UserRepository, with private and public members",
     "ok": false,
-    "err": "Error 400: Syntax Error? (Assumed diagram type: class) (line: 15)"
+    "err": "Error 400: Syntax Error? (Assumed diagram type: class) (line: 14)"
    },
    {
     "task": "a package 'billing' containing Invoice and Payment classes, Invoice aggregates Payment",
@@ -151,7 +151,7 @@
    {
     "task": "an abstract class Shape with Circle and Square, plus a note on Shape",
     "ok": false,
-    "err": "Error 400: Syntax Error? (Assumed diagram type: class) (line: 18)"
+    "err": "Error 400: Syntax Error? (Assumed diagram type: class) (line: 12)"
    },
    {
     "task": "an enum Status with three values used by an Order class",
@@ -172,8 +172,8 @@
    },
    {
     "task": "an interface Repository<T> implemented by UserRepository, with private and public members",
-    "ok": false,
-    "err": "Error 400: Syntax Error? (Assumed diagram type: class) (line: 12)"
+    "ok": true,
+    "err": ""
    },
    {
     "task": "a package 'billing' containing Invoice and Payment classes, Invoice aggregates Payment",

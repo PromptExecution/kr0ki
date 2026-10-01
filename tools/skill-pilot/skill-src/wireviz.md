@@ -1,0 +1,7 @@
+- Input is YAML with top-level `connectors:`, `cables:` and `connections:`. Not YAML-mapping input (e.g. `digraph { a -> b }`) fails with a traceback ending `AttributeError: 'str' object has no attribute 'get'`.
+- Each entry in `connections:` is a list of three-part chain written as a nested list: `-` then `- X1: [1, 2]`, `- W1: [1, 2]`, `- X2: [1, 2]`. Flattening it (`- X1: ...` / `- W1: ...` directly under `connections:`) fails: `KeyError: 0`.
+- A connector must have `pincount: N` or `pinlabels: [...]`. Connect connector-to-connector with no cable in between fails: `Exception: X2 is not in cables`; always put a cable (or a ferrule) in the middle.
+- Referencing an undefined designator fails: `Exception: X3 is not in connectors`; a pin outside the pin count fails: `Exception: X2:5 not found.`.
+- Pin lists must be equal length across the chain, else `All lists and dict lists must be the same length!`; ranges `[1-4]` are accepted.
+- Pins can be addressed by label: `pinlabels: [GND, VCC]` then `- X1: [GND, VCC]`. Unknown connector keys fail: `Connector.__init__() got an unexpected keyword argument 'colour'` (it is `color`).
+- Useful attributes that render: connectors `type`, `subtype`, `color`, `notes`, `show_name: false`; cables `gauge`, `length`, `color_code: DIN`, `colors: [BK, RD]`, `shield: true`, `notes`. Shield wire is addressed as `s`.

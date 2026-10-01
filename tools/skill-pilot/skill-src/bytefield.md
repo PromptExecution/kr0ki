@@ -1,0 +1,6 @@
+- Input is bytefield-svg Clojure-style forms, one per line, no wrapper: `(draw-column-headers)` then `(draw-box "Hello" {:span 4})`. A box is `(draw-box label {options})`; the label is a string, number or `(text ...)`.
+- Strings must be quoted: `(draw-box a {:span 4})` fails with `Could not resolve symbol: a`. Missing a closing paren fails with `EOF while reading, expected ) to match (`.
+- The options map is the only second argument: `(draw-box "a" :span 4)` fails (`Invalid arity: 3`), and so does a third argument after the map. Combine named attribute sets by putting them in a vector: `(draw-box "ok" [{:span 4} :bg-green])` after `(defattrs :bg-green {:fill "#a0ffa0"})`.
+- Rows hold 16 boxes by default: `{:span 40}` fails (`draw-box called with span larger than remaining columns`). Widen with `(def boxes-per-row 32)` before the first box, **but then do not call `(draw-column-headers)`**: with more than 16 columns it fails (`No item 16 in vector of length 16`). Up to 16 per row (e.g. 8) headers are fine.
+- Text styles: `(text "x" :bold)`, `:plain`, `:math` work; `(text "x" :nope)` fails (`Could not resolve attribute spec: :nope`). `(hex-text 255 2)` renders a hex value.
+- Box options that render: `:span`, `:fill "#ffcccc"`, `:borders #{:left :right :top}`. Other forms that work: `(draw-gap "Payload")`, `(draw-bottom)`.

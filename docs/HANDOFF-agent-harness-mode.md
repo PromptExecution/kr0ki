@@ -28,7 +28,7 @@ content or Copilot-style instructions, WP2's packaging changes, nothing else.
 
 **Pilot (FACT, this session; `tools/skill-pilot/`).** The local model (via pi, no skill, no examples) was asked for six
 advanced-syntax examples per format and each was rendered by kr0ki: **graphviz 6/6, d2 3/6, plantuml 1/6, nwdiag 1/6
-(11/24, 46%)**. Failures were exactly the guessing the user sees: PlantUML sources without `@startuml`, invented nwdiag
+(11/24, 46%)**. Failures were exactly the guessing the user sees: PlantUML class sources the renderer could not parse (it reports the misleading `Assumed diagram type: sequence`; **an earlier version of this note blamed a missing `@startuml`, which was wrong: the renderer adds the wrapper, verified 2026-10-01**), invented nwdiag
 shapes/attributes (`cylinder`, `router`, `stack`), D2 escaping/substitution mistakes. Two consequences: skills have
 real value, **and the renderer is a free, automatic judge of every example** (the failing run took 9-19 s per format).
 
@@ -72,7 +72,7 @@ real value, **and the renderer is a free, automatic judge of every example** (th
 | WP | Task | Who | Acceptance |
 |---|---|---|---|
 | **0** | **Quick win, ~1 hour:** make tool errors carry the HTTP body (`manifest_dispatch.http_call` / `server.py` catch of `HTTPError`); dedupe identical consecutive render calls; show the real error in the UI step | Claude agent | A bad PlantUML source yields `Syntax Error? (Assumed diagram type: sequence)` to the model; an identical re-render is refused with a hint; unit tests |
-| 1 | **(first slice DONE: d2, graphviz, plantuml-class, nwdiag; 13 syntaxes + 6 PlantUML types remain)** **Skill corpus pipeline:** per language, generate candidate examples with the local model through pi (`tools/skill-pilot/pilot.py` is the seed), **keep only those that render**, store source + the gotcha sentence. Start with the 13 syntaxes that have no skill and PlantUML's 6 missing types | Local model via pi for drafting; Claude agent reviews | Each skill has >=8 render-verified examples; script re-verifies all examples in CI against a Kroki backend |
+| 1 | **(DONE for syntax: all 26 renderable formats have a skill, PlantUML covers sequence/activity/state/use-case/component/deployment/gantt/timing/class; 133/133 examples render)** **Skill corpus pipeline:** per language, generate candidate examples with the local model through pi (`tools/skill-pilot/pilot.py` is the seed), **keep only those that render**, store source + the gotcha sentence. Start with the 13 syntaxes that have no skill and PlantUML's 6 missing types | Local model via pi for drafting; Claude agent reviews | Each skill has >=8 render-verified examples; script re-verifies all examples in CI against a Kroki backend |
 | 2 | **Skills content** (syntax, type quality, brand): human-reviewed; trigger-rich descriptions; size budget (<4 KB per skill body, longer material in `references/`) | Claude agent + user review of brand/palette | Review checklist per skill; spot-check by rendering |
 | 3 | **(gate DONE in the Python agent, see §7 of the design note; the pi extension is NOT built)** **pi package + gate extension** (`kr0ki-diagram-harness`): `skills/`, `extensions/gate.ts`, `prompts/`; kr0ki MCP tools via `pi-mcp-adapter` with `directTools: true` | Claude agent | Run 20 canned prompts per language against :8002: with the gate, **0 renders happen before the matching skill is read**; render-success rate vs the no-skill baseline (§2) |
 | 4 | **Harness mode in kr0ki:** run pi as a sidecar (`--mode rpc`), adapt the AG-UI `/run` endpoint (or a feature flag next to the Python agent) so the UI is unchanged; planner threads keep their own tool set | Claude agent | Same UI works against either backend; existing 50 agent tests + playbook tests pass |
@@ -114,7 +114,7 @@ and the model receives the guide (the user sees one line: "Loaded the d2 syntax 
 count as a failure. Verified live: an nwdiag request was gated, then rendered. Mutation-checked.
 
 **Measured (single sample, local 27B model, new drawing tasks, renderer as judge; `tools/skill-pilot/results-ab-2026-10-01.json`):**
-without the skill 12/24 rendered, with it 21/24 (nwdiag 1->6, d2 2->4, graphviz 5->6, plantuml 4->5). The model could not
+without the skill 12/24 rendered, with it 22/24 (nwdiag 1->6, d2 2->4, graphviz 5->6, plantuml 4->6; the PlantUML row is a re-run after its skill was corrected, see below). The model could not
 learn nwdiag or much D2 from error messages alone (repair loop: plantuml 6->9 of 9, d2 stuck at 5/8, nwdiag 0/8), so those
 rules had to be hand-written from verified behaviour. Indicative, not statistical.
 
@@ -129,3 +129,13 @@ rules had to be hand-written from verified behaviour. Indicative, not statistica
 6. `AB_ONLY=<lang> PI_SMOKE_DIR=... python3 tools/skill-pilot/ab.py <skills dir> ab.json` to measure with vs without; keep the result file.
 7. Agent tests: `cd containers/kr0ki-storyb00k-agent && .venv/bin/python -m unittest discover -p "test_*.py"` (static shape check covers the new skill); restart the agent (`just stop-agent && just start-agent`).
 Pitfall: the SysML/graphviz `D2` cache token and skills are independent; but if you change what a renderer route emits, bump its cache version token.
+
+**Correction and batch 2 (later 2026-10-01).** My first PlantUML rule ("every source must start with `@startuml`") was **wrong**: I inferred it from the
+renderer's message and never probed it. A class diagram without the wrapper renders; the renderer adds the wrapper itself, and
+`Assumed diagram type: sequence` is just what PlantUML says about any source it cannot place (e.g. gantt lines inside `@startuml`, which need
+`@startgantt`). A subagent re-probed and fixed it; I re-checked it directly. **Lesson: a rule is only verified if you ran both the failing and the passing form.**
+The other 22 formats (c4plantuml, structurizr, dbml, erd, the blockdiag family, wireviz, symbolator, bytefield, vega/vegalite, ditaa, svgbob, goat, pikchr, umlet, nomnoml, tikz, wavedrom)
+were written by three parallel subagents under the same rule; I rebuilt everything (every example re-rendered: 133/133), ran the 60 agent tests, and spot-checked 10 of their
+claims independently (10/10 held). Silent-failure formats worth knowing: wavedrom returns HTTP 200 with an empty `<div>` for an unknown key; `vega` given a Vega-Lite spec returns a 0x0 SVG with no error;
+umlet renders a blank SVG for an unknown element id. The agent cannot detect those from the status code, so a future check should look at the SVG (size/emptiness).
+`build_skills.py` is now data-driven: `skill-src/<fmt>.md` (rules) + `skill-src/<fmt>.json` (description, identifier rule, examples).
