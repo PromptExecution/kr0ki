@@ -135,9 +135,9 @@ starting this stream. kr0ki's stateless view slice is on
 - [ ] **Raster diagram → diagram-as-code (visual front-end)** — proposed in
   [`PLAN-KR0KI-007`](PLAN-KR0KI-007-raster-to-diagram-as-code.md): browser-mapped project directory, a bounded
   multimodal "does it match" loop that renders every attempt with the real backend, write-back of the accepted
-  source. Phase 0 (crate `kr0ki-raster-ingest`, traits, fake-model loop tests) needs no model. The model is
-  settled (local vision-capable qwen38 NEO-CODER); past Phase 0 it needs that model **reachable** from the server
-  process (**D-7a**, remaining part).
+  source. Phase 0 (crate `kr0ki-raster-ingest`, traits, fake-model loop tests) is merged. The model is
+  settled and reachable (vision-enabled qwen38 NEO-CODER at `:8002`, **D-7a** resolved 2026-10-01); Phase 1 is the
+  server route and vision client.
 - [ ] **Commit poll loop** — Flexo (and the OMG pilot) expose **no webhooks**; poll
   `GET /projects/{id}/commits` newest-first (or `…/branches/{b}`) to detect new
   `(projectId, commitId)`, enqueue a render. `Tag` ids are a natural "render releases"

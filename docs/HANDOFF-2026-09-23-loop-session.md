@@ -120,6 +120,8 @@ its status before assuming a `ledgrrr://` URI convention exists yet.
 
 ## Infra: `ch0nky` (storyb00k agent's LLM backend) — unresolved, not kr0ki's to fix
 
+> **Correction 2026-10-01:** `ch0nky` (`:8001`) is a separate deployment and remains unfixed, but it is not the only LLM. The NEO-CODER model runs in the podman container `b00t-heretic` on `:8002` and is vision-enabled (mmproj). The "different netns, unreachable" note about `:8080` below was a misdiagnosis.
+
 Brian reported "the agent chat capability doesn't work" mid-session.
 Diagnosed: **not a kr0ki code bug.** Full details:
 `.claude/projects/-home-brianh-promptexecution-kr0ki/memory/
