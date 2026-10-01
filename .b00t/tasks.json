@@ -477,6 +477,14 @@
       "priority": 3,
       "tags": [],
       "created_at": "2026-09-30T22:42:52Z"
+    },
+    {
+      "id": 57,
+      "title": "kr0ki: baseline bug - 'Publish playb00k' Pages workflow fails on every push to main since >=2026-09-26: npm ci vs stale playbook/package-lock.json (project uses pnpm-lock.yaml; vendored @assistant-ui/vue is a file: dep CI does not build)",
+      "status": "pending",
+      "priority": 3,
+      "tags": [],
+      "created_at": "2026-10-01T04:33:36Z"
     }
   ],
   "version": "1"

@@ -6,7 +6,7 @@
 [`PLAN-KR0KI-003`](PLAN-KR0KI-003-rust-source-frontend.md) (the other non-SysML front-end).
 **Owner:** PromptExecution (@elasticdotventures). **Created:** 2026-09-30.
 
-**Status:** proposed. Contract-first: Phase 0 needs no model and no browser. Facts in §2 were checked against the
+**Status:** proposed; **Phase 0 is implemented** in `crates/kr0ki-raster-ingest` (no model, no server route yet). Contract-first: Phase 0 needs no model and no browser. Facts in §2 were checked against the
 repository and primary sources on 2026-09-30; anything not checked is marked *unverified*.
 
 ---
@@ -80,7 +80,8 @@ the state in durable artifacts, stopping on a verifiable completion condition ra
 2. **Describe** (once) — the model returns a structured target: `diagram_kind` (incl. `none`), visible text labels,
    nodes, directed edges. `none` ends the run with `NotADiagram` and **no loop**.
 3. **Propose** — prompt built from durable state only: original image, description, target format and its skill file,
-   best source so far, and the last verdict's concrete differences. Not chat history.
+   the previous source with the feedback *about that source* (render error, the judge's differences, or the
+   target labels the render lacked), and the best-scoring source when it is a different one. Not chat history.
 4. **Render** — the real backend. A render error is an attempt result: its message (truncated) goes into the next
    prompt.
 5. **Score** — deterministic label check plus the judge (§7).
@@ -90,14 +91,14 @@ the state in durable artifacts, stopping on a verifiable completion condition ra
 per-call timeout. **Stall detection:** stop when the same source hash repeats or the composite score fails to improve
 for 2 attempts. **Exhausted** returns the best attempt with `converged: false` — never an error that discards work.
 
-**Accept** = no render error **and** judge `match` **and** label recall ≥ τ (default 0.9). If label extraction is
-unusable for a format (text drawn as paths), fall back to *two consecutive* judge matches and record that in the result.
+**Accept** = no render error **and** a *self-consistent* judge `match` (scored at least `min_match_score`, default 0.7, and listing no missing/extra nodes, wrong edges or label errors: a `match: true` that lists a reversed edge is not trusted) **and** label recall ≥ τ (default 0.9). The judge sees **only the two images**, never the source or the description, so it cannot verify the source against itself. If label extraction is
+unusable for a format, or the description has no comparable labels (text drawn as paths), a *second, differently-worded judge call on the same render* must confirm the match (`accepted_via: judge_confirmed`). Two consecutive attempts would collide with the repeated-source stall rule.
 
 ## 4. Contracts
 
-**Verdict** (JSON Schema at `docs/schemas/plan-007/verdict.schema.json`, added in Phase 0, `additionalProperties: false`):
+**Verdict** (JSON Schema at `docs/schemas/plan-007/verdict.schema.json`, kept in sync with the Rust type by a test). Model replies are parsed leniently: unknown keys are ignored and a `null` list counts as empty, because a stray `"reasoning"` key must not discard a whole reply; what kr0ki emits carries exactly these fields:
 `match: bool`, `score: 0..1`, `label_recall`, `label_precision`, `missing_nodes[]`, `extra_nodes[]`,
-`wrong_edges[{from,to,expected}]`, `label_errors[{expected,got}]`, `layout_notes[]`, `confidence`.
+`wrong_edges[{from,to,issue: missing|extra|reversed}]`, `label_errors[{expected,got}]`, `layout_notes[]`, `confidence`.
 
 **HTTP**: `POST /ingest/raster?format=<slug>&max_iterations=<n>`, body = raw image bytes
 (`Content-Type: image/png|image/jpeg|image/webp`), route-specific `DefaultBodyLimit` (default 10 MiB). Response is
@@ -109,8 +110,10 @@ Errors: 413 too large, 415 unsupported type, 422 undecodable or over the pixel l
 **MCP**: a `raster_to_diagram` tool in `mcp_tool.rs`. `ArgPlacement::Body` passes one string as the whole request body,
 so the tool takes base64 and the bridge decodes to the raw-bytes route. *Detail to settle in Phase 1.*
 
-**Cache**: key = `sha256(image_sha256 ‖ format ‖ model ids ‖ prompt version ‖ loop config)`; the **final result** is
-cached, attempts are not. Uploads are never stored beyond the hash (kr0ki is not a blob store).
+**Cache**: key = `sha256(image_sha256 ‖ format ‖ model ids ‖ prompt version ‖ loop config)`; only a result that reached a
+verdict on the content (`Accepted`, `NotADiagram`; `LoopResult::is_cacheable`) is cached. An `Exhausted` run may simply
+have been cut short by time or load, which the key deliberately ignores. Attempts are never cached, and uploads are
+never stored beyond the hash (kr0ki is not a blob store).
 
 **Project directory convention** (written by the browser, never by the server):
 
@@ -147,9 +150,10 @@ component needs it.
 - **Privacy**: an uploaded image is sent to the configured endpoint. With the local model nothing leaves the machine.
   Guard anyway: only loopback/private addresses are accepted; a public endpoint requires `KR0KI_VISION_ALLOW_REMOTE=1`,
   and the UI names the endpoint before the first upload.
-- **Decode limits**: size cap (10 MiB default), pixel cap (e.g. 40 MP) checked from headers **before** decoding, allowed
+- **Decode limits**: size cap (10 MiB default), pixel cap (16 MP default, about 11 bytes of peak memory per declared pixel, so cap concurrent uploads) checked from headers **before** decoding, allowed
   types PNG/JPEG/WebP by content sniffing (not the header), single frame only (reject animated), metadata stripped.
-  An SVG upload is not raster input; route it to the existing `/render` path.
+  An SVG upload is not raster input; route it to the existing `/render` path. `normalize` is CPU-bound and synchronous:
+  the server calls it under `spawn_blocking`.
 - **Prompt injection**: text inside an image is data. System prompts say so; the model's output can do nothing except
   become a source that is then rendered and scored. Output format is restricted to `DiagramFormat::ALL` (not the
   agent's wider `VALID_INPUT_FORMATS`, which includes formats the server rejects).
@@ -182,7 +186,7 @@ a **negative set** (photos, screenshots, blank images) that must end in `not_a_d
 
 | Phase | Specific actions | Acceptance |
 |---|---|---|
-| **0 — contracts, no model** | crate skeleton; traits; `Normalize` on the `image` crate with limits; Verdict schema; `run_loop` against fake `VisionModel`/`Renderer`; cache key | fake-driven tests: converges, exhausts with best attempt, stalls, feeds render errors back, never exceeds any cap, `not_a_diagram` does not loop; `just check` |
+| **0 — contracts, no model** *(done)* | crate skeleton; traits; `Normalize` on the `image` crate with limits; Verdict schema; `run_loop` against fake `VisionModel`/`Renderer`; cache key | fake-driven tests: converges, exhausts with best attempt, stalls, feeds render errors back, never exceeds any cap, `not_a_diagram` does not loop; `just check` |
 | **1 — server** | OpenAI-compatible vision client that mirrors the agent's existing `image_url` data-URL message shape (adding timeouts, bounded retry, and two-image messages); `/ingest/raster` SSE; route body limit; MCP tool; config and 503 path; wiremock tests with a fake VLM; one `#[ignore]` live test, run once against the local NEO-CODER as the reachability and image-limit smoke test | 413/415/422/503/502 covered; a fake-model run streams the documented events; live test documented |
 | **2 — browser** | `ProjectFs` + both adapters; "Import image" in the gallery/editor; directory mapping UI; SSE progress; confirm-before-overwrite; vitest with an in-memory FS | verified in headless Chromium over CDP on `localhost` (write-back) and on a non-secure origin (fallback), per [`OPERATIONS.md` §7](OPERATIONS.md) |
 | **3 — scoring + eval** | label extraction via `kr0ki-svg`; fuzzy compare; judge step; `just eval-raster`; negative/adversarial sets | a published report; thresholds (τ, caps) set from data, not guessed |
@@ -193,7 +197,7 @@ a **negative set** (photos, screenshots, blank images) that must end in `not_a_d
 | Risk | Mitigation |
 |---|---|
 | The model reads some diagrams poorly (dense, low-resolution, or text drawn as small glyphs) | `Describe` → `not_a_diagram`/low-confidence exits early; the downscale cap is tuned against the model's real image limits; Phase 3 eval reports per-format results |
-| Some renderers convert text to paths, defeating label extraction | per-format fallback to two consecutive judge matches, flagged in the result |
+| Some renderers convert text to paths, defeating label extraction | per-format fallback to a confirming second judge call, flagged in the result (`judge_confirmed`) |
 | Self-judging bias | deterministic check; optional separate judge; eval |
 | Cost or latency blow-ups | orchestrator-enforced caps; concurrency limit; result cache |
 | Insecure-origin deployment blocks directory mapping | fallback adapter; clear UI; document localhost/HTTPS (**D-7e**) |

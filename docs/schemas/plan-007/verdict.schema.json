@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Verdict",
+  "description": "The judge's comparison of the original with a render, completed by the deterministic label check.\n\n`label_recall` / `label_precision` are always overwritten by the loop (or cleared when the renderer cannot supply text), never trusted from the model.",
+  "type": "object",
+  "required": [
+    "match",
+    "score"
+  ],
+  "properties": {
+    "confidence": {
+      "default": null,
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "extra_nodes": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "label_errors": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/LabelDiff"
+      }
+    },
+    "label_precision": {
+      "default": null,
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "label_recall": {
+      "default": null,
+      "type": [
+        "number",
+        "null"
+      ],
+      "format": "double"
+    },
+    "layout_notes": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "match": {
+      "description": "Same nodes, labels and directed connections. Styling and layout alone do not count.",
+      "type": "boolean"
+    },
+    "missing_nodes": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "score": {
+      "description": "0.0 (unrelated) to 1.0 (identical in meaning).",
+      "type": "number",
+      "format": "double"
+    },
+    "wrong_edges": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/EdgeDiff"
+      }
+    }
+  },
+  "definitions": {
+    "EdgeDiff": {
+      "type": "object",
+      "required": [
+        "from",
+        "issue",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "issue": {
+          "$ref": "#/definitions/EdgeIssue"
+        },
+        "to": {
+          "type": "string"
+        }
+      }
+    },
+    "EdgeIssue": {
+      "type": "string",
+      "enum": [
+        "missing",
+        "extra",
+        "reversed"
+      ]
+    },
+    "LabelDiff": {
+      "type": "object",
+      "required": [
+        "expected",
+        "got"
+      ],
+      "properties": {
+        "expected": {
+          "type": "string"
+        },
+        "got": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+[package]
+name = "kr0ki-raster-ingest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Raster diagram -> diagram-as-code: normalize an image, then a bounded render-and-judge loop (PLAN-KR0KI-007)"
+
+[dependencies]
+bytes = "1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+schemars = { version = "0.8", features = ["derive"] }   # same major as ufo-types
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+strsim = "0.11"
+thiserror.workspace = true
+tokio = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+png = "0.18"   # to craft an animated PNG for the rejection test
+tokio = { workspace = true, features = ["macros", "rt", "test-util", "time"] }
