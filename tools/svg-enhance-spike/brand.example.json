@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "_comment": "Placeholder brand package. Swap icons/colours later without touching diagram source. 'select' is CSS over the stamped attributes. NOTE: D2 ships scoped CSS (.d2-<hash> .stroke-B1) that out-specifies a plain class rule, so brand rules need !important (or >= 3-class specificity).",
+  "icons": {
+    "part": {
+      "viewBox": "0 0 24 24",
+      "svg": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"3\" fill=\"#38bdf8\"/>"
+    },
+    "definition": {
+      "viewBox": "0 0 24 24",
+      "svg": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" fill=\"#a855f7\"/>"
+    },
+    "requirement": {
+      "viewBox": "0 0 24 24",
+      "svg": "<circle cx=\"12\" cy=\"12\" r=\"9\" fill=\"#4ade80\"/>"
+    }
+  },
+  "rules": [
+    {
+      "select": "[data-kr0ki-type=\"PartUsage\"]",
+      "class": "k-part",
+      "icon": "part",
+      "label": "name"
+    },
+    {
+      "select": "[data-kr0ki-type=\"PartDefinition\"]",
+      "class": "k-def",
+      "icon": "definition",
+      "label": "name"
+    },
+    {
+      "select": "[data-kr0ki-type=\"RequirementUsage\"]",
+      "class": "k-req",
+      "icon": "requirement",
+      "label": "name"
+    }
+  ],
+  "css": ".k-part rect { stroke: #0ea5e9 !important; stroke-width: 3 !important } .k-def rect { stroke: #9333ea !important; stroke-width: 3 !important }"
+}
