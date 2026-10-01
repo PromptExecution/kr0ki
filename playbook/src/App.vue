@@ -7,6 +7,7 @@ import Setup from './components/Setup.vue'
 import CatalogTree from './components/CatalogTree.vue'
 import PlannerView from './components/PlannerView.vue'
 import { connectUiBridge, plannerSessionId } from './lib/uiBridge.js'
+import { loadLspUrls, saveLspUrls } from './lib/lsp.js'
 
 // Version from Cargo.toml (injected at build time by Vite)
 const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
@@ -32,6 +33,11 @@ const rendererUrl = ref(
       ? `${window.location.protocol}//${window.location.hostname}:8787`
       : 'http://127.0.0.1:8787')
 )
+// Optional language servers per diagram language (Setup -> Language servers), persisted.
+const lspUrls = ref(loadLspUrls())
+function updateLspUrls(urls) {
+  lspUrls.value = saveLspUrls(urls)
+}
 const outputFormat = ref(localStorage.getItem('kr0ki:outputFormat') || 'svg')
 const llmUrl = ref(localStorage.getItem('kr0ki:llmUrl') || `http://${window.location.hostname}:8002/v1`)
 const llmKey = ref(localStorage.getItem('kr0ki:llmKey') || '')
@@ -310,6 +316,8 @@ onMounted(async () => {
         v-else-if="viewMode === 'setup'"
         :renderer-url="rendererUrl"
         :agent-url="agentUrl"
+        :lsp-urls="lspUrls"
+        @update:lsp-urls="updateLspUrls"
         @update:renderer-url="updateRendererUrl"
         @update:agent-url="updateAgentUrl"
         @update:llm-url="updateLlmUrl"
@@ -339,6 +347,7 @@ onMounted(async () => {
         :override-route="editedSourcePending ? editedRoute : undefined"
         :renderer-url="rendererUrl"
         :agent-url="agentUrl"
+        :lsp-urls="lspUrls"
         :output-format="outputFormat"
         @select-example="onSelectExample"
         @send-to-agent="editorToAgentHandoff"

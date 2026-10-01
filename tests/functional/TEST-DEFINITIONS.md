@@ -20,7 +20,7 @@ Tests are executed using Chrome DevTools MCP server connected to Chromium at `19
 
 **Expected Outcome:**
 - Response contains `"status":"ok"`
-- Response contains `"version":"0.0.11"`
+- Response contains `"version":"0.0.12"`
 - Response contains `"service":"kr0ki"`
 
 **Validation:**
@@ -346,14 +346,14 @@ curl -X POST http://192.168.1.137:8787/render/d2?output=svg \
 2. Look at sidebar
 
 **Expected Outcome:**
-- Version tag shows "v0.0.11"
+- Version tag shows "v0.0.12"
 - Version is under "kr0ki playb00k" text
 - Version is styled correctly
 
 **Validation:**
 ```bash
 # Check built files
-grep -o "0.0.11" playbook/dist/assets/*.js
+grep -o "0.0.12" playbook/dist/assets/*.js
 # Expected: Found
 ```
 

@@ -1,4 +1,4 @@
-# Testing guide (v0.0.11)
+# Testing guide (v0.0.12)
 
 What is built, how to try each piece, what you should see, and what is known to be incomplete. Every step below was run
 against the live system on 2026-10-01. Host: `http://192.168.1.137:8787` (kr0ki) and `:8789` (agent). Replace the host if you
@@ -7,10 +7,11 @@ run elsewhere. The agent's model is the local vision model on `:8002`; `OPENAI_A
 ## 1. Playbook (browser): `http://192.168.1.137:8787/playbook/`
 | Try | Expect |
 |---|---|
-| Footer / sidebar | `v0.0.11` |
+| Footer / sidebar | `v0.0.12` |
 | **Gallery -> planner** (right-hand panel, "● page linked") | The Renderer URL field is gone (it lives in Setup). Type *"I need to show how our database tables relate, with foreign keys"*. Within ~10 s the gallery filters to **data model**, three cards get a **★ suggested** badge with a banner, one card is selected, and the planner answers with a pick and an alternative. |
 | Planner session id (under the chat) | `planner-…`. Any MCP client can steer your page with it (see §3). |
 | **Left menu -> a diagram type** (Quasar tree, grouped by intent) | The Code Editor opens and renders it. The source editor is top-aligned beside the preview, with the language's **syntax skill in Courier** directly below it (the same text the agent loads before it renders that language). |
+| **Code editor** (CodeMirror: line numbers, JSON/YAML highlighting) | Top-aligned. Under it a status line says whether a language server **exists** for the language, is **configured**, or is **connected**. To try it: `just lsp-bridge`, then Setup -> Language servers -> `ws://127.0.0.1:8791/json` for vegalite; open the *chart* type and type `{"a": 1,}`: a red error mark appears; fix it and it clears. Without the bridge the editor just works. |
 | **Planner (top-level menu item)** | Chat on the left, **Planner's picks** on the right (best fit marked; Edit / Agent / Show in gallery). The conversation survives switching tabs; the planner never moves you off this page. |
 | **Code Editor -> Render -> Send to Agent** | The Agent view opens with a **Starting point** card above the chat: the rendered image and the source you sent. It can be collapsed, not dismissed, and survives sending messages. |
 | **Gallery card -> Agent** (locks the type) | The agent loads that type's **quality skill** (good/bad practice) and asks scoping questions about *what to convey*. |
@@ -46,6 +47,8 @@ Skills against a live renderer: `python3 tools/skill-pilot/verify_skills.py cont
 - **Silent failures:** wavedrom (unknown key), `vega` given a Vega-Lite spec, and umlet (unknown element id) return HTTP 200 with an empty diagram; the agent cannot detect that yet.
 - **Brand overlay is SysML-only** (`?brand=` on the SysML render route). Graphviz/PlantUML overlays, a brand picker in the UI, and animation/live state are **not built**. `brand/example` is a placeholder, not your brand.
 - **Not yet verified against a real SysML v2 server.** All SysML testing used the fixture.
+- **Language servers exist only for JSON (vega, vegalite) and YAML (wireviz)**; d2, graphviz, plantuml and the rest have none we can run, so they edit as plain text (the status line says so). The bridge must be started by you and listens on localhost only.
+- The editor bundle grew (CodeMirror + LSP client + Quasar tree): the playbook JS is about 1.2 MB (was 0.5 MB before the tree).
 - The planner and agent share one GPU slot: a second concurrent chat will queue behind the first.
 - With `KR0KI_AUTH_TOKEN` set, the browser's live page-link (SSE) is refused (EventSource cannot send the bearer header).
 
