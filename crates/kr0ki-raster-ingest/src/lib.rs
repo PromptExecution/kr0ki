@@ -20,7 +20,8 @@ pub use model::{
 };
 pub use normalize::{normalize, NormalizeConfig, NormalizeError, NormalizedImage, SourceFormat};
 pub use run::{
-    run_loop, AcceptedVia, AttemptRecord, ExhaustReason, LoopConfig, LoopError, LoopResult, Outcome,
+    run_loop, AcceptedVia, AttemptRecord, Confirmation, ExhaustReason, LoopConfig, LoopError,
+    LoopResult, Outcome,
 };
 pub use types::{
     DescribedEdge, Description, DiagramKind, EdgeDiff, EdgeIssue, LabelDiff, Verdict, VerdictError,

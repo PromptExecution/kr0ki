@@ -45,6 +45,7 @@ fn key_for(
         &cfg.max_tokens.to_string(),
         &cfg.stall_window.to_string(),
         &cfg.max_consecutive_model_errors.to_string(),
+        &format!("{:.4}", cfg.min_match_score),
         &cfg.max_source_chars.to_string(),
         &format!("{:.4}", cfg.label_recall_threshold),
     ] {

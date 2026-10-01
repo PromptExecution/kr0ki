@@ -80,7 +80,8 @@ the state in durable artifacts, stopping on a verifiable completion condition ra
 2. **Describe** (once) — the model returns a structured target: `diagram_kind` (incl. `none`), visible text labels,
    nodes, directed edges. `none` ends the run with `NotADiagram` and **no loop**.
 3. **Propose** — prompt built from durable state only: original image, description, target format and its skill file,
-   best source so far, and the last verdict's concrete differences. Not chat history.
+   the previous source with the feedback *about that source* (render error, the judge's differences, or the
+   target labels the render lacked), and the best-scoring source when it is a different one. Not chat history.
 4. **Render** — the real backend. A render error is an attempt result: its message (truncated) goes into the next
    prompt.
 5. **Score** — deterministic label check plus the judge (§7).
@@ -90,8 +91,8 @@ the state in durable artifacts, stopping on a verifiable completion condition ra
 per-call timeout. **Stall detection:** stop when the same source hash repeats or the composite score fails to improve
 for 2 attempts. **Exhausted** returns the best attempt with `converged: false` — never an error that discards work.
 
-**Accept** = no render error **and** judge `match` **and** label recall ≥ τ (default 0.9). If label extraction is
-unusable for a format (text drawn as paths), a *second, differently-worded judge call on the same render* must confirm the match (`accepted_via: judge_confirmed`). Two consecutive attempts would collide with the repeated-source stall rule.
+**Accept** = no render error **and** a *self-consistent* judge `match` (scored at least `min_match_score`, default 0.7, and listing no missing/extra nodes, wrong edges or label errors: a `match: true` that lists a reversed edge is not trusted) **and** label recall ≥ τ (default 0.9). The judge sees **only the two images**, never the source or the description, so it cannot verify the source against itself. If label extraction is
+unusable for a format, or the description has no comparable labels (text drawn as paths), a *second, differently-worded judge call on the same render* must confirm the match (`accepted_via: judge_confirmed`). Two consecutive attempts would collide with the repeated-source stall rule.
 
 ## 4. Contracts
 

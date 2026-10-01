@@ -110,6 +110,17 @@ pub struct Verdict {
 pub struct VerdictError(pub String);
 
 impl Verdict {
+    /// A `match` the verdict's own contents do not contradict: scored at least `min_score` and listing no
+    /// differences. A judge that says `match: true` while listing a reversed edge is not trusted.
+    pub fn is_consistent_match(&self, min_score: f64) -> bool {
+        self.matches
+            && self.score >= min_score
+            && self.missing_nodes.is_empty()
+            && self.extra_nodes.is_empty()
+            && self.wrong_edges.is_empty()
+            && self.label_errors.is_empty()
+    }
+
     /// Range-check the numeric fields (a model can return `1.7` or `NaN`).
     pub fn validate(&self) -> Result<(), VerdictError> {
         let unit = |name: &str, v: f64| {

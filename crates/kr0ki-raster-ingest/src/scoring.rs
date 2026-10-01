@@ -6,12 +6,15 @@
 
 use crate::types::Verdict;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LabelScore {
     /// Fraction of target labels found in the render.
     pub recall: f64,
     /// Fraction of rendered labels that correspond to a target label.
     pub precision: f64,
+    /// Target labels (as read from the original image) that nothing in the render matched. This is what the
+    /// next proposal is told to fix when the deterministic check refuses a match.
+    pub missing: Vec<String>,
 }
 
 /// Punctuation that merely wraps or ends a label ("Auth service:", "(DB)"). Symbols that can be part of the
@@ -46,9 +49,13 @@ fn digits(s: &str) -> String {
     s.chars().filter(char::is_ascii_digit).collect()
 }
 
+fn words(s: &str) -> Vec<&str> {
+    s.split([' ', '-', '_']).filter(|w| !w.is_empty()).collect()
+}
+
 /// Same text, allowing for a misread character, but never across an index or a one-letter qualifier:
-/// `Worker 1` vs `Worker 2` and `Server A` vs `Server B` are *different nodes*, though a character-level
-/// similarity would call them 0.875 alike.
+/// `Worker 1` vs `Worker 2`, `Server A` vs `Server B`, `Worker-A` vs `Worker-B` and `ServerA` vs `ServerB`
+/// are *different nodes*, though a character-level similarity would call them 0.86-0.88 alike.
 fn similar(a: &str, b: &str) -> bool {
     if a == b {
         return true;
@@ -56,7 +63,7 @@ fn similar(a: &str, b: &str) -> bool {
     if digits(a) != digits(b) {
         return false;
     }
-    let (wa, wb): (Vec<&str>, Vec<&str>) = (a.split(' ').collect(), b.split(' ').collect());
+    let (wa, wb) = (words(a), words(b));
     if wa.len() == wb.len() && wa.len() > 1 {
         // Multi-word labels: every word must match exactly, or be a long word with a small misread.
         return wa.iter().zip(&wb).all(|(x, y)| {
@@ -65,15 +72,21 @@ fn similar(a: &str, b: &str) -> bool {
                     && strsim::normalized_levenshtein(x, y) >= FUZZY_THRESHOLD)
         });
     }
+    // A single token that differs only in its final character is how `ServerA`/`ServerB` look; a real misread
+    // is far more often a dropped or doubled letter, so substitution at the very end is not forgiven.
+    let (ca, cb): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    if ca.len() == cb.len() && ca[..ca.len() - 1] == cb[..cb.len() - 1] {
+        return false;
+    }
     strsim::normalized_levenshtein(a, b) >= FUZZY_THRESHOLD
 }
 
 /// Greedy one-to-one matching: exact matches are taken first, then the best remaining fuzzy ones.
 pub fn label_scores(target: &[String], rendered: &[String]) -> LabelScore {
-    let target: Vec<String> = target
+    let target: Vec<(&String, String)> = target
         .iter()
-        .map(|s| normalize_label(s))
-        .filter(|s| !s.is_empty())
+        .map(|t| (t, normalize_label(t)))
+        .filter(|(_, n)| !n.is_empty())
         .collect();
     let rendered: Vec<String> = rendered
         .iter()
@@ -81,38 +94,36 @@ pub fn label_scores(target: &[String], rendered: &[String]) -> LabelScore {
         .filter(|s| !s.is_empty())
         .collect();
     let mut used = vec![false; rendered.len()];
-    let mut matched = 0usize;
+    let mut matched = vec![false; target.len()];
 
-    let mut pending: Vec<usize> = Vec::new();
-    for (ti, t) in target.iter().enumerate() {
-        match rendered
+    for (ti, (_, t)) in target.iter().enumerate() {
+        if let Some((ri, _)) = rendered
             .iter()
             .enumerate()
             .find(|(ri, r)| !used[*ri] && *r == t)
         {
-            Some((ri, _)) => {
-                used[ri] = true;
-                matched += 1;
-            }
-            None => pending.push(ti),
+            used[ri] = true;
+            matched[ti] = true;
         }
     }
+    let pending: Vec<usize> = (0..target.len()).filter(|ti| !matched[*ti]).collect();
     for ti in pending {
+        let t = &target[ti].1;
         let best = rendered
             .iter()
             .enumerate()
-            .filter(|(ri, r)| !used[*ri] && similar(&target[ti], r))
+            .filter(|(ri, r)| !used[*ri] && similar(t, r))
             .max_by(|a, b| {
-                let sa = strsim::normalized_levenshtein(&target[ti], a.1);
-                let sb = strsim::normalized_levenshtein(&target[ti], b.1);
-                sa.total_cmp(&sb)
+                strsim::normalized_levenshtein(t, a.1)
+                    .total_cmp(&strsim::normalized_levenshtein(t, b.1))
             });
         if let Some((ri, _)) = best {
             used[ri] = true;
-            matched += 1;
+            matched[ti] = true;
         }
     }
 
+    let hits = matched.iter().filter(|m| **m).count();
     let ratio = |num: usize, den: usize| {
         if den == 0 {
             1.0
@@ -121,8 +132,14 @@ pub fn label_scores(target: &[String], rendered: &[String]) -> LabelScore {
         }
     };
     LabelScore {
-        recall: ratio(matched, target.len()),
-        precision: ratio(matched, rendered.len()),
+        recall: ratio(hits, target.len()),
+        precision: ratio(hits, rendered.len()),
+        missing: target
+            .iter()
+            .zip(&matched)
+            .filter(|(_, m)| !**m)
+            .map(|((orig, _), _)| (*orig).clone())
+            .collect(),
     }
 }
 
@@ -243,5 +260,31 @@ mod tests {
         assert_eq!(normalize_label("(DB)."), "db");
         assert_eq!(normalize_label("Node.:"), "node");
         assert_eq!(normalize_label("\"Auth.\""), "auth");
+    }
+
+    #[test]
+    fn unmatched_target_labels_are_reported_in_their_original_form() {
+        let sc = label_scores(
+            &s(&["Auth Service", "Cache", "Queue"]),
+            &s(&["auth service"]),
+        );
+        assert_eq!(sc.missing, s(&["Cache", "Queue"]));
+        assert!(label_scores(&s(&["A-node"]), &s(&["a-node"]))
+            .missing
+            .is_empty());
+    }
+
+    #[test]
+    fn single_token_siblings_that_differ_by_one_letter_or_digit_are_different_labels() {
+        for (a, b) in [
+            ("ServerA", "ServerB"),
+            ("Worker-A", "Worker-B"),
+            ("Worker1", "Worker2"),
+            ("node_a", "node_b"),
+        ] {
+            assert_eq!(label_scores(&s(&[a]), &s(&[b])).recall, 0.0, "{a} vs {b}");
+        }
+        // a dropped letter is still forgiven
+        assert_eq!(label_scores(&s(&["Gateway"]), &s(&["Gatewy"])).recall, 1.0);
     }
 }

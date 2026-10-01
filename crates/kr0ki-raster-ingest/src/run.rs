@@ -24,11 +24,15 @@ pub struct LoopConfig {
     pub max_wall: Duration,
     /// Per model call; also clipped to the wall-clock time remaining.
     pub call_timeout: Duration,
-    /// Total prompt+completion tokens across all calls. Checked before every model call, so a single call can
-    /// overshoot it by at most that call's own usage.
+    /// Total prompt+completion tokens across all calls, as reported by the model. Checked before every model call,
+    /// so one call can overshoot by its own usage. Calls that fail or time out report nothing, so the count is a
+    /// lower bound on what was actually spent.
     pub max_tokens: u64,
     /// Minimum label recall to accept when labels are available.
     pub label_recall_threshold: f64,
+    /// Minimum judge score for a `match: true` to count. A verdict that says match but scores below this, or lists
+    /// differences, is treated as not matching.
+    pub min_match_score: f64,
     /// Stop when the best score has not improved over this many attempts.
     pub stall_window: u32,
     /// Stop after this many consecutive model failures (transport, timeout, unparsable reply).
@@ -45,6 +49,7 @@ impl LoopConfig {
             call_timeout: Duration::from_secs(90),
             max_tokens: 200_000,
             label_recall_threshold: 0.9,
+            min_match_score: 0.7,
             stall_window: 2,
             max_consecutive_model_errors: 3,
             max_source_chars: 20_000,
@@ -88,6 +93,15 @@ pub enum Outcome {
     NotADiagram,
 }
 
+/// What the second, edge-by-edge judge call said (only made when label text could not vouch for a match).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Confirmation {
+    Agreed,
+    Disagreed,
+    Failed { error: String },
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AttemptRecord {
     pub n: u32,
@@ -97,6 +111,7 @@ pub struct AttemptRecord {
     /// A model or parse failure in this attempt (proposal or judgement).
     pub model_error: Option<String>,
     pub verdict: Option<Verdict>,
+    pub confirmation: Option<Confirmation>,
     pub score: f64,
     pub usage: Usage,
 }
@@ -234,14 +249,17 @@ fn usage_since(now: Usage, before: Usage) -> Usage {
     }
 }
 
-/// One extra attempt at a judge call that failed with a *transient* error (a dropped connection, or a reply that
-/// did not parse) before the attempt is recorded as a model error. Re-judging the same render is cheaper than a new
+/// One extra attempt at a judge call that failed with a *transient* error (a dropped connection) or an unparsable
+/// reply (re-prompted more strictly, since the identical request would repeat the reply) before the attempt is
+/// recorded as a model error. Re-judging the same render is cheaper than a new
 /// proposal, and a new proposal after a judge failure tends to repeat the same source and end the run as `Stalled`.
 /// Timeouts and refusals are not retried: a timeout would double the time spent on one render, and a refusal
 /// cannot succeed the second time.
 const JUDGE_RETRIES: u32 = 1;
 /// Consecutive render timeouts before the renderer is treated as unavailable instead of the source as too complex.
 const RENDER_TIMEOUTS_BEFORE_UNAVAILABLE: u32 = 2;
+/// One re-prompt for the describe step (see [`describe`]).
+const DESCRIBE_RETRIES: u32 = 1;
 
 /// Everything the loop remembers between attempts.
 #[derive(Default)]
@@ -331,17 +349,7 @@ where
         usage: Usage::default(),
     };
 
-    let reply = match clock.call(proposer, prompts::describe_request(image)).await {
-        Ok(text) => text,
-        Err(Stop::Model(e)) => return Err(LoopError::Describe(e)),
-        // Nothing has been spent yet, so only a zero budget can land here.
-        Err(Stop::Budget(_)) => {
-            return Err(LoopError::Describe(ModelError::Rejected(
-                "budget is zero".into(),
-            )))
-        }
-    };
-    let description = prompts::parse_description(&reply).map_err(LoopError::Description)?;
+    let description = describe(&mut clock, proposer, image).await?;
     if description.diagram_kind == DiagramKind::None {
         return Ok(LoopResult {
             outcome: Outcome::NotADiagram,
@@ -387,6 +395,46 @@ where
         attempts: st.attempts,
         usage: clock.usage,
     })
+}
+
+/// Read the image into a [`Description`]. One re-prompt: after a dropped connection the same request, after an
+/// unparsable reply a stricter one (the identical request at temperature 0 would just repeat the reply). A timeout
+/// or refusal is final.
+async fn describe<M: VisionModel>(
+    clock: &mut Clock<'_>,
+    model: &M,
+    image: &NormalizedImage,
+) -> Result<Description, LoopError> {
+    let mut strict = false;
+    let mut last = LoopError::Describe(ModelError::Rejected("describe was not attempted".into()));
+    for _ in 0..=DESCRIBE_RETRIES {
+        match clock
+            .call(model, prompts::describe_request(image, strict))
+            .await
+        {
+            Ok(text) => match prompts::parse_description(&text) {
+                Ok(d) => return Ok(d),
+                Err(e) => {
+                    strict = true;
+                    last = LoopError::Description(e);
+                }
+            },
+            // Nothing has been spent before the first call, so a budget stop here means a zero budget.
+            Err(Stop::Budget(_)) => {
+                return Err(LoopError::Describe(ModelError::Rejected(
+                    "budget is zero".into(),
+                )))
+            }
+            Err(Stop::Model(e)) => {
+                let retry = e.is_retryable();
+                last = LoopError::Describe(e);
+                if !retry {
+                    break;
+                }
+            }
+        }
+    }
+    Err(last)
 }
 
 /// Target labels that can actually be compared: the description may omit them, or they may all normalize to
@@ -494,7 +542,7 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
                 render_error: Some(format!(
                     "{message}; the diagram may be too complex, simplify it"
                 )),
-                verdict: None,
+                ..Feedback::default()
             });
             st.attempts.push(failed(
                 n,
@@ -509,10 +557,12 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
             return Step::Next;
         }
         Err(RenderFail::Rejected(message)) => {
+            // The renderer answered, so it is alive: earlier timeouts were about the source, not an outage.
+            st.render_timeouts = 0;
             st.feedback = Some(Feedback {
                 source: source.clone(),
                 render_error: Some(message.clone()),
-                verdict: None,
+                ..Feedback::default()
             });
             st.attempts.push(failed(
                 n,
@@ -533,21 +583,19 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
     };
     let mut last_error: Option<String> = None;
     let mut verdict: Option<Verdict> = None;
+    let mut strict = false;
     for _ in 0..=JUDGE_RETRIES {
-        let request = prompts::judge_request(
-            Purpose::Judge,
-            ctx.image,
-            &rendered.png,
-            ctx.description,
-            &source,
-        );
+        let request = prompts::judge_request(Purpose::Judge, ctx.image, &rendered.png, strict);
         match clock.call(ctx.judge, request).await {
             Ok(text) => match prompts::parse_verdict(&text) {
                 Ok(v) => {
                     verdict = Some(v);
                     break;
                 }
-                Err(e) => last_error = Some(e.to_string()),
+                Err(e) => {
+                    last_error = Some(e.to_string());
+                    strict = true;
+                }
             },
             Err(Stop::Model(e)) => {
                 let retry = e.is_retryable();
@@ -577,6 +625,11 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
     let Some(mut verdict) = verdict else {
         st.judge_errors += 1;
         let message = last_error.unwrap_or_else(|| "judge failed".into());
+        st.feedback = Some(Feedback {
+            source: source.clone(),
+            unjudged: true,
+            ..Feedback::default()
+        });
         record_unjudged(
             n,
             source,
@@ -592,34 +645,56 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
         };
     };
     st.judge_errors = 0;
-    verdict.label_recall = labels.map(|l| l.recall);
-    verdict.label_precision = labels.map(|l| l.precision);
+    verdict.label_recall = labels.as_ref().map(|l| l.recall);
+    verdict.label_precision = labels.as_ref().map(|l| l.precision);
     let score = composite_score(true, Some(&verdict), labels.as_ref());
 
     // ---- decide ----------------------------------------------------------------------------------
-    let accepted = if !verdict.matches {
+    let mut confirmation: Option<Confirmation> = None;
+    let mut feedback_verdict = verdict.clone();
+    let accepted = if !verdict.is_consistent_match(cfg.min_match_score) {
         None
     } else {
-        match labels {
+        match &labels {
             Some(l) if l.recall >= cfg.label_recall_threshold => Some(AcceptedVia::LabelsAndJudge),
             Some(_) => None,
-            None => confirm(
+            None => match confirm(
                 clock,
                 ctx.judge,
                 ctx.image,
                 &rendered.png,
-                ctx.description,
-                &source,
+                cfg.min_match_score,
             )
             .await
-            .then_some(AcceptedVia::JudgeConfirmed),
+            {
+                Confirmed::Agreed => {
+                    confirmation = Some(Confirmation::Agreed);
+                    Some(AcceptedVia::JudgeConfirmed)
+                }
+                Confirmed::Disagreed(v) => {
+                    // Its differences are what the next proposal needs to hear.
+                    confirmation = Some(Confirmation::Disagreed);
+                    feedback_verdict = *v;
+                    None
+                }
+                Confirmed::Failed(error) => {
+                    confirmation = Some(Confirmation::Failed { error });
+                    None
+                }
+            },
         }
     };
 
+    let below_threshold = labels
+        .as_ref()
+        .filter(|l| !l.missing.is_empty() && l.recall < cfg.label_recall_threshold);
     st.feedback = Some(Feedback {
         source: source.clone(),
         render_error: None,
-        verdict: Some(verdict.clone()),
+        verdict: Some(feedback_verdict),
+        label_recall: below_threshold.map(|l| l.recall),
+        missing_labels: below_threshold.map_or_else(Vec::new, |l| l.missing.clone()),
+        unjudged: false,
     });
     st.attempts.push(AttemptRecord {
         n,
@@ -628,6 +703,7 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
         render_error: None,
         model_error: None,
         verdict: Some(verdict),
+        confirmation,
         score,
         usage: usage_since(clock.usage, before),
     });
@@ -661,6 +737,7 @@ fn failed(
         render_error,
         model_error,
         verdict: None,
+        confirmation: None,
         score: 0.0,
         usage,
     }
@@ -682,19 +759,30 @@ fn record_unjudged(
     st.consider_best();
 }
 
-/// Second, differently-worded judge call used when label text cannot vouch for the match. Any failure means
-/// "not confirmed"; the next call's budget check ends the run if the budget is gone.
+enum Confirmed {
+    Agreed,
+    /// The confirming judge disagreed; its verdict carries the differences it found.
+    Disagreed(Box<Verdict>),
+    Failed(String),
+}
+
+/// Second, differently-worded judge call used when label text cannot vouch for the match. Any failure means "not
+/// confirmed"; the next call's budget check ends the run if the budget is gone.
 async fn confirm<J: VisionModel>(
     clock: &mut Clock<'_>,
     judge: &J,
     image: &NormalizedImage,
     render_png: &bytes::Bytes,
-    description: &Description,
-    source: &str,
-) -> bool {
-    let request = prompts::judge_request(Purpose::Confirm, image, render_png, description, source);
+    min_score: f64,
+) -> Confirmed {
+    let request = prompts::judge_request(Purpose::Confirm, image, render_png, false);
     match clock.call(judge, request).await {
-        Ok(text) => prompts::parse_verdict(&text).is_ok_and(|v| v.matches),
-        Err(_) => false,
+        Ok(text) => match prompts::parse_verdict(&text) {
+            Ok(v) if v.is_consistent_match(min_score) => Confirmed::Agreed,
+            Ok(v) => Confirmed::Disagreed(Box::new(v)),
+            Err(e) => Confirmed::Failed(e.to_string()),
+        },
+        Err(Stop::Model(e)) => Confirmed::Failed(e.to_string()),
+        Err(Stop::Budget(reason)) => Confirmed::Failed(format!("{reason:?} reached")),
     }
 }

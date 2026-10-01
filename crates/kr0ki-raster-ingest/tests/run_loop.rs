@@ -159,6 +159,14 @@ async fn a_repeated_source_stops_the_run_before_it_is_rendered_again() {
         }
     );
     assert_eq!(renderer.calls(), 1);
+    // the repeat is recorded, so its source and its tokens can be audited
+    assert_eq!(r.attempts.len(), 2);
+    assert!(r.attempts[1]
+        .model_error
+        .as_deref()
+        .unwrap()
+        .contains("repeated"));
+    assert!(r.attempts[1].usage.total() > 0 && r.attempts[1].source == "same");
 }
 
 #[tokio::test]
@@ -325,9 +333,11 @@ async fn a_picture_that_is_not_a_diagram_ends_after_one_model_call() {
 }
 
 #[tokio::test]
-async fn an_unparsable_description_is_an_error_not_a_loop() {
-    let proposer =
-        ScriptedModel::new("p").on(Purpose::Describe, vec![ok("I think it's a flowchart!")]);
+async fn an_unparsable_description_gets_one_stricter_reprompt_then_is_an_error_not_a_loop() {
+    let proposer = ScriptedModel::new("p").on(
+        Purpose::Describe,
+        vec![ok("I think it's a flowchart!"), ok("Still prose, sorry")],
+    );
     let r = run_loop(
         &image(),
         &cfg(),
@@ -337,9 +347,385 @@ async fn an_unparsable_description_is_an_error_not_a_loop() {
     )
     .await;
     assert!(matches!(r.unwrap_err(), LoopError::Description(_)));
-    assert_eq!(proposer.calls(), 1);
+    let prompts = proposer.prompts_for(Purpose::Describe);
+    assert_eq!(prompts.len(), 2);
+    assert!(
+        !prompts[0].contains("not valid JSON") && prompts[1].contains("not valid JSON"),
+        "the retry is stricter, not identical"
+    );
 }
 
+#[tokio::test]
+async fn the_stricter_describe_reprompt_can_rescue_the_run() {
+    let proposer = ScriptedModel::new("p")
+        .on(
+            Purpose::Describe,
+            vec![ok("Sure! It is a flowchart."), describe(&["A"])],
+        )
+        .on(Purpose::Propose, vec![source("a")]);
+    let judge = ScriptedModel::new("j").on(Purpose::Judge, vec![verdict(true, 0.9)]);
+    let r = run_loop(
+        &image(),
+        &cfg(),
+        &proposer,
+        &judge,
+        &FakeRenderer::new(rendered(Some(&["a"]))),
+    )
+    .await
+    .unwrap();
+    assert!(matches!(r.outcome, Outcome::Accepted { .. }));
+}
+
+#[tokio::test]
+async fn a_dropped_connection_while_describing_is_retried_but_a_refusal_is_not() {
+    let proposer = ScriptedModel::new("p").on(
+        Purpose::Describe,
+        vec![
+            Err(ModelError::Transport("reset".into())),
+            ok(r#"{"diagram_kind":"none"}"#),
+        ],
+    );
+    let r = run_loop(
+        &image(),
+        &cfg(),
+        &proposer,
+        &ScriptedModel::new("j"),
+        &FakeRenderer::new(rendered(None)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.outcome, Outcome::NotADiagram);
+
+    let refused = ScriptedModel::new("p").on(
+        Purpose::Describe,
+        vec![
+            Err(ModelError::Rejected("no".into())),
+            ok(r#"{"diagram_kind":"none"}"#),
+        ],
+    );
+    let r = run_loop(
+        &image(),
+        &cfg(),
+        &refused,
+        &ScriptedModel::new("j"),
+        &FakeRenderer::new(rendered(None)),
+    )
+    .await;
+    assert_eq!(
+        r.unwrap_err(),
+        LoopError::Describe(ModelError::Rejected("no".into()))
+    );
+    assert_eq!(refused.calls(), 1);
+}
+
+#[tokio::test]
+async fn an_unparsable_judge_reply_is_reprompted_more_strictly_not_repeated() {
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("a")]);
+    let judge = ScriptedModel::new("j").on(
+        Purpose::Judge,
+        vec![ok("Looks right to me!"), verdict(true, 0.9)],
+    );
+    let r = run_loop(
+        &image(),
+        &cfg(),
+        &proposer,
+        &judge,
+        &FakeRenderer::new(rendered(Some(&["a"]))),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        r.outcome,
+        Outcome::Accepted {
+            attempt: 1,
+            via: AcceptedVia::LabelsAndJudge
+        }
+    );
+    let prompts = judge.prompts_for(Purpose::Judge);
+    assert!(
+        !prompts[0].contains("not valid JSON") && prompts[1].contains("not valid JSON"),
+        "{prompts:?}"
+    );
+}
+
+#[tokio::test]
+async fn the_judge_is_never_shown_the_source() {
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("secret_marker -> b")]);
+    let judge = ScriptedModel::new("j")
+        .on(Purpose::Judge, vec![verdict(true, 0.9)])
+        .on(Purpose::Confirm, vec![verdict(true, 0.9)]);
+    run_loop(
+        &image(),
+        &cfg(),
+        &proposer,
+        &judge,
+        &FakeRenderer::new(rendered(None)),
+    )
+    .await
+    .unwrap();
+    for req in judge.seen.lock().unwrap().iter() {
+        assert!(
+            !req.prompt.contains("secret_marker"),
+            "{:?}: {}",
+            req.purpose,
+            req.prompt
+        );
+        assert_eq!(req.images.len(), 2);
+    }
+}
+
+// ---- acceptance must be self-consistent --------------------------------------------------------
+
+#[tokio::test]
+async fn a_match_that_lists_differences_or_scores_low_is_not_accepted() {
+    for (label, reply) in [
+        (
+            "lists a reversed edge",
+            r#"{"match":true,"score":0.95,"wrong_edges":[{"from":"a","to":"b","issue":"reversed"}]}"#,
+        ),
+        (
+            "lists a missing node",
+            r#"{"match":true,"score":0.95,"missing_nodes":["Cache"]}"#,
+        ),
+        ("scores below the minimum", r#"{"match":true,"score":0.5}"#),
+    ] {
+        let proposer = ScriptedModel::new("p")
+            .on(Purpose::Describe, vec![describe(&["A"])])
+            .on(Purpose::Propose, vec![source("a"), source("b")]);
+        let judge =
+            ScriptedModel::new("j").on(Purpose::Judge, vec![ok(reply), verdict(true, 0.95)]);
+        let r = run_loop(
+            &image(),
+            &cfg(),
+            &proposer,
+            &judge,
+            &FakeRenderer::new(rendered(Some(&["a"]))),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            r.outcome,
+            Outcome::Accepted {
+                attempt: 2,
+                via: AcceptedVia::LabelsAndJudge
+            },
+            "{label}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_contradictory_verdict_still_feeds_its_differences_back() {
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("a"), source("b")]);
+    let judge = ScriptedModel::new("j").on(Purpose::Judge, vec![ok(r#"{"match":true,"score":0.95,"wrong_edges":[{"from":"x","to":"y","issue":"reversed"}]}"#), verdict(true, 0.95)]);
+    run_loop(
+        &image(),
+        &cfg(),
+        &proposer,
+        &judge,
+        &FakeRenderer::new(rendered(Some(&["a"]))),
+    )
+    .await
+    .unwrap();
+    assert!(proposer.prompts_for(Purpose::Propose)[1].contains("x -> y (Reversed)"));
+}
+
+// ---- the deterministic check must be able to steer, not only refuse ------------------------------
+
+#[tokio::test]
+async fn when_label_recall_refuses_a_match_the_next_proposal_is_told_which_labels_are_missing() {
+    let proposer = ScriptedModel::new("p")
+        .on(
+            Purpose::Describe,
+            vec![describe(&["Alpha", "Beta", "Gamma", "Delta"])],
+        )
+        .on(Purpose::Propose, vec![source("v1"), source("v2")]);
+    let judge =
+        ScriptedModel::new("j").on(Purpose::Judge, vec![verdict(true, 0.9), verdict(true, 0.9)]);
+    let renderer = FakeRenderer::new(rendered(Some(&["Alpha", "Beta", "Gamma", "Delta"])))
+        .then(rendered(Some(&["Alpha", "Beta"])));
+
+    run_loop(&image(), &cfg(), &proposer, &judge, &renderer)
+        .await
+        .unwrap();
+
+    let second = &proposer.prompts_for(Purpose::Propose)[1];
+    assert!(
+        second.contains(r#"["Gamma","Delta"]"#) && second.contains("label recall 0.50"),
+        "{second}"
+    );
+}
+
+#[tokio::test]
+async fn a_refused_confirmation_feeds_the_confirming_judges_differences_back_and_is_recorded() {
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("a"), source("b")]);
+    let judge = ScriptedModel::new("j")
+        .on(Purpose::Judge, vec![verdict(true, 0.9), verdict(true, 0.9)])
+        .on(Purpose::Confirm, vec![ok(r#"{"match":false,"score":0.4,"wrong_edges":[{"from":"x","to":"y","issue":"reversed"}]}"#), verdict(true, 0.9)]);
+
+    let r = run_loop(
+        &image(),
+        &cfg(),
+        &proposer,
+        &judge,
+        &FakeRenderer::new(rendered(None)),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(r.attempts[0].confirmation, Some(Confirmation::Disagreed));
+    assert!(
+        proposer.prompts_for(Purpose::Propose)[1].contains("x -> y (Reversed)"),
+        "the confirm verdict's differences reach the proposer"
+    );
+    assert_eq!(r.attempts[1].confirmation, Some(Confirmation::Agreed));
+    assert_eq!(
+        r.outcome,
+        Outcome::Accepted {
+            attempt: 2,
+            via: AcceptedVia::JudgeConfirmed
+        }
+    );
+}
+
+#[tokio::test]
+async fn a_confirmation_that_errors_is_recorded_as_failed_not_as_a_disagreement() {
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("a"), source("b")]);
+    let judge = ScriptedModel::new("j")
+        .on(Purpose::Judge, vec![verdict(true, 0.9), verdict(true, 0.9)])
+        .on(
+            Purpose::Confirm,
+            vec![
+                Err(ModelError::Transport("reset".into())),
+                verdict(true, 0.9),
+            ],
+        );
+
+    let r = run_loop(
+        &image(),
+        &cfg(),
+        &proposer,
+        &judge,
+        &FakeRenderer::new(rendered(None)),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        matches!(&r.attempts[0].confirmation, Some(Confirmation::Failed { error }) if error.contains("reset"))
+    );
+}
+
+// ---- recovery paths --------------------------------------------------------------------------------
+
+#[tokio::test(start_paused = true)]
+async fn a_rejected_render_proves_the_renderer_is_alive_so_earlier_timeouts_do_not_accumulate() {
+    let hang = Duration::from_secs(10_000);
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(
+            Purpose::Propose,
+            (0..6).map(|i| source(&format!("v{i}"))).collect(),
+        );
+    let judge = ScriptedModel::new("j").on(Purpose::Judge, vec![verdict(true, 0.9)]);
+    // timeout, rejected, timeout, ok: two timeouts in total but never two in a row
+    let renderer = FakeRenderer::new(rendered(Some(&["a"])))
+        .then_after(hang, rendered(None))
+        .then(Err(RenderError::Rejected("syntax".into())))
+        .then_after(hang, rendered(None));
+    let mut c = cfg();
+    c.call_timeout = Duration::from_secs(10);
+
+    let r = run_loop(&image(), &c, &proposer, &judge, &renderer)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        r.outcome,
+        Outcome::Accepted {
+            attempt: 4,
+            via: AcceptedVia::LabelsAndJudge
+        },
+        "{:?}",
+        r.outcome
+    );
+}
+
+#[tokio::test]
+async fn after_a_judge_failure_the_next_proposal_is_told_the_render_could_not_be_checked() {
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("first"), source("second")]);
+    let judge = ScriptedModel::new("j").on(
+        Purpose::Judge,
+        vec![
+            Err(ModelError::Rejected("too big".into())),
+            verdict(true, 0.9),
+        ],
+    );
+
+    let r = run_loop(
+        &image(),
+        &cfg(),
+        &proposer,
+        &judge,
+        &FakeRenderer::new(rendered(Some(&["a"]))),
+    )
+    .await
+    .unwrap();
+
+    let second = &proposer.prompts_for(Purpose::Propose)[1];
+    assert!(
+        second.contains("Your previous source")
+            && second.contains("first")
+            && second.contains("could not be checked"),
+        "{second}"
+    );
+    assert_eq!(
+        r.outcome,
+        Outcome::Accepted {
+            attempt: 2,
+            via: AcceptedVia::LabelsAndJudge
+        }
+    );
+}
+
+// ---- tightening of existing assertions (mutation survivors) ------------------------------------
+
+#[tokio::test]
+async fn feedback_about_the_best_attempt_does_not_show_the_same_source_twice() {
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("only"), source("next")]);
+    let judge = ScriptedModel::new("j").on(
+        Purpose::Judge,
+        vec![verdict_with_missing(0.4, "Cache"), verdict(true, 0.95)],
+    );
+    run_loop(
+        &image(),
+        &cfg(),
+        &proposer,
+        &judge,
+        &FakeRenderer::new(rendered(Some(&["a"]))),
+    )
+    .await
+    .unwrap();
+    let second = &proposer.prompts_for(Purpose::Propose)[1];
+    assert!(
+        second.contains("Your previous source") && !second.contains("best-scoring"),
+        "attempt 1 is both best and previous: {second}"
+    );
+}
 #[tokio::test]
 async fn consecutive_model_failures_stop_the_run_and_keep_the_best_attempt() {
     let proposer = ScriptedModel::new("p")
@@ -1152,6 +1538,11 @@ async fn a_render_cut_short_by_the_wall_clock_is_a_wall_clock_exhaustion_not_a_r
         }
     );
     assert_eq!(renderer.calls(), 1);
+    let msg = r.attempts[0].render_error.as_deref().unwrap();
+    assert!(
+        msg.contains("cut short") && !msg.contains("timed out after"),
+        "blamed on the wall clock, not the renderer: {msg}"
+    );
     assert!(
         !proposer
             .prompts_for(Purpose::Propose)
