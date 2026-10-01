@@ -18,6 +18,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -123,6 +124,35 @@ PLANNER_PREAMBLE = (
     "assistant. If navigate_ui reports that no UI is connected, say so and describe the pick in words.\n\n"
     "Only use type ids and use cases returned by the tools. Keep answers short."
 )
+
+
+class DuplicateCallError(Exception):
+    """The model repeated a successful render with byte-identical arguments."""
+
+
+def call_signature(name, arguments):
+    """Stable identity of a render call, so an identical repeat can be refused (thread d4bc5ad5 made 14)."""
+    return name + "\x00" + json.dumps(arguments, sort_keys=True, default=str)
+
+
+def describe_tool_error(error, limit=600):
+    """What the model sees when a tool fails. For HTTP errors that means the server's own message, not just
+    'HTTP Error 400': 70 of 75 failed renders in real logs carried no detail, so the model could not self-correct."""
+    if isinstance(error, urllib.error.HTTPError):
+        try:
+            body = error.read().decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001
+            body = ""
+        message = body
+        try:
+            parsed = json.loads(body)
+            if isinstance(parsed, dict):
+                message = parsed.get("message") or parsed.get("error") or body
+        except ValueError:
+            pass
+        message = " ".join(str(message).split())[:limit]
+        return f"HTTP {error.code}: {message}" if message else f"HTTP {error.code} {error.reason}"
+    return str(error)
 
 
 def is_planner_thread(thread_id):
@@ -856,6 +886,7 @@ class Handler(BaseHTTPRequestHandler):
 
         usage_total = {"promptTokens": 0, "completionTokens": 0}
         rounds = 0
+        completed_calls = set()  # successful render calls this run, to refuse identical repeats
         while True:
             rounds += 1
             run_log.event("llm.round.start", {"round": rounds})
@@ -1091,8 +1122,16 @@ class Handler(BaseHTTPRequestHandler):
                 started = time.time()
                 tool_image_data_url = None
                 try:
+                    call_key = call_signature(name, arguments) if name.startswith("render_") else None
+                    if call_key in completed_calls:
+                        raise DuplicateCallError(
+                            "you already rendered exactly this source and it succeeded; the result is above. "
+                            "Change the source to refine it, or present the result to the user."
+                        )
                     method, url, body = apply_binding(tool, bind_arguments(name, arguments, thread_id), KR0KI_URL)
                     content_type, result = http_call(method, url, body)
+                    if call_key:
+                        completed_calls.add(call_key)
                     panel = panel_from_tool_result(name, arguments, content_type, result)
                     tool_content = panel["content"] or "Rendered binary image."
                     tool_image_data_url = panel.get("imageDataUrl")
@@ -1101,7 +1140,7 @@ class Handler(BaseHTTPRequestHandler):
                     stream._consecutive_failures = 0
                     run_log.tool_call(name, True, int((time.time() - started) * 1000))
                 except Exception as tool_error:  # noqa: BLE001 — feed the failure back to the LLM
-                    tool_content = f"tool {name} failed: {tool_error}"
+                    tool_content = f"tool {name} failed: {describe_tool_error(tool_error)}"
                     tool_ok = False
                     consecutive_failures += 1
                     stream._consecutive_failures = consecutive_failures

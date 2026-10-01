@@ -24,8 +24,10 @@
 //! A [`Relation`] carries only opaque [`ElementId`]s, no separate human
 //! label (unlike [`crate::b00t_graph`]'s `CytoscapeGraph`, whose nodes carry
 //! both). Both emitters use the id's own string form as its label — a
-//! richer label needs an id → display-name lookup this module doesn't have
-//! and box 4 doesn't provide; that stays a caller/future concern.
+//! richer label needs an id → display-name lookup, which the caller supplies
+//! through [`to_d2_named`]: the **id stays the node key** (so an overlay can
+//! find the element by its well-known identifier) and the name becomes the
+//! label. [`to_d2`] is the no-lookup form and keeps the id as the label.
 //!
 //! # Edge decomposition
 //!
@@ -94,12 +96,27 @@ fn distinct_nodes(relations: &[Relation]) -> Vec<&ElementId> {
 /// input order). Deterministic — same input always yields byte-identical
 /// output.
 pub fn to_d2(relations: &[Relation]) -> String {
+    to_d2_named(relations, &std::collections::BTreeMap::new())
+}
+
+/// [`to_d2`] with display names: `names` maps an element id to its human name. The id remains the D2 node key
+/// (the stable identifier a downstream overlay selects on); the name is only the label. An id without a
+/// non-blank name keeps its id as the label, so output never loses information. Two elements may share a name.
+pub fn to_d2_named(
+    relations: &[Relation],
+    names: &std::collections::BTreeMap<String, String>,
+) -> String {
     let mut out = String::new();
     for id in distinct_nodes(relations) {
+        let label = names
+            .get(id.as_str())
+            .map(|n| n.trim())
+            .filter(|n| !n.is_empty())
+            .unwrap_or(id.as_str());
         out.push_str(&format!(
             "{}: {}\n",
             d2_quote(id.as_str()),
-            d2_escape_label(id.as_str())
+            d2_escape_label(label)
         ));
     }
     for relation in relations {
@@ -311,5 +328,37 @@ mod tests {
         for relation in &samples {
             assert!(!relation_label(relation).is_empty(), "{relation:?}");
         }
+    }
+
+    #[test]
+    fn named_d2_keeps_the_id_as_the_key_and_uses_the_name_as_the_label() {
+        let names = std::collections::BTreeMap::from([
+            ("svc-a".to_string(), "Engine".to_string()),
+            ("svc-b".to_string(), "   ".to_string()), // blank: falls back to the id
+        ]);
+        let d2 = to_d2_named(&sample_relations(), &names);
+        assert!(d2.contains("\"svc-a\": \"Engine\""), "{d2}");
+        assert!(d2.contains("\"svc-b\": \"svc-b\""), "{d2}");
+        assert!(d2.contains("\"svc-c\": \"svc-c\""), "{d2}");
+        // edges still reference the stable ids, never the names
+        assert!(d2.contains("\"svc-a\" -> \"svc-b\": \"connection\""));
+        assert!(!d2.contains("Engine\" ->"));
+    }
+
+    #[test]
+    fn names_are_escaped_like_any_label_and_the_unnamed_form_is_unchanged() {
+        let names = std::collections::BTreeMap::from([(
+            "svc-a".to_string(),
+            "a \"quoted\" name".to_string(),
+        )]);
+        let d2 = to_d2_named(&sample_relations(), &names);
+        assert!(
+            !d2.contains("a \"quoted\" name"),
+            "unescaped quote leaked: {d2}"
+        );
+        assert_eq!(
+            to_d2(&sample_relations()),
+            to_d2_named(&sample_relations(), &Default::default())
+        );
     }
 }
