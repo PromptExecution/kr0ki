@@ -6,7 +6,7 @@
 [`PLAN-KR0KI-003`](PLAN-KR0KI-003-rust-source-frontend.md) (the other non-SysML front-end).
 **Owner:** PromptExecution (@elasticdotventures). **Created:** 2026-09-30.
 
-**Status:** proposed. Contract-first: Phase 0 needs no model and no browser. Facts in §2 were checked against the
+**Status:** proposed; **Phase 0 is implemented** in `crates/kr0ki-raster-ingest` (no model, no server route yet). Contract-first: Phase 0 needs no model and no browser. Facts in §2 were checked against the
 repository and primary sources on 2026-09-30; anything not checked is marked *unverified*.
 
 ---
@@ -91,13 +91,13 @@ per-call timeout. **Stall detection:** stop when the same source hash repeats or
 for 2 attempts. **Exhausted** returns the best attempt with `converged: false` — never an error that discards work.
 
 **Accept** = no render error **and** judge `match` **and** label recall ≥ τ (default 0.9). If label extraction is
-unusable for a format (text drawn as paths), fall back to *two consecutive* judge matches and record that in the result.
+unusable for a format (text drawn as paths), a *second, differently-worded judge call on the same render* must confirm the match (`accepted_via: judge_confirmed`). Two consecutive attempts would collide with the repeated-source stall rule.
 
 ## 4. Contracts
 
 **Verdict** (JSON Schema at `docs/schemas/plan-007/verdict.schema.json`, added in Phase 0, `additionalProperties: false`):
 `match: bool`, `score: 0..1`, `label_recall`, `label_precision`, `missing_nodes[]`, `extra_nodes[]`,
-`wrong_edges[{from,to,expected}]`, `label_errors[{expected,got}]`, `layout_notes[]`, `confidence`.
+`wrong_edges[{from,to,issue: missing|extra|reversed}]`, `label_errors[{expected,got}]`, `layout_notes[]`, `confidence`.
 
 **HTTP**: `POST /ingest/raster?format=<slug>&max_iterations=<n>`, body = raw image bytes
 (`Content-Type: image/png|image/jpeg|image/webp`), route-specific `DefaultBodyLimit` (default 10 MiB). Response is
@@ -182,7 +182,7 @@ a **negative set** (photos, screenshots, blank images) that must end in `not_a_d
 
 | Phase | Specific actions | Acceptance |
 |---|---|---|
-| **0 — contracts, no model** | crate skeleton; traits; `Normalize` on the `image` crate with limits; Verdict schema; `run_loop` against fake `VisionModel`/`Renderer`; cache key | fake-driven tests: converges, exhausts with best attempt, stalls, feeds render errors back, never exceeds any cap, `not_a_diagram` does not loop; `just check` |
+| **0 — contracts, no model** *(done)* | crate skeleton; traits; `Normalize` on the `image` crate with limits; Verdict schema; `run_loop` against fake `VisionModel`/`Renderer`; cache key | fake-driven tests: converges, exhausts with best attempt, stalls, feeds render errors back, never exceeds any cap, `not_a_diagram` does not loop; `just check` |
 | **1 — server** | OpenAI-compatible vision client that mirrors the agent's existing `image_url` data-URL message shape (adding timeouts, bounded retry, and two-image messages); `/ingest/raster` SSE; route body limit; MCP tool; config and 503 path; wiremock tests with a fake VLM; one `#[ignore]` live test, run once against the local NEO-CODER as the reachability and image-limit smoke test | 413/415/422/503/502 covered; a fake-model run streams the documented events; live test documented |
 | **2 — browser** | `ProjectFs` + both adapters; "Import image" in the gallery/editor; directory mapping UI; SSE progress; confirm-before-overwrite; vitest with an in-memory FS | verified in headless Chromium over CDP on `localhost` (write-back) and on a non-secure origin (fallback), per [`OPERATIONS.md` §7](OPERATIONS.md) |
 | **3 — scoring + eval** | label extraction via `kr0ki-svg`; fuzzy compare; judge step; `just eval-raster`; negative/adversarial sets | a published report; thresholds (τ, caps) set from data, not guessed |
@@ -193,7 +193,7 @@ a **negative set** (photos, screenshots, blank images) that must end in `not_a_d
 | Risk | Mitigation |
 |---|---|
 | The model reads some diagrams poorly (dense, low-resolution, or text drawn as small glyphs) | `Describe` → `not_a_diagram`/low-confidence exits early; the downscale cap is tuned against the model's real image limits; Phase 3 eval reports per-format results |
-| Some renderers convert text to paths, defeating label extraction | per-format fallback to two consecutive judge matches, flagged in the result |
+| Some renderers convert text to paths, defeating label extraction | per-format fallback to a confirming second judge call, flagged in the result (`judge_confirmed`) |
 | Self-judging bias | deterministic check; optional separate judge; eval |
 | Cost or latency blow-ups | orchestrator-enforced caps; concurrency limit; result cache |
 | Insecure-origin deployment blocks directory mapping | fallback adapter; clear UI; document localhost/HTTPS (**D-7e**) |
