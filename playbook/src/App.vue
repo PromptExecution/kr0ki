@@ -338,6 +338,7 @@ onMounted(async () => {
         :override-source="editedSourcePending ? editedSource : undefined"
         :override-route="editedSourcePending ? editedRoute : undefined"
         :renderer-url="rendererUrl"
+        :agent-url="agentUrl"
         :output-format="outputFormat"
         @select-example="onSelectExample"
         @send-to-agent="editorToAgentHandoff"

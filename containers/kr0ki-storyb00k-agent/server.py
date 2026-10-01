@@ -132,14 +132,38 @@ LANGUAGE_SKILLS_DIR = SKILLS_DIR / "diagrams"
 MAX_SKILL_CHARS = 6000
 
 
+def _valid_skill_name(name):
+    return isinstance(name, str) and bool(name) and len(name) <= 40 and name.replace("-", "").replace("_", "").isalnum()
+
+
+def language_skill_file(fmt):
+    """The whole skills/diagrams/<format>/SKILL.md (frontmatter included), or None. Served to the editor to display."""
+    if not _valid_skill_name(fmt):
+        return None
+    try:
+        return (LANGUAGE_SKILLS_DIR / fmt.lower() / "SKILL.md").read_text()
+    except OSError:
+        return None
+
+
+def list_language_skills():
+    """[{format, description}] for every installed language skill."""
+    out = []
+    try:
+        dirs = sorted(p for p in LANGUAGE_SKILLS_DIR.iterdir() if p.is_dir())
+    except OSError:
+        return out
+    for d in dirs:
+        text = language_skill_file(d.name) or ""
+        desc = next((line[len("description:"):].strip() for line in text.splitlines()[:6] if line.startswith("description:")), "")
+        out.append({"format": d.name, "description": desc})
+    return out
+
+
 def language_skill(fmt):
     """Body of skills/diagrams/<format>/SKILL.md (portable SKILL.md: frontmatter stripped), or None."""
-    if not isinstance(fmt, str) or not fmt.replace("-", "").replace("_", "").isalnum():
-        return None
-    path = LANGUAGE_SKILLS_DIR / fmt.lower() / "SKILL.md"
-    try:
-        text = path.read_text()
-    except OSError:
+    text = language_skill_file(fmt)
+    if text is None:
         return None
     if text.startswith("---"):
         parts = text.split("---", 2)
@@ -484,6 +508,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _text(self, status, text):
+        body = text.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self._cors_headers()
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _cors_headers(self):
         # The playbook is served by kr0ki on :8787 while this sidecar listens on
         # :8789, so the browser requires an explicit local-development CORS bridge.
@@ -510,6 +543,13 @@ class Handler(BaseHTTPRequestHandler):
                 "max_clarifying_questions": MAX_CLARIFYING_QUESTIONS,
                 "debug_log_dir_writable": session_log._DIR_WRITABLE,
             })
+        elif self.path == "/skills/diagrams":
+            self._json(200, {"skills": list_language_skills()})
+        elif self.path.startswith("/skills/diagrams/"):
+            text = language_skill_file(self.path[len("/skills/diagrams/"):].split("?")[0])
+            if text is None:
+                return self._json(404, {"error": "skill_not_found"})
+            self._text(200, text)
         elif self.path == "/debug/sessions":
             self._json(200, {"sessions": session_log.list_sessions()})
         elif self.path == "/charts":

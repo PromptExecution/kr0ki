@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { fetchSkill } from '../lib/skills.js'
 
 const props = defineProps({
   example: { type: Object, required: true },
@@ -11,6 +12,8 @@ const props = defineProps({
   overrideRoute: { type: String, default: undefined },
   // Renderer URL from Setup (persisted to localStorage). Falls back to query param or current origin.
   rendererUrl: { type: String, default: '' },
+  // The diagram agent, which serves the syntax skill shown under the source.
+  agentUrl: { type: String, default: '' },
   // Output format from Setup (persisted to localStorage). Defaults to 'svg'.
   outputFormat: { type: String, default: 'svg' },
 })
@@ -37,6 +40,16 @@ const artifactUrl = ref('')
 const result = ref('Ready')
 const busy = ref(false)
 const autoRender = ref(true)
+// The syntax skill for this format, shown under the source (what the agent reads before it renders).
+const skill = ref({ status: 'loading' })
+let skillRequest = 0
+async function loadSkill() {
+  const mine = ++skillRequest
+  skill.value = { status: 'loading' }
+  const result = await fetchSkill(props.agentUrl, props.example.format)
+  if (mine === skillRequest) skill.value = result // ignore a slow answer for a format we have already left
+}
+watch(() => [props.example.format, props.agentUrl], loadSkill, { immediate: true })
 const handoffBusy = ref(false)
 const handoffToast = ref(null) // { type: 'success'|'error', message: string }
 
@@ -303,11 +316,20 @@ async function sendToAgent() {
     </div>
 
     <div class="workspace">
-      <label class="source-label">
-        Diagram source — edit, paste, or upload your own {{ example.format }} source; not
-        limited to the example shown
-        <textarea v-model="source" spellcheck="false" />
-      </label>
+      <div class="editor-col">
+        <label class="source-label">
+          Diagram source — edit, paste, or upload your own {{ example.format }} source; not
+          limited to the example shown
+          <textarea v-model="source" spellcheck="false" data-testid="source-editor" />
+        </label>
+        <details class="skill-panel" open data-testid="skill-panel">
+          <summary>Syntax skill · {{ example.format }} <span class="skill-hint">what the agent reads before it renders this language</span></summary>
+          <pre v-if="skill.status === 'ok'" class="skill-text" data-testid="skill-text">{{ skill.text }}</pre>
+          <p v-else-if="skill.status === 'loading'" class="skill-note">Loading the {{ example.format }} skill…</p>
+          <p v-else-if="skill.status === 'missing'" class="skill-note" data-testid="skill-missing">No syntax skill for {{ example.format }} yet.</p>
+          <p v-else class="skill-note" data-testid="skill-error">Skill unavailable ({{ skill.message }}). Is the agent running at the configured URL?</p>
+        </details>
+      </div>
       <section class="preview" aria-live="polite">
         <p class="status">{{ result }}</p>
         <img v-if="artifactUrl" :src="artifactUrl" :alt="`${example.title} rendered output`" />

@@ -1,4 +1,4 @@
-# Testing guide (v0.0.10)
+# Testing guide (v0.0.11)
 
 What is built, how to try each piece, what you should see, and what is known to be incomplete. Every step below was run
 against the live system on 2026-10-01. Host: `http://192.168.1.137:8787` (kr0ki) and `:8789` (agent). Replace the host if you
@@ -7,9 +7,11 @@ run elsewhere. The agent's model is the local vision model on `:8002`; `OPENAI_A
 ## 1. Playbook (browser): `http://192.168.1.137:8787/playbook/`
 | Try | Expect |
 |---|---|
-| Footer / sidebar | `v0.0.10` |
+| Footer / sidebar | `v0.0.11` |
 | **Gallery -> planner** (right-hand panel, "● page linked") | The Renderer URL field is gone (it lives in Setup). Type *"I need to show how our database tables relate, with foreign keys"*. Within ~10 s the gallery filters to **data model**, three cards get a **★ suggested** badge with a banner, one card is selected, and the planner answers with a pick and an alternative. |
 | Planner session id (under the chat) | `planner-…`. Any MCP client can steer your page with it (see §3). |
+| **Left menu -> a diagram type** (Quasar tree, grouped by intent) | The Code Editor opens and renders it. The source editor is top-aligned beside the preview, with the language's **syntax skill in Courier** directly below it (the same text the agent loads before it renders that language). |
+| **Planner (top-level menu item)** | Chat on the left, **Planner's picks** on the right (best fit marked; Edit / Agent / Show in gallery). The conversation survives switching tabs; the planner never moves you off this page. |
 | **Code Editor -> Render -> Send to Agent** | The Agent view opens with a **Starting point** card above the chat: the rendered image and the source you sent. It can be collapsed, not dismissed, and survives sending messages. |
 | **Gallery card -> Agent** (locks the type) | The agent loads that type's **quality skill** (good/bad practice) and asks scoping questions about *what to convey*. |
 | **Agent: ask for a diagram in any of the 26 formats** (e.g. *"draw an nwdiag network with a DMZ and an internal LAN"*) | The first render shows one line: **"Loaded the nwdiag syntax guide (N chars); retrying with it."**, then the retry renders. Failed renders now show the renderer's real message (not just "HTTP 400") and an identical repeat render is refused. |
