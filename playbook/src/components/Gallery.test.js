@@ -78,3 +78,34 @@ describe('Gallery planner', () => {
     expect(w.emitted('update:selectedTypeId').at(-1)).toEqual(['er'])
   })
 })
+
+describe('Gallery "Test all"', () => {
+  const examples = [
+    { id: 'e1', format: 'd2', title: 'Flow', description: '', input_kind: 'code', source: 'a -> b', outputs: ['svg'] },
+    { id: 'e2', format: 'plantuml', title: 'ER', description: '', input_kind: 'code', source: '@startuml\n@enduml', outputs: ['svg', 'png'] },
+    { id: 'e3', format: 'graphviz', title: 'Extra fixture with no card', description: '', input_kind: 'code', source: 'digraph{}', outputs: ['svg'] },
+  ]
+  let renders
+  beforeEach(() => {
+    renders = []
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:x' }))
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => {
+      if (String(url).includes('/api/catalog')) return { ok: true, json: async () => catalog }
+      renders.push(`${init?.body}|${url}`)
+      return { ok: true, blob: async () => new Blob(['<svg/>']) }
+    }))
+  })
+
+  it('renders the type cards (top grid) AND every fixture (bottom grid), not just the bottom half', async () => {
+    const w = await mountGallery({ examples })
+    await w.findAll('.controls button')[0].trigger('click')
+    await vi.waitFor(() => expect(w.find('.gallery-summary').exists()).toBe(true))
+    await vi.waitFor(() => expect(w.findAll('.controls button')[0].text()).toBe('Test all'))
+    // cards: flowchart(e1: 1 output) + er(e2: 2 outputs); fixtures: e1(1) + e2(2) + e3(1)
+    expect(renders).toHaveLength(1 + 2 + 1 + 2 + 1)
+    expect(renders.filter((r) => r.startsWith('a -> b|'))).toHaveLength(2) // the d2 fixture, via its card and as a fixture
+    // every card now shows a thumbnail and the summary counts both grids
+    expect(w.findAll('.gallery-grid')[0].findAll('.card-preview img')).toHaveLength(2)
+    expect(w.find('.gallery-summary').text()).toBe('5/5 of 5 passed') // 2 testable cards + 3 fixtures
+  })
+})
