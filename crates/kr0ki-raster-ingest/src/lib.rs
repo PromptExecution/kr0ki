@@ -6,6 +6,7 @@
 //! ([`VisionModel`], [`Renderer`]) so the loop is testable with fakes; the server wires real ones in Phase 1.
 
 mod cache;
+mod hash;
 mod model;
 mod normalize;
 pub mod prompts;

@@ -17,22 +17,30 @@ fn put(h: &mut Sha256, field: &str) {
     h.update(field.as_bytes());
 }
 
+/// `renderer_id` names the renderer and its version (for example the Kroki image tag): acceptance depends on what
+/// the renderer produced, so a different renderer must not be served a result earned against another.
 pub fn result_cache_key(
     image: &NormalizedImage,
     cfg: &LoopConfig,
     proposer_id: &str,
     judge_id: &str,
+    renderer_id: &str,
 ) -> String {
-    key_for(image, cfg, proposer_id, judge_id, PROMPT_VERSION)
+    key_for(
+        image,
+        cfg,
+        [proposer_id, judge_id, renderer_id],
+        PROMPT_VERSION,
+    )
 }
 
 fn key_for(
     image: &NormalizedImage,
     cfg: &LoopConfig,
-    proposer_id: &str,
-    judge_id: &str,
+    ids: [&str; 3],
     prompt_version: &str,
 ) -> String {
+    let [proposer_id, judge_id, renderer_id] = ids;
     let mut h = Sha256::new();
     for field in [
         DOMAIN,
@@ -40,6 +48,7 @@ fn key_for(
         &cfg.format,
         proposer_id,
         judge_id,
+        renderer_id,
         prompt_version,
         &cfg.max_iterations.to_string(),
         &cfg.max_tokens.to_string(),
@@ -51,7 +60,7 @@ fn key_for(
     ] {
         put(&mut h, field);
     }
-    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    crate::hash::hex(h.finalize())
 }
 
 #[cfg(test)]
@@ -74,12 +83,12 @@ mod tests {
     fn the_prompt_version_is_part_of_the_key() {
         let cfg = LoopConfig::new("d2");
         assert_ne!(
-            key_for(&image(), &cfg, "p", "j", "v1"),
-            key_for(&image(), &cfg, "p", "j", "v2")
+            key_for(&image(), &cfg, ["p", "j", "r"], "v1"),
+            key_for(&image(), &cfg, ["p", "j", "r"], "v2")
         );
         assert_eq!(
-            result_cache_key(&image(), &cfg, "p", "j"),
-            key_for(&image(), &cfg, "p", "j", PROMPT_VERSION)
+            result_cache_key(&image(), &cfg, "p", "j", "r"),
+            key_for(&image(), &cfg, ["p", "j", "r"], PROMPT_VERSION)
         );
     }
 
@@ -89,8 +98,8 @@ mod tests {
         let mut b = a.clone();
         b.min_match_score = 0.95;
         assert_ne!(
-            result_cache_key(&image(), &a, "p", "j"),
-            result_cache_key(&image(), &b, "p", "j")
+            result_cache_key(&image(), &a, "p", "j", "r"),
+            result_cache_key(&image(), &b, "p", "j", "r")
         );
     }
 
@@ -100,8 +109,18 @@ mod tests {
         let mut b = a.clone();
         b.max_consecutive_model_errors = 9;
         assert_ne!(
-            result_cache_key(&image(), &a, "p", "j"),
-            result_cache_key(&image(), &b, "p", "j")
+            result_cache_key(&image(), &a, "p", "j", "r"),
+            result_cache_key(&image(), &b, "p", "j", "r")
+        );
+    }
+
+    #[test]
+    fn the_renderer_identity_is_part_of_the_key() {
+        let cfg = LoopConfig::new("d2");
+        assert_ne!(
+            result_cache_key(&image(), &cfg, "p", "j", "kroki-0.28"),
+            result_cache_key(&image(), &cfg, "p", "j", "kroki-0.29"),
+            "a result accepted against one renderer build must not be served for another"
         );
     }
 }

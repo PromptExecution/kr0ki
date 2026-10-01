@@ -597,12 +597,43 @@ async fn a_refused_confirmation_feeds_the_confirming_judges_differences_back_and
 }
 
 #[tokio::test]
-async fn a_confirmation_that_errors_is_recorded_as_failed_not_as_a_disagreement() {
+async fn a_confirmation_that_keeps_failing_is_recorded_as_failed_not_as_a_disagreement() {
+    let t = || Err(ModelError::Transport("reset".into()));
     let proposer = ScriptedModel::new("p")
         .on(Purpose::Describe, vec![describe(&["A"])])
         .on(Purpose::Propose, vec![source("a"), source("b")]);
     let judge = ScriptedModel::new("j")
         .on(Purpose::Judge, vec![verdict(true, 0.9), verdict(true, 0.9)])
+        .on(Purpose::Confirm, vec![t(), t(), verdict(true, 0.9)]);
+
+    let r = run_loop(
+        &image(),
+        &cfg(),
+        &proposer,
+        &judge,
+        &FakeRenderer::new(rendered(None)),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        matches!(&r.attempts[0].confirmation, Some(Confirmation::Failed { error }) if error.contains("reset"))
+    );
+    assert_eq!(
+        judge.calls_for(Purpose::Confirm),
+        3,
+        "two tries for attempt 1, one for attempt 2"
+    );
+    assert!(proposer.prompts_for(Purpose::Propose)[1].contains("could not be checked"));
+}
+
+#[tokio::test]
+async fn a_transient_confirmation_failure_is_retried_like_any_judge_call() {
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("a")]);
+    let judge = ScriptedModel::new("j")
+        .on(Purpose::Judge, vec![verdict(true, 0.9)])
         .on(
             Purpose::Confirm,
             vec![
@@ -621,9 +652,14 @@ async fn a_confirmation_that_errors_is_recorded_as_failed_not_as_a_disagreement(
     .await
     .unwrap();
 
-    assert!(
-        matches!(&r.attempts[0].confirmation, Some(Confirmation::Failed { error }) if error.contains("reset"))
+    assert_eq!(
+        r.outcome,
+        Outcome::Accepted {
+            attempt: 1,
+            via: AcceptedVia::JudgeConfirmed
+        }
     );
+    assert_eq!(r.attempts[0].confirmation, Some(Confirmation::Agreed));
 }
 
 // ---- recovery paths --------------------------------------------------------------------------------
@@ -997,7 +1033,7 @@ async fn oversized_model_sources_are_rejected_as_a_model_error() {
 fn the_result_cache_key_depends_on_every_outcome_relevant_input_and_nothing_else() {
     let img = image();
     let base = cfg();
-    let key = |c: &LoopConfig, p: &str, j: &str| result_cache_key(&img, c, p, j);
+    let key = |c: &LoopConfig, p: &str, j: &str| result_cache_key(&img, c, p, j, "kroki-1");
     let k0 = key(&base, "p", "j");
     assert_eq!(k0, key(&base, "p", "j"), "stable");
     assert_eq!(k0.len(), 64);
@@ -1592,4 +1628,188 @@ async fn judge_failures_interleaved_with_successes_do_not_accumulate_into_a_mode
         r.outcome
     );
     assert_eq!(r.attempts.len(), 6);
+}
+
+// ---- regressions for round 4 of the independent review -------------------------------------------
+
+#[tokio::test]
+async fn re_emitting_a_source_that_could_not_be_checked_is_allowed_and_is_not_a_stall() {
+    // The prompt tells the model to re-emit an unchecked source unchanged; the loop must honour that.
+    let t = || Err(ModelError::Transport("reset".into()));
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("same"), source("same")]);
+    let judge = ScriptedModel::new("j").on(Purpose::Judge, vec![t(), t(), verdict(true, 0.9)]);
+    let renderer = FakeRenderer::new(rendered(Some(&["a"])));
+
+    let r = run_loop(&image(), &cfg(), &proposer, &judge, &renderer)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        r.outcome,
+        Outcome::Accepted {
+            attempt: 2,
+            via: AcceptedVia::LabelsAndJudge
+        },
+        "{:?}",
+        r.outcome
+    );
+    assert_eq!(
+        renderer.calls(),
+        2,
+        "the same source is rendered again so it can be checked"
+    );
+}
+
+#[tokio::test]
+async fn a_judge_that_never_comes_back_ends_as_model_errors_not_as_a_stall_or_an_endless_loop() {
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .otherwise(Purpose::Propose, source("same"));
+    let judge = ScriptedModel::new("j")
+        .otherwise(Purpose::Judge, Err(ModelError::Transport("down".into())));
+
+    let r = run_loop(
+        &image(),
+        &cfg(),
+        &proposer,
+        &judge,
+        &FakeRenderer::new(rendered(Some(&["a"]))),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        r.outcome,
+        Outcome::Exhausted {
+            reason: ExhaustReason::ModelErrors,
+            best: Some(1)
+        }
+    );
+    assert_eq!(r.attempts.len(), 3);
+}
+
+#[tokio::test]
+async fn a_failed_confirmation_also_lets_the_model_re_emit_the_source_to_be_checked_again() {
+    let t = || Err(ModelError::Transport("reset".into()));
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("same"), source("same")]);
+    let judge = ScriptedModel::new("j")
+        .on(Purpose::Judge, vec![verdict(true, 0.9), verdict(true, 0.9)])
+        .on(Purpose::Confirm, vec![t(), t(), verdict(true, 0.9)]);
+
+    let r = run_loop(
+        &image(),
+        &cfg(),
+        &proposer,
+        &judge,
+        &FakeRenderer::new(rendered(None)),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        r.outcome,
+        Outcome::Accepted {
+            attempt: 2,
+            via: AcceptedVia::JudgeConfirmed
+        },
+        "{:?}",
+        r.outcome
+    );
+}
+
+#[tokio::test]
+async fn a_budget_that_stops_the_describe_retry_reports_the_real_failure_not_a_zero_budget() {
+    let proposer = ScriptedModel::new("p")
+        .tokens_per_call(100)
+        .on(Purpose::Describe, vec![ok("prose, not json")]);
+    let mut c = cfg();
+    c.max_tokens = 100; // the first call spends all of it
+    let r = run_loop(
+        &image(),
+        &c,
+        &proposer,
+        &ScriptedModel::new("j"),
+        &FakeRenderer::new(rendered(None)),
+    )
+    .await;
+    assert!(
+        matches!(r.unwrap_err(), LoopError::Description(_)),
+        "the unparsable reply, not 'budget is zero'"
+    );
+    assert_eq!(proposer.calls(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_hung_render_is_not_blamed_on_the_token_budget_just_because_tokens_ran_out_too() {
+    let proposer = ScriptedModel::new("p")
+        .tokens_per_call(100)
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("a")]);
+    let renderer =
+        FakeRenderer::new(rendered(None)).then_after(Duration::from_secs(10_000), rendered(None));
+    let mut c = cfg();
+    c.max_tokens = 150; // describe + propose spend 200
+    c.call_timeout = Duration::from_secs(10);
+
+    let r = run_loop(&image(), &c, &proposer, &ScriptedModel::new("j"), &renderer)
+        .await
+        .unwrap();
+
+    let msg = r.attempts[0].render_error.as_deref().unwrap();
+    assert!(
+        msg.contains("timed out after") && !msg.contains("cut short"),
+        "{msg}"
+    );
+    assert_eq!(
+        r.outcome,
+        Outcome::Exhausted {
+            reason: ExhaustReason::TokenBudget,
+            best: None
+        }
+    );
+}
+
+#[tokio::test]
+async fn every_spelling_of_not_a_diagram_ends_the_run_after_one_call() {
+    for kind in ["None", "NONE", "not a diagram", "N/A"] {
+        let proposer = ScriptedModel::new("p").on(
+            Purpose::Describe,
+            vec![ok(&format!(r#"{{"diagram_kind":"{kind}"}}"#))],
+        );
+        let r = run_loop(
+            &image(),
+            &cfg(),
+            &proposer,
+            &ScriptedModel::new("j"),
+            &FakeRenderer::new(rendered(None)),
+        )
+        .await
+        .unwrap();
+        assert_eq!(r.outcome, Outcome::NotADiagram, "{kind}");
+        assert_eq!(proposer.calls(), 1);
+    }
+}
+
+#[tokio::test]
+async fn a_source_containing_a_markdown_block_reaches_the_renderer_whole() {
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(
+            Purpose::Propose,
+            vec![ok("````d2\nnote: |md\n```js\nx\n```\n|\na -> b\n````")],
+        );
+    let renderer = FakeRenderer::new(Err(RenderError::Rejected("stop here".into())));
+    let mut c = cfg();
+    c.max_iterations = 1;
+    run_loop(&image(), &c, &proposer, &ScriptedModel::new("j"), &renderer)
+        .await
+        .unwrap();
+    assert_eq!(
+        renderer.sources.lock().unwrap()[0],
+        "note: |md\n```js\nx\n```\n|\na -> b"
+    );
 }

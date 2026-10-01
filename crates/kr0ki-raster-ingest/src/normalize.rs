@@ -4,12 +4,12 @@
 //! then a decode under [`image::Limits`]. The result is re-encoded as PNG, which drops EXIF/ICC/text chunks;
 //! JPEG orientation is applied *before* that so a rotated phone photo is not stored sideways.
 
+use crate::hash::sha256_hex;
 use image::{
     codecs::{png::PngDecoder, webp::WebPDecoder},
     imageops::FilterType,
     DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits, RgbImage,
 };
-use sha2::{Digest, Sha256};
 use std::io::Cursor;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,13 +67,6 @@ pub enum NormalizeError {
     TooManyPixels { width: u32, height: u32, max: u64 },
     #[error("image could not be decoded: {0}")]
     Undecodable(String),
-}
-
-fn hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
 }
 
 fn undecodable(e: impl std::fmt::Display) -> NormalizeError {
@@ -168,8 +161,8 @@ pub fn normalize(bytes: &[u8], cfg: &NormalizeConfig) -> Result<NormalizedImage,
         .map_err(undecodable)?;
 
     Ok(NormalizedImage {
-        sha256: hex(&png),
-        source_sha256: hex(bytes),
+        sha256: sha256_hex(&png),
+        source_sha256: sha256_hex(bytes),
         png: bytes::Bytes::from(png),
         width,
         height,

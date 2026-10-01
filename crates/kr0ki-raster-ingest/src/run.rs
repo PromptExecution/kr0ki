@@ -4,6 +4,7 @@
 //! The loop always returns what it has: an exhausted run carries its best attempt and every attempt record.
 
 use crate::{
+    hash::sha256_hex,
     model::{ModelError, Purpose, RenderError, Renderer, Usage, VisionModel},
     normalize::NormalizedImage,
     prompts::{self, Feedback, ParseError},
@@ -11,7 +12,6 @@ use crate::{
     types::{Description, DiagramKind, Verdict},
 };
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use std::{collections::HashSet, time::Duration};
 use tokio::time::{timeout, Instant};
 
@@ -190,6 +190,11 @@ impl Clock<'_> {
         }
     }
 
+    /// Only the wall clock (not tokens): used to decide whether a timed-out render was cut off by the budget.
+    fn wall_exhausted(&self) -> bool {
+        self.start.elapsed() >= self.cfg.max_wall
+    }
+
     /// Time a single call may take: the per-call timeout, clipped to the wall-clock time remaining.
     fn call_limit(&self) -> Duration {
         self.cfg
@@ -233,13 +238,6 @@ impl Clock<'_> {
     }
 }
 
-fn sha256_hex(s: &str) -> String {
-    Sha256::digest(s.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
 fn usage_since(now: Usage, before: Usage) -> Usage {
     Usage {
         prompt_tokens: now.prompt_tokens.saturating_sub(before.prompt_tokens),
@@ -249,11 +247,9 @@ fn usage_since(now: Usage, before: Usage) -> Usage {
     }
 }
 
-/// One extra attempt at a judge call that failed with a *transient* error (a dropped connection) or an unparsable
-/// reply (re-prompted more strictly, since the identical request would repeat the reply) before the attempt is
-/// recorded as a model error. Re-judging the same render is cheaper than a new
-/// proposal, and a new proposal after a judge failure tends to repeat the same source and end the run as `Stalled`.
-/// Timeouts and refusals are not retried: a timeout would double the time spent on one render, and a refusal
+/// One re-attempt of a judge or confirm call (see [`ask_judge`]): a dropped connection is repeated as is, an
+/// unparsable reply gets a stricter prompt (the identical request at temperature 0 would repeat the reply).
+/// Timeouts and refusals are final: repeating a timeout would double the time spent on one render, and a refusal
 /// cannot succeed the second time.
 const JUDGE_RETRIES: u32 = 1;
 /// Consecutive render timeouts before the renderer is treated as unavailable instead of the source as too complex.
@@ -269,6 +265,9 @@ struct State {
     /// has not had a chance to improve the content yet.
     judged_scores: Vec<f64>,
     seen: HashSet<String>,
+    /// Sources that rendered but could not be (fully) checked. The model may re-emit one once to have it checked
+    /// again; that is not a stall.
+    unjudged: HashSet<String>,
     /// Index into `attempts` of the best *rendered* attempt.
     best: Option<usize>,
     feedback: Option<Feedback>,
@@ -285,11 +284,15 @@ enum Step {
 }
 
 impl State {
-    fn exhausted(&self, reason: ExhaustReason) -> Step {
-        Step::Done(Outcome::Exhausted {
+    fn outcome(&self, reason: ExhaustReason) -> Outcome {
+        Outcome::Exhausted {
             reason,
             best: self.best.map(|i| self.attempts[i].n),
-        })
+        }
+    }
+
+    fn stop(&self, reason: ExhaustReason) -> Step {
+        Step::Done(self.outcome(reason))
     }
 
     /// Track the best *rendered* attempt: strictly better scores win, so ties keep the earlier attempt.
@@ -371,9 +374,7 @@ where
     let mut outcome = None;
     for n in 1..=cfg.max_iterations {
         if let Some(reason) = clock.exhausted() {
-            if let Step::Done(o) = st.exhausted(reason) {
-                outcome = Some(o);
-            }
+            outcome = Some(st.outcome(reason));
             break;
         }
         if let Step::Done(o) = attempt(n, &ctx, &mut clock, &mut st).await {
@@ -382,13 +383,7 @@ where
         }
     }
     // Ran out of iterations without any other verdict: report the best rendered attempt.
-    let outcome = match outcome {
-        Some(o) => o,
-        None => match st.exhausted(ExhaustReason::MaxIterations) {
-            Step::Done(o) => o,
-            Step::Next => unreachable!("State::exhausted always returns Step::Done"),
-        },
-    };
+    let outcome = outcome.unwrap_or_else(|| st.outcome(ExhaustReason::MaxIterations));
     Ok(LoopResult {
         outcome,
         description,
@@ -398,15 +393,15 @@ where
 }
 
 /// Read the image into a [`Description`]. One re-prompt: after a dropped connection the same request, after an
-/// unparsable reply a stricter one (the identical request at temperature 0 would just repeat the reply). A timeout
-/// or refusal is final.
+/// unparsable reply a stricter one. A timeout or refusal is final. When a budget stops the retry, the real earlier
+/// failure is reported, not the budget.
 async fn describe<M: VisionModel>(
     clock: &mut Clock<'_>,
     model: &M,
     image: &NormalizedImage,
 ) -> Result<Description, LoopError> {
     let mut strict = false;
-    let mut last = LoopError::Describe(ModelError::Rejected("describe was not attempted".into()));
+    let mut last: Option<LoopError> = None;
     for _ in 0..=DESCRIBE_RETRIES {
         match clock
             .call(model, prompts::describe_request(image, strict))
@@ -416,25 +411,27 @@ async fn describe<M: VisionModel>(
                 Ok(d) => return Ok(d),
                 Err(e) => {
                     strict = true;
-                    last = LoopError::Description(e);
+                    last = Some(LoopError::Description(e));
                 }
             },
-            // Nothing has been spent before the first call, so a budget stop here means a zero budget.
+            // With no earlier failure to report, nothing has been spent, so this is a zero budget.
             Err(Stop::Budget(_)) => {
-                return Err(LoopError::Describe(ModelError::Rejected(
-                    "budget is zero".into(),
-                )))
+                return Err(last.unwrap_or_else(|| {
+                    LoopError::Describe(ModelError::Rejected("budget is zero".into()))
+                }))
             }
             Err(Stop::Model(e)) => {
                 let retry = e.is_retryable();
-                last = LoopError::Describe(e);
+                last = Some(LoopError::Describe(e));
                 if !retry {
                     break;
                 }
             }
         }
     }
-    Err(last)
+    Err(last.unwrap_or_else(|| {
+        LoopError::Describe(ModelError::Rejected("describe made no attempt".into()))
+    }))
 }
 
 /// Target labels that can actually be compared: the description may omit them, or they may all normalize to
@@ -445,6 +442,61 @@ fn usable_target_labels(description: &Description) -> bool {
         .labels
         .iter()
         .any(|l| !crate::scoring::normalize_label(l).is_empty())
+}
+
+/// Why a judge or confirm call produced no verdict.
+enum JudgeFail {
+    /// A budget ran out; `after` is the failure that preceded it, if any.
+    Budget {
+        reason: ExhaustReason,
+        after: Option<String>,
+    },
+    Failed(String),
+}
+
+/// A judge or confirm call with one re-attempt on a transient failure ([`JUDGE_RETRIES`]).
+async fn ask_judge<J: VisionModel>(
+    clock: &mut Clock<'_>,
+    judge: &J,
+    purpose: Purpose,
+    image: &NormalizedImage,
+    render_png: &bytes::Bytes,
+) -> Result<Verdict, JudgeFail> {
+    let mut strict = false;
+    let mut last: Option<String> = None;
+    for _ in 0..=JUDGE_RETRIES {
+        match clock
+            .call(
+                judge,
+                prompts::judge_request(purpose, image, render_png, strict),
+            )
+            .await
+        {
+            Ok(text) => match prompts::parse_verdict(&text) {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    last = Some(e.to_string());
+                    strict = true;
+                }
+            },
+            Err(Stop::Model(e)) => {
+                let retry = e.is_retryable();
+                last = Some(e.to_string());
+                if !retry {
+                    break;
+                }
+            }
+            Err(Stop::Budget(reason)) => {
+                return Err(JudgeFail::Budget {
+                    reason,
+                    after: last,
+                })
+            }
+        }
+    }
+    Err(JudgeFail::Failed(
+        last.unwrap_or_else(|| "judge failed".into()),
+    ))
 }
 
 async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
@@ -469,7 +521,7 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
         st.feedback.as_ref(),
     );
     let proposed = match clock.call(ctx.proposer, request).await {
-        Err(Stop::Budget(reason)) => return st.exhausted(reason),
+        Err(Stop::Budget(reason)) => return st.stop(reason),
         Err(Stop::Model(e)) => Err(e.to_string()),
         Ok(text) => prompts::extract_source(&text, cfg.max_source_chars).map_err(|e| e.to_string()),
     };
@@ -488,13 +540,17 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
                 usage_since(clock.usage, before),
             ));
             return if st.propose_errors >= cfg.max_consecutive_model_errors {
-                st.exhausted(ExhaustReason::ModelErrors)
+                st.stop(ExhaustReason::ModelErrors)
             } else {
                 Step::Next
             };
         }
     };
-    if !st.seen.insert(sha256_hex(&source)) {
+    let hash = sha256_hex(&source);
+    let first_time = st.seen.insert(hash.clone());
+    // A source that rendered but could not be checked may be re-emitted once to be checked again.
+    let reissued_unjudged = !first_time && st.unjudged.remove(&hash);
+    if !first_time && !reissued_unjudged {
         // Recorded, so the proposal's tokens and the offending source can be audited.
         st.attempts.push(failed(
             n,
@@ -503,7 +559,7 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
             Some("repeated an earlier source".into()),
             usage_since(clock.usage, before),
         ));
-        return st.exhausted(ExhaustReason::Stalled);
+        return st.stop(ExhaustReason::Stalled);
     }
 
     // ---- render ----------------------------------------------------------------------------------
@@ -520,20 +576,21 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
                 None,
                 usage_since(clock.usage, before),
             ));
-            return st.exhausted(ExhaustReason::RendererUnavailable);
+            return st.stop(ExhaustReason::RendererUnavailable);
         }
         Err(RenderFail::TimedOut(limit)) => {
-            // If the wall clock is what ran out, the renderer is not to blame and the source was never given a
-            // fair chance: end the run for the real reason instead of counting a renderer timeout.
-            if let Some(reason) = clock.exhausted() {
+            // If the *wall clock* is what ran out, the renderer is not to blame and the source was never given a
+            // fair chance: end the run for the real reason instead of counting a renderer timeout. (Tokens are
+            // deliberately not consulted: a spent token budget says nothing about why a render hung.)
+            if clock.wall_exhausted() {
                 st.attempts.push(failed(
                     n,
                     source,
-                    Some(format!("render cut short: {reason:?} reached")),
+                    Some("render cut short: WallClock reached".into()),
                     None,
                     usage_since(clock.usage, before),
                 ));
-                return st.exhausted(reason);
+                return st.stop(ExhaustReason::WallClock);
             }
             st.render_timeouts += 1;
             let message = format!("rendering timed out after {}s", limit.as_secs());
@@ -552,7 +609,7 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
                 usage_since(clock.usage, before),
             ));
             if st.render_timeouts >= RENDER_TIMEOUTS_BEFORE_UNAVAILABLE {
-                return st.exhausted(ExhaustReason::RendererUnavailable);
+                return st.stop(ExhaustReason::RendererUnavailable);
             }
             return Step::Next;
         }
@@ -581,32 +638,12 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
         (Some(found), true) => Some(label_scores(&ctx.description.labels, found)),
         _ => None,
     };
-    let mut last_error: Option<String> = None;
-    let mut verdict: Option<Verdict> = None;
-    let mut strict = false;
-    for _ in 0..=JUDGE_RETRIES {
-        let request = prompts::judge_request(Purpose::Judge, ctx.image, &rendered.png, strict);
-        match clock.call(ctx.judge, request).await {
-            Ok(text) => match prompts::parse_verdict(&text) {
-                Ok(v) => {
-                    verdict = Some(v);
-                    break;
-                }
-                Err(e) => {
-                    last_error = Some(e.to_string());
-                    strict = true;
-                }
-            },
-            Err(Stop::Model(e)) => {
-                let retry = e.is_retryable();
-                last_error = Some(e.to_string());
-                if !retry {
-                    break;
-                }
-            }
-            Err(Stop::Budget(reason)) => {
+    let mut verdict =
+        match ask_judge(clock, ctx.judge, Purpose::Judge, ctx.image, &rendered.png).await {
+            Ok(v) => v,
+            Err(JudgeFail::Budget { reason, after }) => {
                 // The render exists but cannot be judged: keep it as an unjudged attempt, then stop.
-                let message = last_error.map_or_else(
+                let message = after.map_or_else(
                     || format!("{reason:?} reached before judging"),
                     |e| format!("{e}; then {reason:?} reached"),
                 );
@@ -618,32 +655,31 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
                     usage_since(clock.usage, before),
                     st,
                 );
-                return st.exhausted(reason);
+                return st.stop(reason);
             }
-        }
-    }
-    let Some(mut verdict) = verdict else {
-        st.judge_errors += 1;
-        let message = last_error.unwrap_or_else(|| "judge failed".into());
-        st.feedback = Some(Feedback {
-            source: source.clone(),
-            unjudged: true,
-            ..Feedback::default()
-        });
-        record_unjudged(
-            n,
-            source,
-            message,
-            labels.as_ref(),
-            usage_since(clock.usage, before),
-            st,
-        );
-        return if st.judge_errors >= cfg.max_consecutive_model_errors {
-            st.exhausted(ExhaustReason::ModelErrors)
-        } else {
-            Step::Next
+            Err(JudgeFail::Failed(message)) => {
+                st.judge_errors += 1;
+                st.unjudged.insert(hash);
+                st.feedback = Some(Feedback {
+                    source: source.clone(),
+                    unjudged: true,
+                    ..Feedback::default()
+                });
+                record_unjudged(
+                    n,
+                    source,
+                    message,
+                    labels.as_ref(),
+                    usage_since(clock.usage, before),
+                    st,
+                );
+                return if st.judge_errors >= cfg.max_consecutive_model_errors {
+                    st.stop(ExhaustReason::ModelErrors)
+                } else {
+                    Step::Next
+                };
+            }
         };
-    };
     st.judge_errors = 0;
     verdict.label_recall = labels.as_ref().map(|l| l.recall);
     verdict.label_precision = labels.as_ref().map(|l| l.precision);
@@ -679,6 +715,8 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
                 }
                 Confirmed::Failed(error) => {
                     confirmation = Some(Confirmation::Failed { error });
+                    // Rendered but not fully checked: the model may re-emit it to have it checked again.
+                    st.unjudged.insert(hash);
                     None
                 }
             },
@@ -694,7 +732,7 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
         verdict: Some(feedback_verdict),
         label_recall: below_threshold.map(|l| l.recall),
         missing_labels: below_threshold.map_or_else(Vec::new, |l| l.missing.clone()),
-        unjudged: false,
+        unjudged: matches!(confirmation, Some(Confirmation::Failed { .. })),
     });
     st.attempts.push(AttemptRecord {
         n,
@@ -714,7 +752,7 @@ async fn attempt<M: VisionModel, J: VisionModel, R: Renderer>(
         return Step::Done(Outcome::Accepted { attempt: n, via });
     }
     if st.stalled(cfg.stall_window) {
-        return st.exhausted(ExhaustReason::Stalled);
+        return st.stop(ExhaustReason::Stalled);
     }
     Step::Next
 }
@@ -766,8 +804,9 @@ enum Confirmed {
     Failed(String),
 }
 
-/// Second, differently-worded judge call used when label text cannot vouch for the match. Any failure means "not
-/// confirmed"; the next call's budget check ends the run if the budget is gone.
+/// Second, differently-worded judge call used when label text cannot vouch for the match. It gets the same retry
+/// as the first call; if it still fails the match is "not confirmed", and the next call's budget check ends the
+/// run if the budget is gone.
 async fn confirm<J: VisionModel>(
     clock: &mut Clock<'_>,
     judge: &J,
@@ -775,14 +814,10 @@ async fn confirm<J: VisionModel>(
     render_png: &bytes::Bytes,
     min_score: f64,
 ) -> Confirmed {
-    let request = prompts::judge_request(Purpose::Confirm, image, render_png, false);
-    match clock.call(judge, request).await {
-        Ok(text) => match prompts::parse_verdict(&text) {
-            Ok(v) if v.is_consistent_match(min_score) => Confirmed::Agreed,
-            Ok(v) => Confirmed::Disagreed(Box::new(v)),
-            Err(e) => Confirmed::Failed(e.to_string()),
-        },
-        Err(Stop::Model(e)) => Confirmed::Failed(e.to_string()),
-        Err(Stop::Budget(reason)) => Confirmed::Failed(format!("{reason:?} reached")),
+    match ask_judge(clock, judge, Purpose::Confirm, image, render_png).await {
+        Ok(v) if v.is_consistent_match(min_score) => Confirmed::Agreed,
+        Ok(v) => Confirmed::Disagreed(Box::new(v)),
+        Err(JudgeFail::Failed(e)) => Confirmed::Failed(e),
+        Err(JudgeFail::Budget { reason, .. }) => Confirmed::Failed(format!("{reason:?} reached")),
     }
 }
