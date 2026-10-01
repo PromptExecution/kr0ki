@@ -1,0 +1,6 @@
+- Wrapper `actdiag { ... }`. Swimlanes are `lane name { ... }` holding node names; edges go outside lanes (or inside) and use spaced arrows: `A->B` fails (`Got unexpected token at line 1 column 13`), `A -> B` works.
+- **A node may belong to only one lane.** Listing it in two lanes fails with an unhelpful dump: `<DiagramNode 'A' ...> <NodeGroup 'x' ...> <NodeGroup 'z' ...>`.
+- `group { ... }` is not allowed in actdiag (`got unexpected token: '{', expected: '}'`); use `lane`.
+- Lane options: `label = "Web";` and `color = "#eee";` inside the lane block. Quote lane names with spaces: `lane "my lane" { ... }`. An empty lane is accepted.
+- Node shapes: `flowchart.database`, `flowchart.condition`, `actor` render; `cylinder` fails (`unknown node shape: cylinder`). Unknown attributes fail (`Unknown attribute: Diagram.lane_height`); `span_height` and `node_height` work.
+- Edge options `[label="go"]` and `[style=dashed]` work. Nodes declared only in edges still render (outside any lane).

@@ -1,0 +1,26 @@
+{
+ "description": "Use before writing or fixing D2 source for render_diagram (format d2): verified syntax rules, quoting/escaping gotchas, worked examples, identifier rule.",
+ "identifier": "When an identifier exists (a SysML v2 element id, `schema.table`, `namespace/kind/name`), use it as the node **key** and put the display name in the **label**: `\"00000000-0000-4000-8000-000000000002\": engine`. Never invent identifiers.",
+ "examples": [
+  {
+   "name": "nested_containers",
+   "source": "parent {\n  child1: \"First\"\n  child2: \"Second\"\n}\n\nparent.child1 -> parent.child2"
+  },
+  {
+   "name": "styling_shapes",
+   "source": "db {\n  shape: cylinder\n  label: \"Database\"\n}\n\nuser {\n  shape: person\n  label: \"Alice\"\n}\n\nuser -> db"
+  },
+  {
+   "name": "connection_labels",
+   "source": "A -> B: \"request\"\nB -> A: \"response\""
+  },
+  {
+   "name": "escaping_quotes",
+   "source": "\"O'Brien\" -> \"It's done\"\n\n\"She said \\\"hello\\\"\" -> \"Response\""
+  },
+  {
+   "name": "multiline_labels",
+   "source": "box {\n  label: \"Line 1\\nLine 2\\nLine 3\"\n}"
+  }
+ ]
+}

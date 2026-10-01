@@ -1,0 +1,22 @@
+{
+ "description": "Use before writing or fixing rackdiag server-rack diagrams for render_diagram (format rackdiag): rules checked against the renderer, worked examples, identifier rule.",
+ "identifier": "Slot is `unit: name [label = \"display\"]`: `1: n0002 [label = \"engine\"];` keeps the id as the name and shows the label. Never invent identifiers.",
+ "examples": [
+  {
+   "name": "one rack",
+   "source": "rackdiag {\n  16U;\n  rack {\n    1: UPS [2U];\n    3: Router;\n    4: Server [4U, color = \"#DDEEFF\"];\n    8: \"Disk Array\" [description = \"storage\"];\n  }\n}"
+  },
+  {
+   "name": "two racks",
+   "source": "rackdiag {\n  rack {\n    1: UPS;\n    2: PDU;\n  }\n  rack {\n    1: Switch;\n    2: Server [width = 2];\n  }\n}"
+  },
+  {
+   "name": "id as key, name as label",
+   "source": "rackdiag {\n  description = \"rack A\";\n  rack {\n    1: n0002 [label = \"engine\"];\n    2: n0003 [label = \"gearbox\", 2U];\n  }\n}"
+  },
+  {
+   "name": "ascending numbering",
+   "source": "rackdiag {\n  ascending;\n  8U;\n  rack {\n    1: A [2U];\n    3: B [color = \"#fcc\", rotate = 270];\n  }\n}"
+  }
+ ]
+}

@@ -1,0 +1,26 @@
+{
+ "description": "Use before writing or fixing goat ASCII-art diagrams for render_diagram (format goat): supported characters, arrowhead spacing, circles, what is drawn as plain text, worked examples, identifier rule.",
+ "identifier": "This language cannot separate a key from a label: the text you draw is the only name. Draw the display name, put the identifier in the text only when the reader needs it (for example `n0002 engine`). Never invent identifiers.",
+ "examples": [
+  {
+   "name": "boxes with a down arrow",
+   "source": "+---+\n| A |\n+---+\n  |\n  v\n+---+\n| B |\n+---+"
+  },
+  {
+   "name": "left-to-right arrows between labels",
+   "source": "A ---> B ---> C"
+  },
+  {
+   "name": "hollow and filled circle markers",
+   "source": "o------>*\n|       |\n|       v\no       o"
+  },
+  {
+   "name": "crossing lines and corners",
+   "source": "    |\n----+----\n    |\n    v"
+  },
+  {
+   "name": "two-way arrow",
+   "source": "<---->"
+  }
+ ]
+}

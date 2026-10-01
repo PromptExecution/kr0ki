@@ -1,0 +1,26 @@
+{
+ "description": "Use before writing or fixing svgbob ASCII-art diagrams for render_diagram (format svgbob): box alignment, rounded corners, quoted text, what styling is not supported, worked examples, identifier rule.",
+ "identifier": "This language cannot separate a key from a label: the text you draw is the only name. Draw the display name, put the identifier in the text only when the reader needs it (for example `n0002 engine`). Never invent identifiers.",
+ "examples": [
+  {
+   "name": "boxes with a down arrow",
+   "source": "+-----+\n| App |\n+--+--+\n   |\n   v\n+--+--+\n| DB  |\n+-----+"
+  },
+  {
+   "name": "rounded corners",
+   "source": "  .-----.\n  | foo |\n  '-----'\n     |\n     v\n  .-----.\n  | bar |\n  '-----'"
+  },
+  {
+   "name": "horizontal flow with arrow",
+   "source": "+---+     +---+\n| A |---->| B |\n+---+     +---+"
+  },
+  {
+   "name": "quoted text kept as one label",
+   "source": "\"A | B\"\n\n+-------+\n| \"x y\" |\n+-------+"
+  },
+  {
+   "name": "star corners and circles",
+   "source": "*-----*\n| dot |\n*-----*\n    |\n    o"
+  }
+ ]
+}

@@ -1,0 +1,38 @@
+{
+ "description": "Use before writing or fixing PlantUML source for render_diagram (format plantuml): sequence, activity (:action; if/else), state, use case, component, deployment, gantt (@startgantt), timing and class diagrams; quoting and wrapper rules, worked examples, identifier rule.",
+ "identifier": "When an identifier exists (SysML v2 element id, schema.table, namespace/kind/name) use it as the alias and the display name as the quoted title: `class \"Engine\" as e0002`, `participant \"Web App\" as w0001`, `state \"Idle mode\" as s0001`. Never invent identifiers.",
+ "examples": [
+  {
+   "name": "sequence",
+   "source": "@startuml\nactor User\nparticipant \"Web App\" as W\ndatabase DB\nautonumber\nUser -> W : login\nactivate W\nalt valid\n  W -> DB : query\n  DB --> W : rows\n  W --> User : ok\nelse invalid\n  W --> User : 401\nend\ndeactivate W\nnote over User,W : TLS\n@enduml"
+  },
+  {
+   "name": "activity",
+   "source": "@startuml\n|User|\nstart\n:Submit form;\n|System|\nif (valid?) then (yes)\n  :Save;\nelse (no)\n  :Reject;\n  stop\nendif\nrepeat\n  :Notify;\nrepeat while (retry?) is (yes)\nstop\n@enduml"
+  },
+  {
+   "name": "state",
+   "source": "@startuml\n[*] --> Idle\nstate \"Running mode\" as r1 {\n  [*] --> Warm\n  Warm --> Hot : load\n}\nstate c <<choice>>\nIdle --> r1 : start\nr1 --> c\nc --> Idle : [ok]\nc --> [*] : [fail]\nIdle : waits for jobs\n@enduml"
+  },
+  {
+   "name": "use case",
+   "source": "@startuml\nleft to right direction\nactor Customer\nactor \"Shop Admin\" as adm\nrectangle Shop {\n  usecase \"Place order\" as UC1\n  usecase \"Pay\" as UC2\n  (Refund) as UC3\n  Customer --> UC1\n  UC1 .> UC2 : include\n  adm --> UC3\n}\n@enduml"
+  },
+  {
+   "name": "component and deployment",
+   "source": "@startuml\npackage \"Backend\" {\n  [Auth API] --> [Users DB] : sql\n}\ninterface REST\n[Auth API] - REST\nnode Server {\n  artifact app.jar\n}\ncloud Net\ndatabase PG\nServer --> PG\nServer -- Net\n@enduml"
+  },
+  {
+   "name": "gantt",
+   "source": "@startgantt\nProject starts 2024-01-01\n[Design] lasts 5 days\n[Build] starts at [Design]'s end\n[Build] lasts 10 days\n[Build] is colored in Lime/Green\nthen [Test] lasts 3 days\nsaturday are closed\nsunday are closed\n@endgantt"
+  },
+  {
+   "name": "timing",
+   "source": "@startuml\nconcise \"Web\" as W\nrobust \"DB\" as D\nclock clk with period 50\n@0\nW is Idle\nD is Ready\n@100\nW is Busy\nD is Busy\n@300\nW is Idle\n@enduml"
+  },
+  {
+   "name": "class with id alias",
+   "source": "@startuml\nhide empty members\nclass \"Engine\" as e0002 <<Entity>> {\n  +rpm : int\n  -start()\n}\nabstract class \"Part\" as e0001\ninterface Drawable\ne0001 <|-- e0002\ne0002 *-- \"2..*\" Wheel\ne0002 ..> Drawable\nnote right of e0002 : id is the alias\n@enduml"
+  }
+ ]
+}

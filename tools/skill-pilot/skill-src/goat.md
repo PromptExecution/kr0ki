@@ -1,0 +1,6 @@
+- Source is plain ASCII art; goat never raises syntax errors (only an empty source gives 400). Mistakes appear as stray characters in the picture.
+- Only ASCII is interpreted: Unicode box-drawing characters (`┌─┐│└`) are drawn as plain text glyphs, not lines.
+- Arrowheads (`>`, `<`, `^`, `v`) attach to a line only when adjacent to it: `A<---B` leaves `<` as literal text; write `A <--- B` (verified: 1 arrowhead, no stray text).
+- `o` at a line end draws a hollow circle and `*` a filled circle (`class="hollow"` / `"filled"`).
+- `/` and `\` are diagonal lines, not box corners: `/---\ | A | \---/` renders stray `|` characters. Build boxes with `+`.
+- Quotes are not special (`"x y"` is drawn with the quote characters) and `~~>`, `===` are plain text; use `-` lines.

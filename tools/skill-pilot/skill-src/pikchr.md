@@ -1,0 +1,7 @@
+- Statements are separated by `;` or a newline. `box "A" arrow box "B"` fails: `ERROR: syntax error` pointing at `arrow`.
+- Text must be in double quotes: `box 'A'` -> `ERROR: unrecognized token`; `box A` -> `ERROR: no such object`; an unterminated `"A` -> `unrecognized token`. A literal backslash-n typed between statements is also `unrecognized token`; use a real newline or `;`.
+- Object labels must start with an uppercase letter: `a: box "A"` and `a1: box "x"` are syntax errors; `A:`, `N0002:`, `Sys_Engine:` work. `public.orders:` and `Id-1:` are syntax errors.
+- Referencing a label that does not exist: `ERROR: no such object`. `same` with no earlier object of that type: `no prior objects of the same type`. A misspelt shape (`boxx`) is `syntax error`.
+- Colours: `fill red`, `fill lightblue`, `fill 0xff0000` work; `fill "red"` and `color #ff0000` are syntax errors.
+- Double-headed arrows need a direction: `arrow <-> right 1` works, `arrow <-> 1` is a syntax error. `for` loops are a syntax error.
+- Do not wrap the source in markup: ```` ```pikchr ```` or `<pikchr>` fail. Comments `#`, `//` and `/* */` are accepted.

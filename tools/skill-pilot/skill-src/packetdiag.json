@@ -1,0 +1,22 @@
+{
+ "description": "Use before writing or fixing packetdiag packet/bit-field diagrams for render_diagram (format packetdiag): rules checked against the renderer, worked examples, identifier rule.",
+ "identifier": "packetdiag fields are positional (`0-15: Label;`) and have no key, so there is no place for an identifier; the label text is the only name, so put the human-readable name there (optionally prefixed: `0-15: n0002 engine;`). Never invent identifiers.",
+ "examples": [
+  {
+   "name": "TCP header",
+   "source": "packetdiag {\n  colwidth = 32;\n  node_height = 40;\n  0-15: Source Port;\n  16-31: Destination Port;\n  32-63: Sequence Number;\n  64-95: Acknowledgment Number;\n  96-99: Offset [rotate = 270];\n  100-105: Reserved;\n  106-111: Flags [color = \"#ffcccc\"];\n  112-127: Window;\n}"
+  },
+  {
+   "name": "single-bit flags",
+   "source": "packetdiag {\n  colwidth = 8;\n  0: URG;\n  1: ACK;\n  2: PSH;\n  3: RST;\n  4: SYN;\n  5: FIN;\n  6-7: Spare [color = \"#dddddd\"];\n}"
+  },
+  {
+   "name": "16-bit rows with a gap",
+   "source": "packetdiag {\n  colwidth = 16;\n  0-7: Type;\n  8-15: Code;\n  16-31: Checksum [height = 60];\n  48-63: Payload;\n}"
+  },
+  {
+   "name": "right-to-left scale",
+   "source": "packetdiag {\n  scale_direction = rtl;\n  0-3: Version;\n  4-7: IHL;\n  8-15: ToS;\n  16-31: \"Total Length\";\n}"
+  }
+ ]
+}

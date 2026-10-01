@@ -4,7 +4,7 @@ description: Use before writing or fixing Graphviz DOT source for render_diagram
 ---
 # graphviz (render_diagram format `graphviz`)
 
-## Rules (each checked against the renderer, 2026-10-01)
+## Rules (each checked against the renderer)
 - Source is a `digraph name { ... }` (directed, `->`) or `graph name { ... }` (undirected, `--`). Statements end with `;` (optional but safest).
 - Quote any identifier or label containing spaces or punctuation: `"Auth Service" -> "User DB";`.
 - `record` shapes: fields are separated by `|`, nested fields use `{ }`, ports use `<port>`; **escape literal `{ } | < >` with a backslash** inside a record label. Edges can target a port: `a:p1 -> b:p2`.

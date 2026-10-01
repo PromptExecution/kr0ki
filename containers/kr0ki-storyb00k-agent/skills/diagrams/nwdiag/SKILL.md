@@ -4,7 +4,7 @@ description: Use before writing or fixing nwdiag network diagrams for render_dia
 ---
 # nwdiag (render_diagram format `nwdiag`)
 
-## Rules (each checked against the renderer, 2026-10-01)
+## Rules (each checked against the renderer)
 - Wrapper: `nwdiag { ... }`. Declare `network name { ... }` blocks; a node listed in two networks is drawn on both (a gateway). Node attributes go in brackets: `web01 [address = "10.0.0.1"];`.
 - A node that only appears outside any `network` fails: `DiagramNode X does not belong to any networks`. Peer links (`inet -- router;`) need the other end inside a network.
 - Network attributes: `address = "10.0.0.0/24";`, `color = "#CCFFCC";`, `label = "Office LAN";`. **`description` is not valid** (`Unknown attribute: Network.description`).

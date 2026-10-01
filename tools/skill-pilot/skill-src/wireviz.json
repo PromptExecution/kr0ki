@@ -1,0 +1,22 @@
+{
+ "description": "Use before writing or fixing WireViz harness YAML for render_diagram (format wireviz): rules checked against the renderer, worked examples, identifier rule.",
+ "identifier": "Connector and cable keys are the designators shown in the drawing, so use the identifier as the key and put the display name in `type:` (connectors) or `notes:` (cables): `n0002: {pincount: 2, type: engine}`. Never invent identifiers.",
+ "examples": [
+  {
+   "name": "basic harness",
+   "source": "connectors:\n  X1:\n    pinlabels: [GND, VCC]\n  X2:\n    pinlabels: [GND, VCC]\ncables:\n  W1:\n    wirecount: 2\n    colors: [BK, RD]\nconnections:\n  -\n    - X1: [GND, VCC]\n    - W1: [1, 2]\n    - X2: [GND, VCC]"
+  },
+  {
+   "name": "attributes and colour code",
+   "source": "connectors:\n  X1:\n    pincount: 4\n    type: Molex\n    subtype: female\n    notes: control side\n  X2:\n    pincount: 4\ncables:\n  W1:\n    wirecount: 4\n    gauge: 0.25 mm2\n    length: 1\n    color_code: DIN\n    notes: main loom\nconnections:\n  -\n    - X1: [1-4]\n    - W1: [1-4]\n    - X2: [1-4]"
+  },
+  {
+   "name": "shield",
+   "source": "connectors:\n  X1:\n    pincount: 2\n  X2:\n    pincount: 2\ncables:\n  W1:\n    wirecount: 2\n    shield: true\nconnections:\n  -\n    - X1: [1, 2]\n    - W1: [1, 2]\n    - X2: [1, 2]\n  -\n    - X1: [1]\n    - W1: s"
+  },
+  {
+   "name": "id as key, name as type",
+   "source": "connectors:\n  n0002:\n    pincount: 2\n    type: engine\n  n0003:\n    pincount: 2\n    type: wheel\ncables:\n  w0001:\n    wirecount: 2\nconnections:\n  -\n    - n0002: [1, 2]\n    - w0001: [1, 2]\n    - n0003: [2, 1]"
+  }
+ ]
+}

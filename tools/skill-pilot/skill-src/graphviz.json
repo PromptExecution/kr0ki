@@ -1,0 +1,38 @@
+{
+ "description": "Use before writing or fixing Graphviz DOT source for render_diagram (format graphviz): verified syntax rules, record/port escaping, clusters, worked examples, identifier rule.",
+ "identifier": "When an identifier exists, use it as the node id and the display name as the label: `\"00000000-...02\" [label=\"engine\"];`. Never invent identifiers.",
+ "examples": [
+  {
+   "name": "record-ports",
+   "source": "digraph { A [shape=record, label=\"{top|f|bot}\"]; B [shape=record, label=\"{left|f|right}\"]; A:f -> B:f; }"
+  },
+  {
+   "name": "html-labels",
+   "source": "digraph { A [label=\"<b>Bold</b><br/>New line\"]; B [label=\"<table border=1><tr><td>Cell</td></tr></table>\"]; A -> B; }"
+  },
+  {
+   "name": "clusters",
+   "source": "digraph { subgraph cluster_0 { label=\"Group\"; A; B; } C; A -> C; B -> C; }"
+  },
+  {
+   "name": "rank-same",
+   "source": "digraph { { rank=same; A; B; } C; A -> C; B -> C; }"
+  },
+  {
+   "name": "edge-ports",
+   "source": "digraph { A [shape=box]; B [shape=box]; A:s -> B:n; }"
+  },
+  {
+   "name": "quoted-ids",
+   "source": "digraph { \"Node A\" -> \"Node B\"; \"A B\" [shape=ellipse]; }"
+  },
+  {
+   "name": "default-attrs",
+   "source": "digraph { node [shape=box, style=filled, color=lightblue]; edge [color=red]; A -> B -> C; }"
+  },
+  {
+   "name": "escape-chars",
+   "source": "digraph { A [shape=record, label=\"{Header|Item1|Item2}\"]; B [label=\"A < B > C\"]; A -> B; }"
+  }
+ ]
+}

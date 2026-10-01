@@ -1,0 +1,26 @@
+{
+ "description": "Use before writing or fixing blockdiag block diagrams for render_diagram (format blockdiag): rules checked against the renderer, worked examples, identifier rule.",
+ "identifier": "Node names are the key and `label` is the display text: `n0002 [label = \"engine\"];` then use `n0002` in edges. Never invent identifiers.",
+ "examples": [
+  {
+   "name": "flowchart shapes and edge labels",
+   "source": "blockdiag {\n  start [shape = beginpoint];\n  check [shape = flowchart.condition, label = \"ok?\"];\n  store [shape = flowchart.database, label = \"DB\"];\n  done [shape = flowchart.terminator];\n  start -> check;\n  check -> store [label = \"yes\", color = red];\n  check -> done [label = \"no\", style = dashed];\n  store -> done;\n}"
+  },
+  {
+   "name": "group with colour",
+   "source": "blockdiag {\n  A -> B -> C;\n  A -> D;\n  group g1 {\n    label = \"Core\";\n    color = \"#DDEEFF\";\n    A; B;\n  }\n}"
+  },
+  {
+   "name": "id as key, name as label",
+   "source": "blockdiag {\n  n0002 [label = \"engine\"];\n  n0003 [label = \"wheel\", color = \"#ffcccc\"];\n  n0002 -> n0003 [label = \"drives\"];\n}"
+  },
+  {
+   "name": "fan-out and bidirectional",
+   "source": "blockdiag {\n  orientation = portrait;\n  api -> web, mobile;\n  web <-> cache;\n  mobile -> cache [dir = both, style = dotted];\n}"
+  },
+  {
+   "name": "stacked and numbered nodes",
+   "source": "blockdiag {\n  A [stacked, label = \"workers\"];\n  B [numbered = 1, shape = roundedbox];\n  \"my node\" [shape = actor];\n  A -> B -> \"my node\";\n}"
+  }
+ ]
+}

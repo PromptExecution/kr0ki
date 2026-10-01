@@ -1,0 +1,22 @@
+{
+ "description": "Use before writing or fixing bytefield-svg bytefield diagrams for render_diagram (format bytefield): rules checked against the renderer, worked examples, identifier rule.",
+ "identifier": "Boxes are positional labels with no key, so there is no separate identifier: put the display name in the label string, optionally with the id in a second box. Never invent identifiers.",
+ "examples": [
+  {
+   "name": "TCP-style header",
+   "source": "(def boxes-per-row 32)\n(draw-box \"Source Port\" {:span 16})\n(draw-box \"Destination Port\" {:span 16})\n(draw-box \"Sequence Number\" {:span 32})\n(draw-box (text \"Flags\" :bold) {:span 16 :fill \"#ffcccc\"})\n(draw-box \"Window\" {:span 16})"
+  },
+  {
+   "name": "named attribute sets",
+   "source": "(defattrs :bg-green {:fill \"#a0ffa0\"})\n(draw-column-headers)\n(draw-box \"ok\" [{:span 8} :bg-green])\n(draw-box \"data\" {:span 8})"
+  },
+  {
+   "name": "gap and bottom",
+   "source": "(draw-column-headers)\n(draw-box \"Header\" {:span 16})\n(draw-gap \"Payload\")\n(draw-bottom)"
+  },
+  {
+   "name": "hex value and borders",
+   "source": "(def boxes-per-row 32)\n(draw-box \"Magic\" {:span 16})\n(draw-box (hex-text 255 2) {:span 16 :borders #{:left :right :top}})"
+  }
+ ]
+}

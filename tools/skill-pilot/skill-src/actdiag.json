@@ -1,0 +1,22 @@
+{
+ "description": "Use before writing or fixing actdiag activity diagrams for render_diagram (format actdiag): rules checked against the renderer, worked examples, identifier rule.",
+ "identifier": "Node names are the key and `label` is the display text: `n0002 [label = \"engine\"];` then use `n0002` in edges. Node attributes go inside the lane: `lane srv { n0002 [label = \"check\"]; }`. Never invent identifiers.",
+ "examples": [
+  {
+   "name": "two lanes",
+   "source": "actdiag {\n  write -> read -> render;\n  lane user {\n    label = \"User\";\n    write [label = \"Write\"];\n  }\n  lane server {\n    label = \"Server\";\n    read; render;\n  }\n}"
+  },
+  {
+   "name": "decision shape and skip edge",
+   "source": "actdiag {\n  A -> B -> C;\n  A -> C [label = \"skip\", style = dashed];\n  lane x { A; }\n  lane y { B [shape = flowchart.condition, label = \"ok?\"]; }\n  lane z { C [shape = flowchart.database]; }\n}"
+  },
+  {
+   "name": "lane colour and quoted lane",
+   "source": "actdiag {\n  span_height = 60;\n  lane \"front end\" {\n    color = \"#DDEEFF\";\n    form; submit;\n  }\n  lane api {\n    handler [label = \"handle\\nrequest\"];\n  }\n  form -> submit -> handler;\n}"
+  },
+  {
+   "name": "id as key, name as label",
+   "source": "actdiag {\n  lane user { label = \"User\"; n0001 [label = \"login\"]; }\n  lane srv { label = \"Server\"; n0002 [label = \"check\"]; n0003 [label = \"reply\"]; }\n  n0001 -> n0002 -> n0003;\n}"
+  }
+ ]
+}

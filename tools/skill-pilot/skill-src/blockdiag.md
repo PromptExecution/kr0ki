@@ -1,0 +1,7 @@
+- Wrapper is required: `blockdiag { ... }`. Bare `A -> B` fails: `got unexpected token: 'A', expected: '{'`.
+- **Put spaces around arrows**: `A->B` fails (`Got unexpected token at line 1 column 15`); `A -> B` renders. Edges chain (`A -> B -> C`), fan out (`A -> B, C`), and `<->`, `--` work; `=>` fails.
+- Attribute lists need commas and quotes around text with spaces: `[label=Hello World]` fails (`got unexpected token: 'World', expected: ']'`), `[label="x" color=red]` fails, a trailing comma fails. Use `[label = "Hello World", color = "#ffcccc"]`.
+- Unknown attributes are rejected: `Unknown attribute: DiagramNode.foo`. Bad colours too: `"nocolor" is not defined as a named color in css3`.
+- Shapes: `box`, `roundedbox`, `ellipse`, `diamond`, `square`, `note`, `mail`, `cloud`, `actor`, `beginpoint`, `minidiamond`, `flowchart.database`, `flowchart.condition`, `flowchart.input`, `flowchart.terminator` render. **`database`, `cylinder` fail (`unknown node shape`), `flowchart.document` fails too.**
+- `group name { label = "Core"; color = "#DDEEFF"; A; B; }` boxes nodes together. `\n` in a label makes a line break. Edge options that work: `label`, `color`, `style = dashed`, `dir = both`, `thick`, `folded`.
+- Names with spaces need double quotes: `"my node" -> "other node"`. Comments `//`, `#`, `/* */` are fine.

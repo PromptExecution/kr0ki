@@ -1,0 +1,6 @@
+- Send a complete document: `\documentclass[tikz]{standalone}` + `\begin{document}` + `\begin{tikzpicture}...\end{tikzpicture}` + `\end{document}`. A bare `tikzpicture` fails: `! LaTeX Error: Missing \begin{document}.`
+- Every path statement ends with `;`. Missing one fails: `Package tikz Error: Giving up on this path. Did you forget a semicolon?`
+- Layout keys need their library in the preamble: `right=of a` without `\usetikzlibrary{positioning}` fails `Package PGF Math Error: Unknown function `of'`. Verified working: `positioning`, `fit`, `calc`, `arrows.meta`, `shapes.geometric`, `automata`, `mindmap`; packages `amsmath`, `pgfplots`, `tikz-cd`.
+- An unknown library fails `I did not find the tikz library 'nonexistentlib'`; an unknown option fails `I do not know the key '/tikz/foo'`; an undefined colour fails `Undefined color `nocolor'`; drawing to an undeclared node fails `No shape named `nope' is known`.
+- Escape LaTeX specials in node text: `A_b` fails `Missing $ inserted`, `A & B` fails `Misplaced alignment tab character &`. Write `A\_b`, `A \& B`, `50\%`. Accented letters (`é ü`) are fine.
+- Node names cannot contain a dot: `\node (public.orders)` then `of public.orders` fails `No shape named `public' is known`. `n0002` and `n_1` work.

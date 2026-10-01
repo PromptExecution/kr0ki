@@ -1,0 +1,22 @@
+{
+ "description": "Use before writing or fixing symbolator VHDL component symbols for render_diagram (format symbolator): rules checked against the renderer, worked examples, identifier rule.",
+ "identifier": "symbolator draws one symbol per `entity`; the entity name and port names are the only text, with no separate label. Use the identifier directly as the entity or port name when it is a valid VHDL identifier (letters, digits, underscore): `entity n0002 is`. Never invent identifiers.",
+ "examples": [
+  {
+   "name": "ports with buses",
+   "source": "entity demo is\n  port (\n    clk : in std_logic;\n    rst_n : in std_logic;\n    data : out std_logic_vector(7 downto 0);\n    sda : inout std_logic\n  );\nend entity;"
+  },
+  {
+   "name": "generics",
+   "source": "entity fifo is\n  generic (WIDTH : integer := 8);\n  port (\n    d : in std_logic_vector(WIDTH-1 downto 0);\n    q : out std_logic_vector(WIDTH-1 downto 0)\n  );\nend entity;"
+  },
+  {
+   "name": "shared names and comments",
+   "source": "-- adder cell\nentity adder is\n  port (a, b : in std_logic; cin : in std_logic; s : out std_logic; cout : out std_logic);\nend adder;"
+  },
+  {
+   "name": "two entities",
+   "source": "entity two is\n  port (a : in bit; b : out bit);\nend entity;\nentity demo is\n  port (clk : in std_logic);\nend entity;"
+  }
+ ]
+}

@@ -1,0 +1,26 @@
+{
+ "description": "Use before writing or fixing DBML source for render_diagram (format dbml): Table/Ref/Enum syntax, quoting of names, schema-qualified references, the real reference errors, worked examples, identifier rule.",
+ "identifier": "When an identifier exists (schema.table, column name) use it as the table and column name (`Table core.users`) and put the display name in a note: `Table core.users { id int [pk, note: 'User id'] \\n Note: 'Users' }`. Never invent identifiers.",
+ "examples": [
+  {
+   "name": "tables and inline refs",
+   "source": "Table users {\n  id integer [pk, increment]\n  email varchar(255) [not null, unique]\n  created_at timestamp [default: `now()`]\n}\nTable posts {\n  id integer [pk]\n  user_id integer [not null, ref: > users.id]\n  title varchar\n}"
+  },
+  {
+   "name": "top-level refs and composite key",
+   "source": "Table orders {\n  id int [pk]\n  customer_id int\n}\nTable customers {\n  id int [pk]\n}\nTable lines {\n  order_id int\n  sku varchar\n  qty int\n  indexes {\n    (order_id, sku) [pk]\n  }\n}\nRef fk_order: orders.customer_id > customers.id [delete: cascade]\nRef: lines.order_id > orders.id"
+  },
+  {
+   "name": "enum and table group",
+   "source": "Enum order_status {\n  pending\n  shipped\n  cancelled\n}\nTable orders {\n  id int [pk]\n  status order_status\n}\nTable audit {\n  id int [pk]\n}\nTableGroup core {\n  orders\n  audit\n}"
+  },
+  {
+   "name": "schemas and notes",
+   "source": "Table core.users {\n  id int [pk]\n  name varchar [note: 'Display name']\n}\nTable core.sessions {\n  id int [pk]\n  user_id int [ref: > core.users.id]\n}\nTable billing.invoices [headercolor: #3498DB] {\n  id int [pk]\n  user_id int [ref: > core.users.id]\n}"
+  },
+  {
+   "name": "many to many with quoted names",
+   "source": "Table \"student\" {\n  id int [pk]\n  \"full name\" varchar\n}\nTable \"course\" {\n  id int [pk]\n}\nTable \"enrolment\" {\n  student_id int [ref: > student.id]\n  course_id int [ref: > course.id]\n  Note: 'join table'\n}"
+  }
+ ]
+}

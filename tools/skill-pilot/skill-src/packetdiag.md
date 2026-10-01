@@ -1,0 +1,6 @@
+- Wrapper `packetdiag { ... }`. Each field is `first-last: Label;` using bit numbers (`0-15: Source Port;`) or a single bit `0: Flag;`. A missing colon fails (`got unexpected token: 'A', expected: ':'`).
+- Overlapping ranges fail: `Field 'B' is conflicted to other field`. Gaps between ranges are allowed.
+- Text with spaces needs no quotes (`0-15: Source Port;`); quotes also work. A bad attribute fails: `Unknown attribute: FieldItem.colspan`. `shape=cylinder` fails (`unknown node shape`).
+- Field attributes go AFTER the label in brackets: `106-111: Flags [color = "#ffcccc"];`, `[rotate = 270]`, `[height = 80]`, `[linecolor = "#f00"]`. Putting them before the label fails (`expected: '='`).
+- Diagram options go first: `colwidth = 32;` (bits per row), `node_height = 72;`, `scale_direction = rtl;`, `scale_interval = 4;`.
+- There are no edges or nodes; a field has a position, not a key.

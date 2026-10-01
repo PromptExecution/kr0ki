@@ -1,0 +1,6 @@
+- Source is WaveJSON (JSON5): unquoted keys, single quotes and trailing commas are all accepted, as is strict JSON. Values must still be quoted strings: `name: clk` fails `JSON5: invalid character 'c'`.
+- The whole source must be one object: `signal: [...]` without braces fails `invalid character 's' at 1:1`; trailing text after `}` fails `invalid character 'e'`.
+- Unknown top-level keys are SILENT: `{ foo: 1 }` returns HTTP 200 with just `<div class="WaveDrom"/>` (no SVG). Use `signal` (timing) or `reg` (register bitfield).
+- Unknown wave characters are silent too: `wave: "q...."` renders the undefined (`x`) symbol instead of failing. Check wave strings against the WaveDrom character set; `.` repeats the previous state (used in all examples below).
+- `{ signal: [] }` and `{ signal: "x" }` render an empty chart without error. Groups are nested arrays starting with the title (`["bus", {...}, {...}]`); `{}` is a blank spacer row.
+- `{ reg: [ { bits: 8, name: "data" }, ... ] }` renders a register bitfield (bit numbers 0, 7, 8, 15 appear in the SVG).

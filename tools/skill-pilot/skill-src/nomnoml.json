@@ -1,0 +1,26 @@
+{
+ "description": "Use before writing or fixing nomnoml UML diagrams for render_diagram (format nomnoml): node and association syntax, label placement, compartments, type tags, error meanings, worked examples, identifier rule.",
+ "identifier": "Use the identifier as the node name and put the display name in a compartment, e.g. `[n0002|engine]` ; namespace-style ids such as `public.orders` and `ns/kind/name` are accepted inside brackets. Never invent identifiers.",
+ "examples": [
+  {
+   "name": "class with compartments and abstract tag",
+   "source": "[<abstract>Foo|+name: String;+age: int|+run();+stop()]"
+  },
+  {
+   "name": "association label and multiplicities",
+   "source": "[Customer] 1 -> 0..* [Order]\n[Order] contains -> [Item]"
+  },
+  {
+   "name": "actor and use case",
+   "source": "[<actor>User]->[<usecase>Login]\n[<usecase>Login]-:>[<usecase>Audit]"
+  },
+  {
+   "name": "direction and database node",
+   "source": "#direction: right\n[<frame>App|[Api]->[Worker]]\n[Worker]->[<database>DB]"
+  },
+  {
+   "name": "inheritance, aggregation and note",
+   "source": "[Animal]<:--[Dog]\n[Dog]+->[Leg]\n[Dog]--[<note>barks]"
+  }
+ ]
+}

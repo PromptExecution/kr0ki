@@ -1,0 +1,7 @@
+- Source is one Vega-Lite spec as **strict JSON**: double-quoted keys, no trailing commas, no single quotes, no YAML. Errors: trailing comma -> `Expected double-quoted property name in JSON`; `{'data':...}` -> `Expected property name or '}'`; `mark: bar` -> `"mark: bar" is not valid JSON`.
+- Data must be inline: `"data":{"values":[{...},{...}]}`. `"data":{"url":...}` fails with `Unable to load data from an URL while running in secure mode`. A CSV string only works with `"format":{"type":"csv"}`; a bare string in `values` fails to parse as JSON.
+- Every encoding channel with a `field` should carry a valid `"type"`: `quantitative`, `nominal`, `ordinal` or `temporal`. `"type":"category"` fails with `Invalid field type "undefined"`.
+- Mark names must be real Vega-Lite marks (`bar`, `line`, `point`, `arc`, `text`, ...). `"mark":"foo"` fails with `Cannot read properties of undefined (reading 'filled')`.
+- A `field` name that does not exist in the data does NOT error: the chart renders wrong or empty. Copy field names exactly from the data.
+- `$schema` is optional (renders with or without it). `title`, `width`, `height`, `layer`, `hconcat`, `transform` (`filter`, `calculate`), `aggregate` and `column` facets all render.
+- Pie/donut uses `"mark":"arc"` with `theta` and `color` channels (`innerRadius` makes a donut).

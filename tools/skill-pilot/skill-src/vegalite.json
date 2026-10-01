@@ -1,0 +1,30 @@
+{
+ "description": "Use before writing or fixing Vega-Lite chart specs for render_diagram (format vegalite): strict-JSON rules, inline data only, valid encoding types, layer/transform/facet examples, identifier rule.",
+ "identifier": "Put the identifier in its own data field and use it as the nominal key: `{\"data\":{\"values\":[{\"id\":\"n0002\",\"label\":\"engine\",\"v\":3}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"id\",\"type\":\"nominal\"},\"y\":{\"field\":\"v\",\"type\":\"quantitative\"},\"tooltip\":{\"field\":\"label\",\"type\":\"nominal\"}}}`; show the display name from the `label` field (tooltip or text). Never invent identifiers.",
+ "examples": [
+  {
+   "name": "bar chart with titles",
+   "source": "{\"data\":{\"values\":[{\"c\":\"A\",\"x\":1,\"y\":2,\"g\":\"u\"},{\"c\":\"B\",\"x\":2,\"y\":5,\"g\":\"v\"},{\"c\":\"C\",\"x\":3,\"y\":3,\"g\":\"u\"}]},\"width\":200,\"height\":120,\"title\":\"Sales\",\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"c\",\"type\":\"nominal\",\"title\":\"Item\"},\"y\":{\"field\":\"y\",\"type\":\"quantitative\",\"title\":\"Units\"}}}"
+  },
+  {
+   "name": "line with points colored by series",
+   "source": "{\"data\":{\"values\":[{\"c\":\"A\",\"x\":1,\"y\":2,\"g\":\"u\"},{\"c\":\"B\",\"x\":2,\"y\":5,\"g\":\"v\"},{\"c\":\"C\",\"x\":3,\"y\":3,\"g\":\"u\"}]},\"mark\":{\"type\":\"line\",\"point\":true},\"encoding\":{\"x\":{\"field\":\"x\",\"type\":\"quantitative\"},\"y\":{\"field\":\"y\",\"type\":\"quantitative\"},\"color\":{\"field\":\"g\",\"type\":\"nominal\"}}}"
+  },
+  {
+   "name": "layered bars with value labels",
+   "source": "{\"data\":{\"values\":[{\"c\":\"A\",\"x\":1,\"y\":2,\"g\":\"u\"},{\"c\":\"B\",\"x\":2,\"y\":5,\"g\":\"v\"},{\"c\":\"C\",\"x\":3,\"y\":3,\"g\":\"u\"}]},\"layer\":[{\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"c\",\"type\":\"nominal\"},\"y\":{\"field\":\"y\",\"type\":\"quantitative\"}}},{\"mark\":{\"type\":\"text\",\"dy\":-6},\"encoding\":{\"x\":{\"field\":\"c\",\"type\":\"nominal\"},\"y\":{\"field\":\"y\",\"type\":\"quantitative\"},\"text\":{\"field\":\"y\",\"type\":\"quantitative\"}}}]}"
+  },
+  {
+   "name": "filter, calculate and aggregate",
+   "source": "{\"data\":{\"values\":[{\"c\":\"A\",\"x\":1,\"y\":2,\"g\":\"u\"},{\"c\":\"B\",\"x\":2,\"y\":5,\"g\":\"v\"},{\"c\":\"C\",\"x\":3,\"y\":3,\"g\":\"u\"}]},\"transform\":[{\"filter\":\"datum.y > 2\"},{\"calculate\":\"datum.y * 2\",\"as\":\"y2\"}],\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"g\",\"type\":\"nominal\"},\"y\":{\"field\":\"y2\",\"type\":\"quantitative\",\"aggregate\":\"sum\"}}}"
+  },
+  {
+   "name": "donut with arc mark",
+   "source": "{\"data\":{\"values\":[{\"c\":\"A\",\"x\":1,\"y\":2,\"g\":\"u\"},{\"c\":\"B\",\"x\":2,\"y\":5,\"g\":\"v\"},{\"c\":\"C\",\"x\":3,\"y\":3,\"g\":\"u\"}]},\"mark\":{\"type\":\"arc\",\"innerRadius\":40},\"encoding\":{\"theta\":{\"field\":\"y\",\"type\":\"quantitative\"},\"color\":{\"field\":\"c\",\"type\":\"nominal\"}}}"
+  },
+  {
+   "name": "small multiples with column facet",
+   "source": "{\"data\":{\"values\":[{\"c\":\"A\",\"x\":1,\"y\":2,\"g\":\"u\"},{\"c\":\"B\",\"x\":2,\"y\":5,\"g\":\"v\"},{\"c\":\"C\",\"x\":3,\"y\":3,\"g\":\"u\"}]},\"mark\":\"bar\",\"encoding\":{\"x\":{\"field\":\"c\",\"type\":\"nominal\"},\"y\":{\"field\":\"y\",\"type\":\"quantitative\"},\"column\":{\"field\":\"g\",\"type\":\"nominal\"}}}"
+  }
+ ]
+}

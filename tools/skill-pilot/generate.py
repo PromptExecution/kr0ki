@@ -13,7 +13,7 @@ env = {**os.environ, "PI_CODING_AGENT_DIR": f"{PI}/agent", "PI_OFFLINE": "1", "P
 TOPICS = {
     "d2": ("d2", "styling (fill, stroke, shape: cylinder/person), nested containers, labelled connections and arrowheads, quoting/escaping special characters in keys and labels, multi-line labels, classes/variables, sql_table, sequence_diagram"),
     "graphviz": ("graphviz", "record-shaped nodes with ports and escaping of |{}<> , HTML-like labels, clusters/subgraphs, rank=same, edge ports, quoting identifiers with spaces, default node/edge attributes"),
-    "plantuml": ("plantuml", "class diagrams: generics, stereotypes, visibility, abstract/interface, packages, notes, escaping, skinparam, hide empty members. EVERY source must start with @startuml and end with @enduml"),
+    "plantuml": ("plantuml", "class diagrams: generics, stereotypes, visibility, abstract/interface, packages, notes, escaping, skinparam, hide empty members."),
     "nwdiag": ("nwdiag", "network segments with addresses, a node in several networks, groups, colours, labels with special characters, peer networks, node shapes"),
 }
 
