@@ -63,15 +63,16 @@ async function focusSelectedType() {
 }
 
 // Type cards link to the fixture explicitly named by their catalog type.
-const typeCards = computed(() => {
-  const types = catalog.value?.types || []
-  return types
-    .filter((t) => activeUseCase.value === 'All' || t.useCases.includes(activeUseCase.value))
-    .map((t) => ({
-      ...t,
-      example: props.examples.find((e) => e.id === t.exampleId),
-    }))
-})
+// Every catalog type with its fixture, regardless of the intent filter ("Test all" must cover the whole catalog).
+const allTypeCards = computed(() =>
+  (catalog.value?.types || []).map((t) => ({
+    ...t,
+    example: props.examples.find((e) => e.id === t.exampleId),
+  })),
+)
+const typeCards = computed(() =>
+  allTypeCards.value.filter((t) => activeUseCase.value === 'All' || t.useCases.includes(activeUseCase.value)),
+)
 
 // Auto-select "All" when the active filter somehow stops matching (e.g.
 // catalog reload) — the filter never dead-ends.
@@ -114,10 +115,20 @@ const artifactUrls = ref({})
 const errors = ref({})
 const running = ref(false)
 
+// Summary covers BOTH grids: the type cards (top) and the raw fixtures (bottom).
 const summary = computed(() => {
-  const tested = props.examples.filter((example) => status.value[example.id] === 'pass' || status.value[example.id] === 'fail')
-  const passed = tested.filter((example) => status.value[example.id] === 'pass')
-  return { tested: tested.length, passed: passed.length, total: props.examples.length }
+  const done = (v) => v === 'pass' || v === 'fail'
+  const testableCards = allTypeCards.value.filter((c) => c.example)
+  const cardsTested = testableCards.filter((c) => done(typeStatus.value[c.id]))
+  const examplesTested = props.examples.filter((e) => done(status.value[e.id]))
+  const passed =
+    cardsTested.filter((c) => typeStatus.value[c.id] === 'pass').length +
+    examplesTested.filter((e) => status.value[e.id] === 'pass').length
+  return {
+    tested: cardsTested.length + examplesTested.length,
+    passed,
+    total: testableCards.length + props.examples.length,
+  }
 })
 
 function endpointFor(example, output) {
@@ -160,6 +171,11 @@ async function testOne(example) {
 
 async function testAll() {
   running.value = true
+  // The type cards first (they are what the user sees first), then every raw fixture.
+  for (const card of allTypeCards.value) {
+    // eslint-disable-next-line no-await-in-loop
+    await testType(card)
+  }
   for (const example of props.examples) {
     // Sequential on purpose: a first pass exercises cache miss-then-hit behaviour
     // per example without racing the same renderer URL with concurrent requests.
@@ -209,7 +225,7 @@ async function testType(card) {
   <section class="gallery" :class="{ 'gallery--planner': plannerOpen }">
    <div class="gallery-main">
     <div class="controls gallery-controls">
-      <button :disabled="running || examples.length === 0" @click="testAll">
+      <button :disabled="running || (examples.length === 0 && !allTypeCards.length)" @click="testAll">
         {{ running ? 'Testing…' : 'Test all' }}
       </button>
       <p v-if="summary.tested > 0" class="gallery-summary">

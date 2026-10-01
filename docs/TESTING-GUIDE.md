@@ -1,4 +1,4 @@
-# Testing guide (v0.0.8)
+# Testing guide (v0.0.9)
 
 What is built, how to try each piece, what you should see, and what is known to be incomplete. Every step below was run
 against the live system on 2026-10-01. Host: `http://192.168.1.137:8787` (kr0ki) and `:8789` (agent). Replace the host if you
@@ -7,7 +7,7 @@ run elsewhere. The agent's model is the local vision model on `:8002`; `OPENAI_A
 ## 1. Playbook (browser): `http://192.168.1.137:8787/playbook/`
 | Try | Expect |
 |---|---|
-| Footer / sidebar | `v0.0.8` |
+| Footer / sidebar | `v0.0.9` |
 | **Gallery -> planner** (right-hand panel, "● page linked") | The Renderer URL field is gone (it lives in Setup). Type *"I need to show how our database tables relate, with foreign keys"*. Within ~10 s the gallery filters to **data model**, three cards get a **★ suggested** badge with a banner, one card is selected, and the planner answers with a pick and an alternative. |
 | Planner session id (under the chat) | `planner-…`. Any MCP client can steer your page with it (see §3). |
 | **Code Editor -> Render -> Send to Agent** | The Agent view opens with a **Starting point** card above the chat: the rendered image and the source you sent. It can be collapsed, not dismissed, and survives sending messages. |
