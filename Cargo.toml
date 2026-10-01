@@ -20,7 +20,7 @@ resolver = "2"
 members = ["crates/kr0ki-core", "crates/kr0ki-server", "crates/kr0ki-sysmlv2-client", "crates/kr0ki-svg", "crates/kr0ki-raster-ingest"]
 
 [workspace.package]
-version = "0.0.5"
+version = "0.0.6"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/PromptExecution/kr0ki"
@@ -32,7 +32,7 @@ thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "net", "sync"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 axum = "0.7"
 tracing = "0.1"

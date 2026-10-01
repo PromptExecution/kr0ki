@@ -1,27 +1,37 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import StoryB00k from './StoryB00k.vue'
 
 const props = defineProps({
   examples: { type: Array, required: true },
   agentUrl: { type: String, default: '' },
+  // The kr0ki service to render against comes from Setup (one place to configure it), not from a field here.
+  rendererUrl: { type: String, default: '' },
+  // Gallery state is owned by the app so the planner (via the UI bridge) and the user steer the same thing.
+  useCase: { type: String, default: 'All' },
+  selectedTypeId: { type: String, default: '' },
+  suggested: { type: Array, default: () => [] },
+  suggestNote: { type: String, default: '' },
+  plannerSession: { type: String, default: '' },
+  uiStatus: { type: String, default: 'closed' },
 })
-const emit = defineEmits(['open-in-editor', 'agent-handoff'])
+const emit = defineEmits(['open-in-editor', 'agent-handoff', 'update:useCase', 'update:selectedTypeId'])
 
-const rendererUrl = ref(
-  window.location.port === '8787'
-    ? window.location.origin
-    : new URLSearchParams(window.location.search).get('renderer') || '',
-)
+const rendererBase = computed(() => (props.rendererUrl || window.location.origin).trim())
+const plannerOpen = ref(true)
 
 // ---- Plan 005: intent-first catalog ----------------------------------------
 // Loaded from /api/catalog (Rust-owned taxonomy). The filter defaults to
 // "All" and auto-resets to "All" whenever a selection stops matching.
 const catalog = ref(null)
-const activeUseCase = ref('All')
+const activeUseCase = computed({
+  get: () => props.useCase,
+  set: (value) => emit('update:useCase', value),
+})
 
 onMounted(async () => {
   try {
-    const base = rendererUrl.value.trim() || window.location.origin
+    const base = rendererBase.value
     const res = await fetch(`${base.replace(/\/$/, '')}/api/catalog`)
     if (res.ok) catalog.value = await res.json()
   } catch (err) {
@@ -33,7 +43,10 @@ const useCaseFilters = computed(() => ['All', ...(catalog.value?.useCases || [])
 
 // Type cards from the taxonomy; each links to its fixture (match by syntax)
 // so the card can render a thumbnail through the existing test flow.
-const selectedType = ref(new URL(window.location.href).searchParams.get('type') || '')
+const selectedType = computed({
+  get: () => props.selectedTypeId,
+  set: (value) => emit('update:selectedTypeId', value),
+})
 
 function selectType(typeId) {
   selectedType.value = typeId
@@ -67,10 +80,16 @@ watch(useCaseFilters, (filters) => {
 })
 
 watch([catalog, selectedType], () => {
-  if (selectedType.value && (catalog.value?.types || []).some((type) => type.id === selectedType.value)) {
-    focusSelectedType()
-  }
+  const chosen = (catalog.value?.types || []).find((type) => type.id === selectedType.value)
+  if (!chosen) return
+  // A selection (e.g. from the planner) must never be hidden by the current filter.
+  if (activeUseCase.value !== 'All' && !chosen.useCases.includes(activeUseCase.value)) activeUseCase.value = 'All'
+  focusSelectedType()
 }, { immediate: true })
+
+const suggestedSet = computed(() => new Set(props.suggested))
+const suggestedNames = computed(() =>
+  props.suggested.map((id) => (catalog.value?.types || []).find((t) => t.id === id)?.name).filter(Boolean))
 
 function countFor(tag) {
   return (catalog.value?.types || []).filter((t) => t.useCases.includes(tag)).length
@@ -102,18 +121,18 @@ const summary = computed(() => {
 })
 
 function endpointFor(example, output) {
-  if (!rendererUrl.value.trim()) return ''
+  if (!rendererBase.value) return ''
   // A custom-route example (e.g. POST /render/k8s-topology) isn't reachable
   // by templating `format` into /render/{format} -- its input isn't
   // diagram-format source text at all. Use the declared route verbatim.
   const path = example.route || `/render/${example.format}`
-  return `${rendererUrl.value.trim().replace(/\/$/, '')}${path}?output=${output}`
+  return `${rendererBase.value.replace(/\/$/, '')}${path}?output=${output}`
 }
 
 async function testOne(example) {
-  if (!rendererUrl.value.trim()) {
+  if (!rendererBase.value) {
     status.value = { ...status.value, [example.id]: 'fail' }
-    errors.value = { ...errors.value, [example.id]: 'Enter a network-reachable kr0ki URL first' }
+    errors.value = { ...errors.value, [example.id]: 'No kr0ki service URL is configured (see Setup)' }
     return
   }
   status.value = { ...status.value, [example.id]: 'testing' }
@@ -158,9 +177,9 @@ const typeErrors = ref({})
 async function testType(card) {
   const example = card.example
   if (!example) return
-  if (!rendererUrl.value.trim()) {
+  if (!rendererBase.value) {
     typeStatus.value = { ...typeStatus.value, [card.id]: 'fail' }
-    typeErrors.value = { ...typeErrors.value, [card.id]: 'Enter a network-reachable kr0ki URL first' }
+    typeErrors.value = { ...typeErrors.value, [card.id]: 'No kr0ki service URL is configured (see Setup)' }
     return
   }
   typeStatus.value = { ...typeStatus.value, [card.id]: 'testing' }
@@ -187,12 +206,9 @@ async function testType(card) {
 </script>
 
 <template>
-  <section class="gallery">
+  <section class="gallery" :class="{ 'gallery--planner': plannerOpen }">
+   <div class="gallery-main">
     <div class="controls gallery-controls">
-      <label>
-        Renderer URL
-        <input v-model="rendererUrl" aria-label="Renderer URL" placeholder="http://kr0ki-host:8787" />
-      </label>
       <button :disabled="running || examples.length === 0" @click="testAll">
         {{ running ? 'Testing…' : 'Test all' }}
       </button>
@@ -201,6 +217,11 @@ async function testType(card) {
       </p>
     </div>
 
+    <!-- Planner shortlist: what the planning agent suggests, with its reason -->
+    <aside v-if="suggestedNames.length" class="gallery-suggest" data-testid="planner-suggestion" role="status">
+      <strong>★ Planner suggests:</strong> {{ suggestedNames.join(' · ') }}
+      <span v-if="suggestNote" class="gallery-suggest-note"> — {{ suggestNote }}</span>
+    </aside>
     <!-- Intent filter (Plan 005): defaults to All, auto-resets to All -->
     <nav v-if="useCaseFilters.length > 1" class="gallery-filters" aria-label="Filter by use case">
       <span class="filter-label">I want to show</span>
@@ -223,13 +244,16 @@ async function testType(card) {
         v-for="card in typeCards"
         :key="card.id"
         class="gallery-card"
-        :class="{ selected: selectedType === card.id }"
+        :class="{ selected: selectedType === card.id, suggested: suggestedSet.has(card.id) }"
         :data-type-id="card.id"
         tabindex="-1"
         @click="selectType(card.id)"
       >
         <header>
-          <p class="eyebrow">{{ card.name }} · {{ card.syntax }}</p>
+          <p class="eyebrow">
+            <span v-if="suggestedSet.has(card.id)" class="badge-suggested" data-testid="suggested-badge">★ suggested</span>
+            {{ card.name }} · {{ card.syntax }}
+          </p>
           <h3>{{ card.blurb }}</h3>
         </header>
         <p class="card-description">{{ card.useCases.join(' · ') }}</p>
@@ -280,5 +304,26 @@ async function testType(card) {
         <p v-if="errors[example.id]" class="card-error">{{ errors[example.id] }}</p>
       </article>
     </div>
+   </div>
+
+   <aside class="gallery-planner" aria-label="Diagram planner" data-testid="planner-panel">
+    <header class="gallery-planner-head">
+      <button type="button" class="secondary" :aria-expanded="plannerOpen" data-testid="planner-toggle" @click="plannerOpen = !plannerOpen">
+        {{ plannerOpen ? '▾' : '▸' }} Diagram planner
+      </button>
+      <span class="planner-link" :data-status="uiStatus" :title="`UI session ${plannerSession}`">
+        {{ uiStatus === 'open' ? '● page linked' : uiStatus === 'connecting' ? '○ linking…' : '○ not linked' }}
+      </span>
+    </header>
+    <StoryB00k
+      v-if="plannerOpen && plannerSession"
+      planner
+      :thread-id="plannerSession"
+      :agent-url="agentUrl"
+    />
+    <p v-if="plannerOpen && plannerSession" class="planner-session" data-testid="planner-session">
+      MCP clients can steer this page with <code>navigate_ui</code>, session <code>{{ plannerSession }}</code>
+    </p>
+   </aside>
   </section>
 </template>

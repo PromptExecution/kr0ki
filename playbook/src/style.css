@@ -67,4 +67,20 @@ nav { display: grid; gap: .35rem; }.format-link { border: 0; border-radius: .45r
 .card-status.pass { color: #06301c; background: #4ade80; }
 .card-status.fail { color: #450a0a; background: #f87171; }
 .card-error { margin: 0; color: #fecaca; font-size: .78rem; overflow-wrap: anywhere; }
+.gallery { display: block; }
+.gallery--planner { display: grid; grid-template-columns: minmax(0, 1fr) minmax(20rem, 26rem); gap: 1rem; align-items: start; }
+.gallery-main { min-width: 0; }
+.gallery-planner { position: sticky; top: 1rem; display: flex; flex-direction: column; gap: .5rem; padding: .75rem; background: #101a36; border: 1px solid #2a3966; border-radius: .85rem; max-height: calc(100vh - 2rem); overflow: auto; }
+.gallery:not(.gallery--planner) .gallery-planner { position: static; margin-top: 1rem; }
+.gallery-planner-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.gallery-planner-head button { border: 1px solid #3b4d7d; border-radius: .45rem; background: transparent; color: #9cc9ff; padding: .4rem .7rem; font-weight: 700; cursor: pointer; }
+.planner-link { font-size: .72rem; font-weight: 700; color: #94a6c8; }
+.planner-link[data-status="open"] { color: #4ade80; }
+.planner-session { margin: 0; font-size: .7rem; color: #6f7fa3; overflow-wrap: anywhere; }
+.gallery-suggest { margin: 1rem 1.5rem 0; padding: .6rem .85rem; background: #2a1f4d; border: 1px solid #a855f7; border-radius: .6rem; color: #e9d5ff; font-size: .9rem; }
+.gallery-suggest-note { opacity: .85; }
+.gallery-card.suggested { border-color: #a855f7; box-shadow: 0 0 0 1px #a855f7, 0 2px 14px rgba(168, 85, 247, .35); }
+.gallery-card.selected { border-color: #38bdf8; box-shadow: 0 0 0 2px #38bdf8; }
+.badge-suggested { display: inline-block; margin-right: .35rem; padding: .05rem .4rem; border-radius: 999px; background: #a855f7; color: #fff; font-size: .68rem; font-weight: 800; letter-spacing: .03em; }
+@media (max-width: 980px) { .gallery--planner { grid-template-columns: 1fr; } .gallery-planner { position: static; max-height: none; } }
 @media (max-width: 760px) { .shell { grid-template-columns: 1fr; }.sidebar { position: static; height: auto; }.sidebar nav { grid-template-columns: repeat(2, 1fr); }.docs-link { margin-top: 0; }.panel-heading, .workspace { grid-template-columns: 1fr; }.source-label { border-right: 0; border-bottom: 1px solid #2a3966; } }

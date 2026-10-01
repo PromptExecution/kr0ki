@@ -53,7 +53,7 @@ front-end semantic  recog-    constructs adapters
 
 **Current implemented surface:**
 - `kr0ki-core`: `RenderService` (cache + backend), `FsCache`, `HttpKrokiBackend`, `DiagramFormat` (26 companion-free Kroki formats), docgen (syn harvester + formatters), the recognizers (`k8s_recognizer`, `rust_recognizer`) and lifts (`ufo_graph`, `rust_lift`, `sysml_lift`, `sysml_render`), the requirements stack (`reqif_*`, `requirements_*`, `rule_eval`, `recompute`), and the write path (`sync_engine`, `digital_thread_sync`, `flexo_reqif_sync`)
-- `kr0ki-server`: axum routes `/health`, `/formats`, `/render/{format}`, `/render/k8s-topology`, `/render/rust-source`, `/model/projects/{id}/sync` (write a `SysGraph`'s `dbt:` nodes into a SysML v2 project), `/cache/{key}`, `/docs*` (HTML/JSON/tomllm/rustdoc)
+- `kr0ki-server`: axum routes `/health`, `/formats`, `/render/{format}`, `/render/k8s-topology`, `/render/rust-source`, `/model/projects/{id}/sync` (write a `SysGraph`'s `dbt:` nodes into a SysML v2 project), `/api/catalog[?use_case=]`, `POST /api/catalog/suggest` (explained type ranking), `GET /ui/{session}/events` (SSE) + `POST /ui/{session}/navigate` (steer a playbook tab), `/cache/{key}`, `/docs*` (HTML/JSON/tomllm/rustdoc)
 - `kr0ki-sysmlv2-client`: OMG-API REST client, `ModelSnapshot` with `content_hash`
 
 ---

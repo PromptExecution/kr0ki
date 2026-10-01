@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import StoryB00kPanel from './StoryB00kPanel.vue'
 import StoryB00k from './StoryB00k.vue'
@@ -83,6 +83,44 @@ describe('StoryB00kPanel', () => {
       await flushPromises()
       expect(w.find('[data-testid="starting-point"]').exists()).toBe(false)
       expect(w.find('[data-testid="handoff-error"]').text()).toContain('Missing diagram source')
+    })
+  })
+
+  describe('planner mode', () => {
+    it('is chat-only: no dashboard or project banner, and the planner prompt copy', async () => {
+      const w = mount(StoryB00k, { props: { planner: true, threadId: 'planner-abc' } })
+      await flushPromises()
+      expect(w.find('.storyb00k__dashboard').exists()).toBe(false)
+      expect(w.find('[data-testid="project-banner"]').exists()).toBe(false)
+      expect(w.find('h2').text()).toBe('planner')
+      expect(w.text()).toContain('best-fit diagram type')
+      expect(w.find('textarea').attributes('placeholder')).toContain('services call each other')
+    })
+
+    it('keeps the full agent UI when not in planner mode', async () => {
+      const w = mount(StoryB00k)
+      await flushPromises()
+      expect(w.find('.storyb00k__dashboard').exists()).toBe(true)
+      expect(w.find('h2').text()).toBe('storyb00k')
+    })
+
+    it('runs the chat on the given thread id (which is also the UI session id)', async () => {
+      const runBodies = []
+      const fetchMock = vi.fn(async (url, init) => {
+        if (String(url).endsWith('/run')) runBodies.push(JSON.parse(init.body))
+        return new Response('', { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      try {
+        const w = mount(StoryB00k, { props: { planner: true, threadId: 'planner-abc', agentUrl: 'http://agent.test:8789' } })
+        await flushPromises()
+        await w.find('textarea').setValue('show database tables')
+        await w.findAll('button').find((b) => b.text() === 'Send').trigger('click')
+        await vi.waitFor(() => expect(runBodies.length).toBeGreaterThan(0))
+        expect(runBodies[0].threadId).toBe('planner-abc')
+      } finally {
+        vi.unstubAllGlobals()
+      }
     })
   })
 })

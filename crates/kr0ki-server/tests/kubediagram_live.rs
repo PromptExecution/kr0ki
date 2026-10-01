@@ -48,6 +48,7 @@ async fn kr0ki_renders_its_own_deployment_manifest() {
         kubediagram_worker_url: Some(worker_url),
         sysmlv2_client: None,
         model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
+        ui_bus: Arc::new(kr0ki_core::ui_bus::UiBus::new()),
         storyb00k_agent_url: None,
         llm_api_url: None,
         llm_api_key: None,

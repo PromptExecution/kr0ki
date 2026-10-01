@@ -1,9 +1,10 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import RendererPanel from './components/RendererPanel.vue'
 import Gallery from './components/Gallery.vue'
 import StoryB00k from './components/StoryB00k.vue'
 import Setup from './components/Setup.vue'
+import { connectUiBridge, plannerSessionId } from './lib/uiBridge.js'
 
 // Version from Cargo.toml (injected at build time by Vite)
 const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
@@ -68,6 +69,54 @@ function updateAgentUrl(url) {
 }
 const agentPrefill = ref('')
 const agentTypeId = ref('')
+// ---- Gallery state, shared by the user and the planning agent -----------------------------------------------
+// The planner (an LLM tool call, or any MCP client) arrives as UI commands over SSE; the user's own clicks go
+// through the same refs, so both always see one consistent gallery.
+const plannerSession = plannerSessionId()
+const uiStatus = ref('closed')
+const gallery = reactive({
+  useCase: 'All',
+  selected: new URL(window.location.href).searchParams.get('type') || '',
+  suggested: [],
+  note: '',
+})
+
+function applyUiCommand(cmd) {
+  switch (cmd.type) {
+    case 'open_view':
+      viewMode.value = cmd.view === 'agent' ? 'storyb00k' : cmd.view
+      break
+    case 'filter_gallery':
+      viewMode.value = 'gallery'
+      gallery.useCase = cmd.useCase
+      break
+    case 'suggest':
+      viewMode.value = 'gallery'
+      gallery.suggested = cmd.typeIds
+      gallery.note = cmd.note
+      break
+    case 'select_type':
+      viewMode.value = 'gallery'
+      // Re-selecting the same type must still re-focus its card.
+      gallery.selected = ''
+      queueMicrotask(() => { gallery.selected = cmd.typeId })
+      break
+  }
+}
+
+let uiBridge = null
+function connectBridge() {
+  uiBridge?.close()
+  uiBridge = connectUiBridge({
+    baseUrl: rendererUrl.value,
+    sessionId: plannerSession,
+    onCommand: applyUiCommand,
+    onStatus: (status) => { uiStatus.value = status },
+  })
+}
+watch(rendererUrl, connectBridge)
+onBeforeUnmount(() => uiBridge?.close())
+
 // Editor → Agent handoff: diagram source with detected type
 const editorHandoff = ref(null)
 
@@ -147,6 +196,7 @@ function onSelectExample(id) {
 }
 
 onMounted(async () => {
+  connectBridge()
   try {
     const response = await fetch(catalogUrl)
     if (!response.ok) throw new Error(`catalog request returned ${response.status}`)
@@ -210,9 +260,9 @@ onMounted(async () => {
         <p class="eyebrow">IAC / CODE → PROCEDURAL DIAGRAM → KROKI → SVG / PNG</p>
         <h1>Diagram-as-code, rendered.</h1>
         <p v-if="viewMode === 'gallery'">
-          Every format's fixture in one grid. Point it at a running kr0ki service and hit
-          "Test all" to render and cache-verify the full catalog — the same contract
-          <code>just test-playbook</code> checks, from the browser.
+          Not sure which diagram fits? Tell the planner what you want to show and it will narrow the
+          catalog and suggest a type — or browse by intent below. "Test all" renders and cache-verifies
+          every fixture, the same contract <code>just test-playbook</code> checks.
         </p>
         <p v-else-if="viewMode === 'editor'">
           Pick a format, paste or upload your own diagram-as-code, and render it.
@@ -235,6 +285,13 @@ onMounted(async () => {
         v-else-if="viewMode === 'gallery'"
         :examples="examples"
         :agent-url="agentUrl"
+        :renderer-url="rendererUrl"
+        v-model:use-case="gallery.useCase"
+        v-model:selected-type-id="gallery.selected"
+        :suggested="gallery.suggested"
+        :suggest-note="gallery.note"
+        :planner-session="plannerSession"
+        :ui-status="uiStatus"
         @open-in-editor="openInEditor"
         @agent-handoff="agentHandoff"
       />

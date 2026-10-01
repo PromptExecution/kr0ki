@@ -99,6 +99,65 @@ SYSTEM_PREAMBLE = (
     "model. Keep narration concise."
 )
 
+# Planner mode (gallery side panel): a thread whose id starts with this prefix is a *planning* conversation.
+# The playbook uses the same id as the UI session id, so a tool call can steer exactly that browser tab.
+PLANNER_THREAD_PREFIX = "planner-"
+PLANNER_TOOLS = {"list_diagram_types", "suggest_diagram_type", "navigate_ui", "ask_user"}
+
+PLANNER_PREAMBLE = (
+    "You are the diagram planner inside kr0ki's gallery. The user is browsing a catalog of diagram types and "
+    "wants help choosing the best one. You do NOT draw the diagram here: you find the right TYPE, then hand "
+    "the user on.\n\n"
+    "HOW YOU WORK:\n"
+    "1. LISTEN: gather requirements by asking what they want to CONVEY (never 'which syntax?'): the subject, "
+    "who reads it, the level of detail, anything they must show (steps, messages, tables, states, a schedule...). "
+    "Ask at most one short question at a time with ask_user, and only when the answer would change the choice.\n"
+    "2. GROUND: call list_diagram_types (optionally with a use_case) to see what exists, and "
+    "suggest_diagram_type with the requirements in the user's own words. Treat its ranking as evidence, not a "
+    "verdict; use your judgement.\n"
+    "3. SHOW: use navigate_ui so the page follows the conversation: filter the gallery with use_case, put your "
+    "shortlist on screen with suggest (1-3 type ids) and a short note, and select your single best fit with "
+    "type_id. Do this as soon as you have a leading candidate, and again when it changes.\n"
+    "4. RECOMMEND: say which type you picked and why in two or three sentences, name one alternative, and tell "
+    "the user they can press Edit on the card to start drawing, or Agent to work on it with the drawing "
+    "assistant. If navigate_ui reports that no UI is connected, say so and describe the pick in words.\n\n"
+    "Only use type ids and use cases returned by the tools. Keep answers short."
+)
+
+
+def is_planner_thread(thread_id):
+    return isinstance(thread_id, str) and thread_id.startswith(PLANNER_THREAD_PREFIX)
+
+
+def tools_for_thread(manifest_tools, thread_id):
+    """Pick the tools a thread may use, and hide `session_id` from the model.
+
+    `navigate_ui` steers a browser tab. A planner run may only steer *its own* tab, so the session id is
+    injected by the dispatcher (see `bind_arguments`), never supplied by the model."""
+    planner = is_planner_thread(thread_id)
+    out = []
+    for tool in manifest_tools:
+        name = tool["function"]["name"]
+        if planner and name not in PLANNER_TOOLS:
+            continue
+        if not planner and name == "navigate_ui":
+            continue
+        if name == "navigate_ui":
+            params = json.loads(json.dumps(tool["function"]["parameters"]))
+            params.get("properties", {}).pop("session_id", None)
+            params["required"] = [r for r in params.get("required", []) if r != "session_id"]
+            tool = {**tool, "function": {**tool["function"], "parameters": params}}
+        out.append(tool)
+    return out
+
+
+def bind_arguments(name, arguments, thread_id):
+    """Force the session a UI-steering tool targets to this run's own thread."""
+    if name == "navigate_ui":
+        return {**arguments, "session_id": thread_id}
+    return arguments
+
+
 # Multiple-choice refinement question, surfaced to the user as an interrupt.
 ask_user_tool = {
     "type": "function",
@@ -645,6 +704,8 @@ class Handler(BaseHTTPRequestHandler):
         if questions_remaining and not project.get("fastTrack"):
             tools.append(ask_user_tool)
             tools.append(recommend_diagram_type_tool)
+        tools = tools_for_thread(tools, thread_id)
+        offered_tool_names = {t["function"]["name"] for t in tools}
         # Requirement memory: answered questions and any locked-in summary ride
         # in the system prompt. The client replays the same messages on resume
         # (and fresh sends may drop the answer context entirely), so without
@@ -736,7 +797,11 @@ class Handler(BaseHTTPRequestHandler):
             skills_text = type_skill_path.read_text()
         else:
             skills_text = "\n\n".join(load_skills().values())
-        messages = [{"role": "system", "content": SYSTEM_PREAMBLE + qa_memory + "\n\n" + skills_text}]
+        if is_planner_thread(thread_id):
+            planner_memory = ("\n\nWHAT THE USER ALREADY TOLD YOU:\n" + "\n".join(f"- {line}" for line in memory_lines)) if memory_lines else ""
+            messages = [{"role": "system", "content": PLANNER_PREAMBLE + planner_memory + (f"\n\nTYPE VOCABULARY:\n{catalog_guide}" if catalog_guide else "")}]
+        else:
+            messages = [{"role": "system", "content": SYSTEM_PREAMBLE + qa_memory + "\n\n" + skills_text}]
         # Inject diagram context from Code Editor handoff if available
         diagram_context = project.get("diagramContext")
         if diagram_context and diagram_context.get("source"):
@@ -998,6 +1063,9 @@ class Handler(BaseHTTPRequestHandler):
                     }))
                     return
                 tool = find_tool(manifest, name)
+                # Only tools this thread was offered may run: a model can name a tool it was never given.
+                if tool is not None and name not in offered_tool_names:
+                    tool = None
                 if tool is None:
                     messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": f"unknown tool {name}"})
                     continue
@@ -1023,7 +1091,7 @@ class Handler(BaseHTTPRequestHandler):
                 started = time.time()
                 tool_image_data_url = None
                 try:
-                    method, url, body = apply_binding(tool, arguments, KR0KI_URL)
+                    method, url, body = apply_binding(tool, bind_arguments(name, arguments, thread_id), KR0KI_URL)
                     content_type, result = http_call(method, url, body)
                     panel = panel_from_tool_result(name, arguments, content_type, result)
                     tool_content = panel["content"] or "Rendered binary image."

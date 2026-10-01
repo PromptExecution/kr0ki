@@ -43,6 +43,7 @@ pub mod reqif_export;
 pub mod reqif_fetch;
 pub mod reqif_import;
 pub mod sync_engine;
+pub mod ui_bus;
 /// Canonical home is `ufo_types::mbse::requirements` (kr0ki M1,
 /// 2026-09-19) — re-exported here so existing `kr0ki_core::requirements::*`
 /// call sites keep working without a local copy of the types.
