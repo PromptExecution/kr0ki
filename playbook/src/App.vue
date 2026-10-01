@@ -4,6 +4,8 @@ import RendererPanel from './components/RendererPanel.vue'
 import Gallery from './components/Gallery.vue'
 import StoryB00k from './components/StoryB00k.vue'
 import Setup from './components/Setup.vue'
+import CatalogTree from './components/CatalogTree.vue'
+import PlannerView from './components/PlannerView.vue'
 import { connectUiBridge, plannerSessionId } from './lib/uiBridge.js'
 
 // Version from Cargo.toml (injected at build time by Vite)
@@ -13,7 +15,11 @@ const examples = ref([])
 const selectedFormat = ref('d2')
 const selectedId = ref('')
 const loadError = ref('')
+// The gallery is the home page; the planner, editor, agent and setup are one click away in the left menu.
 const viewMode = ref('gallery')
+// The planner chat stays mounted once opened, so its conversation survives switching tabs.
+const plannerMounted = ref(false)
+watch(viewMode, (v) => { if (v === 'planner') plannerMounted.value = true })
 // Source handed over from StoryB00k's EDIT button (agent-rendered diagram).
 const editedSource = ref('')
 const editedRoute = ref(null)
@@ -74,30 +80,47 @@ const agentTypeId = ref('')
 // through the same refs, so both always see one consistent gallery.
 const plannerSession = plannerSessionId()
 const uiStatus = ref('closed')
+const catalog = ref(null)
+async function loadCatalog() {
+  try {
+    const base = (rendererUrl.value || window.location.origin).trim().replace(/\/$/, '')
+    const res = await fetch(`${base}/api/catalog`)
+    if (res.ok) catalog.value = await res.json()
+  } catch (err) {
+    console.warn('[playbook] catalog unavailable:', err?.message)
+  }
+}
+watch(rendererUrl, loadCatalog)
+
 const gallery = reactive({
   useCase: 'All',
   selected: new URL(window.location.href).searchParams.get('type') || '',
   suggested: [],
   note: '',
+  // The planner's own best-fit pick (only ever set by the planner), kept apart from `selected`, which the user
+  // also changes by clicking a card or a tree entry.
+  pick: '',
 })
 
 function applyUiCommand(cmd) {
   switch (cmd.type) {
     case 'open_view':
-      viewMode.value = cmd.view === 'agent' ? 'storyb00k' : cmd.view
+      viewMode.value = cmd.view === 'agent' ? 'storyb00k' : cmd.view === 'planner' ? 'planner' : cmd.view
       break
     case 'filter_gallery':
-      viewMode.value = 'gallery'
+      if (viewMode.value !== 'planner') viewMode.value = 'gallery'
       gallery.useCase = cmd.useCase
       break
     case 'suggest':
-      viewMode.value = 'gallery'
+      // On the planner page the picks panel shows them; elsewhere bring the user to the gallery.
+      if (viewMode.value !== 'planner') viewMode.value = 'gallery'
       gallery.suggested = cmd.typeIds
       gallery.note = cmd.note
       break
     case 'select_type':
-      viewMode.value = 'gallery'
+      if (viewMode.value !== 'planner') viewMode.value = 'gallery'
       // Re-selecting the same type must still re-focus its card.
+      gallery.pick = cmd.typeId
       gallery.selected = ''
       queueMicrotask(() => { gallery.selected = cmd.typeId })
       break
@@ -159,6 +182,19 @@ function selectFormat(format) {
   selectedId.value = examples.value.find((example) => example.format === format)?.id || ''
 }
 
+function onTreeSelect({ exampleId, typeId }) {
+  const example = examples.value.find((e) => e.id === exampleId)
+  if (!example) return
+  if (typeId) gallery.selected = typeId
+  openInEditor(example) // the editor renders it automatically
+}
+
+function showInGallery(typeId) {
+  gallery.useCase = 'All'
+  gallery.selected = typeId
+  viewMode.value = 'gallery'
+}
+
 function openInEditor(example) {
   viewMode.value = 'editor'
   selectedFormat.value = example.format
@@ -197,6 +233,7 @@ function onSelectExample(id) {
 
 onMounted(async () => {
   connectBridge()
+  loadCatalog()
   try {
     const response = await fetch(catalogUrl)
     if (!response.ok) throw new Error(`catalog request returned ${response.status}`)
@@ -213,55 +250,39 @@ onMounted(async () => {
     <aside class="sidebar">
       <a class="brand" href="../">kr0ki <span>playb00k</span></a>
       <p class="version-tag">v{{ appVersion }}</p>
-      <p class="sidebar-copy">Example fixtures for every supported format — or clear the source and render your own.</p>
       <nav class="view-tabs" aria-label="Playbook view">
-        <button class="view-tab" :class="{ active: viewMode === 'gallery' }" @click="viewMode = 'gallery'">
+        <button class="view-tab" :class="{ active: viewMode === 'gallery' }" data-testid="tab-gallery" @click="viewMode = 'gallery'">
           Gallery
         </button>
-        <button class="view-tab" :class="{ active: viewMode === 'editor' }" @click="viewMode = 'editor'">
+        <button class="view-tab" :class="{ active: viewMode === 'planner' }" data-testid="tab-planner" @click="viewMode = 'planner'">
+          Planner
+        </button>
+        <button class="view-tab" :class="{ active: viewMode === 'editor' }" data-testid="tab-editor" @click="viewMode = 'editor'">
           Code Editor
         </button>
-        <button class="view-tab" :class="{ active: viewMode === 'storyb00k' }" @click="viewMode = 'storyb00k'">
+        <button class="view-tab" :class="{ active: viewMode === 'storyb00k' }" data-testid="tab-agent" @click="viewMode = 'storyb00k'">
           Agent
         </button>
-        <button class="view-tab" :class="{ active: viewMode === 'setup' }" @click="viewMode = 'setup'">
+        <button class="view-tab" :class="{ active: viewMode === 'setup' }" data-testid="tab-setup" @click="viewMode = 'setup'">
           Setup
         </button>
       </nav>
-      <nav v-if="viewMode === 'editor'" aria-label="Supported diagram formats">
-        <button
-          v-for="format in formats"
-          :key="format"
-          class="format-link"
-          :class="{ active: selectedFormat === format }"
-          @click="selectFormat(format)"
-        >
-          {{ format }}
-        </button>
-      </nav>
-      <nav v-else-if="examples.length" class="catalog-nav" aria-label="Example catalog">
-        <p class="catalog-heading">Catalog · {{ examples.length }} fixtures</p>
-        <button
-          v-for="example in examples"
-          :key="example.id"
-          class="catalog-link"
-          :title="example.description"
-          @click="openInEditor(example)"
-        >
-          <span class="catalog-format">{{ example.format }}</span>
-          <span class="catalog-title">{{ example.title }}</span>
-        </button>
-      </nav>
+      <CatalogTree
+        :catalog="catalog"
+        :examples="examples"
+        :selected-example-id="viewMode === 'editor' ? selectedId : ''"
+        :suggested="gallery.suggested"
+        @select="onTreeSelect"
+      />
       <a class="docs-link" href="../">Generated API docs ↗</a>
     </aside>
 
     <section class="content">
-      <header class="hero">
+      <header v-if="viewMode !== 'planner'" class="hero">
         <p class="eyebrow">IAC / CODE → PROCEDURAL DIAGRAM → KROKI → SVG / PNG</p>
         <h1>Diagram-as-code, rendered.</h1>
         <p v-if="viewMode === 'gallery'">
-          Not sure which diagram fits? Tell the planner what you want to show and it will narrow the
-          catalog and suggest a type — or browse by intent below. "Test all" renders and cache-verifies
+          Not sure which diagram fits? Ask the <a href="#planner" @click.prevent="viewMode = 'planner'">Planner</a>, or browse by intent below. "Test all" renders and cache-verifies
           every fixture, the same contract <code>just test-playbook</code> checks.
         </p>
         <p v-else-if="viewMode === 'editor'">
@@ -269,6 +290,21 @@ onMounted(async () => {
         </p>
       </header>
 
+      <PlannerView
+        v-if="plannerMounted"
+        v-show="viewMode === 'planner'"
+        :catalog="catalog"
+        :examples="examples"
+        :agent-url="agentUrl"
+        :planner-session="plannerSession"
+        :ui-status="uiStatus"
+        :suggested="gallery.suggested"
+        :suggest-note="gallery.note"
+        :selected-type-id="gallery.pick"
+        @open-in-editor="openInEditor"
+        @agent-handoff="agentHandoff"
+        @show-in-gallery="showInGallery"
+      />
       <p v-if="loadError" class="error">{{ loadError }}</p>
       <Setup
         v-else-if="viewMode === 'setup'"
@@ -290,8 +326,7 @@ onMounted(async () => {
         v-model:selected-type-id="gallery.selected"
         :suggested="gallery.suggested"
         :suggest-note="gallery.note"
-        :planner-session="plannerSession"
-        :ui-status="uiStatus"
+        :catalog-data="catalog"
         @open-in-editor="openInEditor"
         @agent-handoff="agentHandoff"
       />

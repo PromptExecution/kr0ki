@@ -54,10 +54,12 @@ class ToolSelectionTest(unittest.TestCase):
         nav = next(t for t in server.tools_for_thread(llm_tools(MANIFEST), "planner-abc") if t["function"]["name"] == "navigate_ui")
         self.assertNotIn("session_id", nav["function"]["parameters"]["properties"])
         self.assertNotIn("session_id", nav["function"]["parameters"]["required"])
+        self.assertNotIn("view", nav["function"]["parameters"]["properties"])  # the planner never changes the page
         self.assertIn("session_id", MANIFEST[3]["inputSchema"]["properties"])
 
     def test_bind_arguments_overrides_any_model_supplied_session(self):
-        self.assertEqual(server.bind_arguments("navigate_ui", {"session_id": "victim", "view": "gallery"}, "planner-me")["session_id"], "planner-me")
+        bound = server.bind_arguments("navigate_ui", {"session_id": "victim", "view": "gallery", "type_id": "erd"}, "planner-me")
+        self.assertEqual(bound, {"session_id": "planner-me", "type_id": "erd"})  # own session, and no view change
         self.assertEqual(server.bind_arguments("render_diagram", {"format": "d2"}, "planner-me"), {"format": "d2"})
 
 
@@ -101,6 +103,7 @@ class PlannerRunTest(unittest.TestCase):
 
     def test_a_planner_run_steers_only_its_own_session_whatever_the_model_asks_for(self):
         self.run_thread("planner-mine", {"session_id": "someone-else", "view": "gallery", "type_id": "class"})
+        self.assertFalse([c for c in self.calls if "view=" in c[1]], self.calls)
         nav = [c for c in self.calls if "/navigate" in c[1]]
         self.assertEqual(len(nav), 1, self.calls)
         self.assertIn("/ui/planner-mine/navigate", nav[0][1])
