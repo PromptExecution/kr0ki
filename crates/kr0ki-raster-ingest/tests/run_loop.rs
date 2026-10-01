@@ -102,7 +102,7 @@ async fn judge_differences_are_fed_into_the_next_proposal() {
             via: AcceptedVia::LabelsAndJudge
         }
     );
-    assert!(proposer.prompts_for(Purpose::Propose)[1].contains("Missing nodes: Cache"));
+    assert!(proposer.prompts_for(Purpose::Propose)[1].contains(r#"Missing nodes: ["Cache"]"#));
     assert!(proposer.prompts_for(Purpose::Propose)[1].contains("The best source so far"));
 }
 
@@ -650,4 +650,316 @@ fn the_result_cache_key_depends_on_every_outcome_relevant_input_and_nothing_else
 
     // Length-prefixing: moving a boundary between two adjacent fields must not collide.
     assert_ne!(key(&base, "ab", "c"), key(&base, "a", "bc"));
+}
+
+// ---- regressions for the independent review of PR #71 -------------------------------------------
+
+#[tokio::test(start_paused = true)]
+async fn a_hung_renderer_is_bounded_by_the_call_timeout_and_repeats_mean_unavailable() {
+    let hang = Duration::from_secs(10_000);
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(
+            Purpose::Propose,
+            vec![source("a"), source("b"), source("c")],
+        );
+    let renderer = FakeRenderer::new(rendered(None))
+        .then_after(hang, rendered(None))
+        .then_after(hang, rendered(None));
+    let mut c = cfg();
+    c.call_timeout = Duration::from_secs(10);
+    let started = tokio::time::Instant::now();
+
+    let r = run_loop(&image(), &c, &proposer, &ScriptedModel::new("j"), &renderer)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        r.outcome,
+        Outcome::Exhausted {
+            reason: ExhaustReason::RendererUnavailable,
+            best: None
+        }
+    );
+    assert_eq!(
+        renderer.calls(),
+        2,
+        "one timeout is fed back; the second in a row ends the run"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(60),
+        "{:?}",
+        started.elapsed()
+    );
+    assert!(r.attempts[0]
+        .render_error
+        .as_deref()
+        .unwrap()
+        .contains("timed out"));
+    assert!(
+        proposer.prompts_for(Purpose::Propose)[1].contains("too complex"),
+        "the model is told to simplify"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn one_slow_render_is_survivable() {
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("heavy"), source("light")]);
+    let judge = ScriptedModel::new("j").on(Purpose::Judge, vec![verdict(true, 0.9)]);
+    let renderer = FakeRenderer::new(rendered(Some(&["a"])))
+        .then_after(Duration::from_secs(10_000), rendered(None));
+    let mut c = cfg();
+    c.call_timeout = Duration::from_secs(10);
+
+    let r = run_loop(&image(), &c, &proposer, &judge, &renderer)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        r.outcome,
+        Outcome::Accepted {
+            attempt: 2,
+            via: AcceptedVia::LabelsAndJudge
+        }
+    );
+}
+
+#[tokio::test]
+async fn the_token_budget_is_checked_before_the_judge_call_not_only_between_iterations() {
+    let proposer = ScriptedModel::new("p")
+        .tokens_per_call(100)
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("a")]);
+    let judge = ScriptedModel::new("j")
+        .tokens_per_call(100)
+        .otherwise(Purpose::Judge, verdict(true, 0.9));
+    let renderer = FakeRenderer::new(rendered(Some(&["a"])));
+    let mut c = cfg();
+    c.max_tokens = 150; // describe (100) is fine; propose pushes the total to 200
+
+    let r = run_loop(&image(), &c, &proposer, &judge, &renderer)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        judge.calls(),
+        0,
+        "no judge call may be issued once the budget is spent"
+    );
+    assert_eq!(
+        r.outcome,
+        Outcome::Exhausted {
+            reason: ExhaustReason::TokenBudget,
+            best: Some(1)
+        }
+    );
+    let a = &r.attempts[0];
+    assert!(
+        a.verdict.is_none() && a.model_error.as_deref().unwrap().contains("TokenBudget"),
+        "{a:?}"
+    );
+    assert_eq!(
+        r.best_source(),
+        Some("a"),
+        "the rendered-but-unjudged attempt is still returned"
+    );
+}
+
+#[tokio::test]
+async fn a_description_without_usable_labels_cannot_vouch_for_a_match_so_the_confirmation_is_required(
+) {
+    for labels in [r#"[]"#, r#"[""," "]"#] {
+        let proposer = ScriptedModel::new("p")
+            .on(
+                Purpose::Describe,
+                vec![ok(&format!(
+                    r#"{{"diagram_kind":"flowchart","labels":{labels}}}"#
+                ))],
+            )
+            .on(Purpose::Propose, vec![source("a")]);
+        let judge = ScriptedModel::new("j")
+            .on(Purpose::Judge, vec![verdict(true, 0.9)])
+            .on(Purpose::Confirm, vec![verdict(true, 0.9)]);
+        let renderer = FakeRenderer::new(rendered(Some(&["anything"])));
+
+        let r = run_loop(&image(), &cfg(), &proposer, &judge, &renderer)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            r.outcome,
+            Outcome::Accepted {
+                attempt: 1,
+                via: AcceptedVia::JudgeConfirmed
+            },
+            "labels {labels}"
+        );
+        assert_eq!(judge.calls_for(Purpose::Confirm), 1);
+        assert_eq!(
+            r.attempts[0].verdict.as_ref().unwrap().label_recall,
+            None,
+            "no deterministic signal is claimed"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_failed_judge_call_is_retried_on_the_same_render_before_asking_for_a_new_proposal() {
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("a"), source("b")]);
+    let judge = ScriptedModel::new("j").on(
+        Purpose::Judge,
+        vec![
+            Err(ModelError::Transport("reset".into())),
+            verdict(true, 0.9),
+        ],
+    );
+    let renderer = FakeRenderer::new(rendered(Some(&["a"])));
+
+    let r = run_loop(&image(), &cfg(), &proposer, &judge, &renderer)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        r.outcome,
+        Outcome::Accepted {
+            attempt: 1,
+            via: AcceptedVia::LabelsAndJudge
+        }
+    );
+    assert_eq!(
+        (
+            proposer.calls_for(Purpose::Propose),
+            judge.calls_for(Purpose::Judge),
+            renderer.calls()
+        ),
+        (1, 2, 1)
+    );
+}
+
+#[tokio::test]
+async fn a_judge_that_fails_twice_costs_one_attempt_not_the_run() {
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(Purpose::Propose, vec![source("a"), source("b")]);
+    let judge = ScriptedModel::new("j").on(
+        Purpose::Judge,
+        vec![
+            Err(ModelError::Timeout),
+            Err(ModelError::Timeout),
+            verdict(true, 0.9),
+        ],
+    );
+    let renderer = FakeRenderer::new(rendered(Some(&["a"])));
+
+    let r = run_loop(&image(), &cfg(), &proposer, &judge, &renderer)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        r.attempts[0].model_error.as_deref(),
+        Some("model call timed out")
+    );
+    assert_eq!(
+        r.outcome,
+        Outcome::Accepted {
+            attempt: 2,
+            via: AcceptedVia::LabelsAndJudge
+        }
+    );
+}
+
+#[tokio::test]
+async fn interleaved_successes_reset_the_proposal_failure_counter() {
+    // fail, ok (render rejected), fail, ok (rejected), fail, ok (rejected): never 3 *consecutive* proposal failures.
+    let proposer = ScriptedModel::new("p")
+        .on(Purpose::Describe, vec![describe(&["A"])])
+        .on(
+            Purpose::Propose,
+            vec![
+                Err(ModelError::Timeout),
+                source("a"),
+                Err(ModelError::Timeout),
+                source("b"),
+                Err(ModelError::Timeout),
+                source("c"),
+            ],
+        );
+    let renderer = FakeRenderer::new(Err(RenderError::Rejected("no".into())));
+
+    let r = run_loop(
+        &image(),
+        &cfg(),
+        &proposer,
+        &ScriptedModel::new("j"),
+        &renderer,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        r.outcome,
+        Outcome::Exhausted {
+            reason: ExhaustReason::MaxIterations,
+            best: None
+        },
+        "{:?}",
+        r.outcome
+    );
+    assert_eq!(r.attempts.len(), 6);
+}
+
+#[tokio::test]
+async fn only_runs_that_reached_a_verdict_on_the_content_are_cacheable() {
+    let accepted = {
+        let proposer = ScriptedModel::new("p")
+            .on(Purpose::Describe, vec![describe(&["A"])])
+            .on(Purpose::Propose, vec![source("a")]);
+        let judge = ScriptedModel::new("j").on(Purpose::Judge, vec![verdict(true, 0.9)]);
+        run_loop(
+            &image(),
+            &cfg(),
+            &proposer,
+            &judge,
+            &FakeRenderer::new(rendered(Some(&["a"]))),
+        )
+        .await
+        .unwrap()
+    };
+    let not_diagram = {
+        let proposer =
+            ScriptedModel::new("p").on(Purpose::Describe, vec![ok(r#"{"diagram_kind":"none"}"#)]);
+        run_loop(
+            &image(),
+            &cfg(),
+            &proposer,
+            &ScriptedModel::new("j"),
+            &FakeRenderer::new(rendered(None)),
+        )
+        .await
+        .unwrap()
+    };
+    let exhausted = {
+        let proposer = ScriptedModel::new("p")
+            .on(Purpose::Describe, vec![describe(&["A"])])
+            .otherwise(Purpose::Propose, source("same"));
+        let judge = ScriptedModel::new("j").otherwise(Purpose::Judge, verdict(false, 0.5));
+        run_loop(
+            &image(),
+            &cfg(),
+            &proposer,
+            &judge,
+            &FakeRenderer::new(rendered(None)),
+        )
+        .await
+        .unwrap()
+    };
+    assert!(accepted.is_cacheable() && not_diagram.is_cacheable());
+    assert!(
+        !exhausted.is_cacheable(),
+        "an exhausted run may have been cut short by time or load"
+    );
 }

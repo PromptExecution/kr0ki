@@ -100,7 +100,7 @@ impl VisionModel for ScriptedModel {
 }
 
 pub struct FakeRenderer {
-    script: Mutex<VecDeque<Result<Rendered, RenderError>>>,
+    script: Mutex<VecDeque<(Duration, Result<Rendered, RenderError>)>>,
     fallback: Result<Rendered, RenderError>,
     pub sources: Mutex<Vec<String>>,
 }
@@ -114,7 +114,11 @@ impl FakeRenderer {
         }
     }
     pub fn then(self, r: Result<Rendered, RenderError>) -> Self {
-        self.script.lock().unwrap().push_back(r);
+        self.then_after(Duration::ZERO, r)
+    }
+    /// The next scripted render takes `delay` before answering (use with `start_paused`).
+    pub fn then_after(self, delay: Duration, r: Result<Rendered, RenderError>) -> Self {
+        self.script.lock().unwrap().push_back((delay, r));
         self
     }
     pub fn calls(&self) -> usize {
@@ -125,11 +129,16 @@ impl FakeRenderer {
 impl Renderer for FakeRenderer {
     async fn render(&self, _format: &str, source: &str) -> Result<Rendered, RenderError> {
         self.sources.lock().unwrap().push(source.to_string());
-        self.script
+        let (delay, result) = self
+            .script
             .lock()
             .unwrap()
             .pop_front()
-            .unwrap_or_else(|| self.fallback.clone())
+            .unwrap_or((Duration::ZERO, self.fallback.clone()));
+        if !delay.is_zero() {
+            tokio::time::sleep(delay).await;
+        }
+        result
     }
 }
 

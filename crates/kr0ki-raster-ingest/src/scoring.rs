@@ -14,26 +14,29 @@ pub struct LabelScore {
     pub precision: f64,
 }
 
-/// Case-fold, collapse whitespace, trim surrounding punctuation.
+/// Punctuation that merely wraps or ends a label ("Auth service:", "(DB)"). Symbols that can be part of the
+/// name (`+`, `#`, `.`, `/`, `->`) are kept: trimming them would make `C++`, `C#` and `C` the same label.
+const WRAPPING_PUNCTUATION: [char; 12] =
+    ['"', '\'', '`', ':', ';', ',', '(', ')', '[', ']', '{', '}'];
+
+/// Case-fold, collapse whitespace, trim wrapping punctuation and a trailing full stop.
 pub fn normalize_label(s: &str) -> String {
     let lowered = s.to_lowercase();
     let collapsed = lowered.split_whitespace().collect::<Vec<_>>().join(" ");
     collapsed
-        .trim_matches(|c: char| !c.is_alphanumeric())
+        .trim_matches(|c: char| WRAPPING_PUNCTUATION.contains(&c))
+        .trim()
+        .trim_end_matches('.')
         .to_string()
 }
 
-/// Minimum normalized-Levenshtein similarity for two labels to count as the same text.
+/// Minimum normalized-Levenshtein similarity for two labels to count as the same text. At 0.85 a single misread
+/// character is forgiven only in labels of 7 or more characters; shorter labels must match exactly, which is what
+/// we want because one character changes their meaning ("DB" vs "D8", "v1" vs "v2").
 const FUZZY_THRESHOLD: f64 = 0.85;
-/// Labels this short must match exactly: one wrong character changes their meaning.
-const EXACT_ONLY_LEN: usize = 3;
 
 fn similar(a: &str, b: &str) -> bool {
-    if a == b {
-        return true;
-    }
-    a.chars().count().min(b.chars().count()) > EXACT_ONLY_LEN
-        && strsim::normalized_levenshtein(a, b) >= FUZZY_THRESHOLD
+    a == b || strsim::normalized_levenshtein(a, b) >= FUZZY_THRESHOLD
 }
 
 /// Greedy one-to-one matching: exact matches are taken first, then the best remaining fuzzy ones.
@@ -120,10 +123,23 @@ mod tests {
     }
 
     #[test]
-    fn normalization_folds_case_whitespace_and_edge_punctuation() {
+    fn normalization_folds_case_whitespace_and_wrapping_punctuation_only() {
         assert_eq!(normalize_label("  Auth   Service: "), "auth service");
         assert_eq!(normalize_label("(DB)"), "db");
-        assert_eq!(normalize_label("???"), "");
+        assert_eq!(normalize_label("Node."), "node");
+        // meaningful symbols survive
+        assert_eq!(normalize_label("C++"), "c++");
+        assert_eq!(normalize_label("C#"), "c#");
+        assert_eq!(normalize_label(".NET"), ".net");
+        assert_eq!(normalize_label("→"), "→");
+    }
+
+    #[test]
+    fn labels_that_differ_only_by_a_meaningful_symbol_do_not_match() {
+        for (a, b) in [("C++", "C#"), ("C++", "C"), (".NET", "NET"), ("v1", "v2")] {
+            assert_eq!(label_scores(&s(&[a]), &s(&[b])).recall, 0.0, "{a} vs {b}");
+        }
+        assert_eq!(label_scores(&s(&["C++"]), &s(&["c++"])).recall, 1.0);
     }
 
     #[test]
@@ -133,10 +149,12 @@ mod tests {
     }
 
     #[test]
-    fn small_misreads_match_but_short_labels_must_be_exact() {
-        // "Gatewy" vs "Gateway": similar enough. "DB" vs "D8": too short to forgive.
-        let sc = label_scores(&s(&["Gateway", "DB"]), &s(&["Gatewy", "D8"]));
-        assert_eq!(sc.recall, 0.5);
+    fn one_misread_character_is_forgiven_only_in_labels_of_seven_or_more_characters() {
+        // 7 chars, one edit: 1 - 1/7 = 0.857 >= 0.85
+        assert_eq!(label_scores(&s(&["Gateway"]), &s(&["Gatewy"])).recall, 1.0);
+        // 5 chars, one edit: 0.8 < 0.85
+        assert_eq!(label_scores(&s(&["Cache"]), &s(&["Cachs"])).recall, 0.0);
+        assert_eq!(label_scores(&s(&["DB"]), &s(&["D8"])).recall, 0.0);
     }
 
     #[test]

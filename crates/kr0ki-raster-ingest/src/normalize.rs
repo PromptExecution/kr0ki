@@ -26,7 +26,7 @@ impl Default for NormalizeConfig {
     fn default() -> Self {
         Self {
             max_bytes: 10 * 1024 * 1024,
-            max_pixels: 40_000_000,
+            max_pixels: 16_000_000,
             max_side: 2048,
         }
     }
@@ -80,6 +80,10 @@ fn undecodable(e: impl std::fmt::Display) -> NormalizeError {
     NormalizeError::Undecodable(e.to_string())
 }
 
+///
+/// **Cost.** CPU-bound and synchronous: async callers must run it under `spawn_blocking`. Peak memory is roughly
+/// 11 bytes per declared pixel (decode buffer, RGBA copy for alpha images, flattened RGB), so the default 16 MP cap
+/// is about 180 MB per upload in the worst case; cap concurrent uploads accordingly.
 pub fn normalize(bytes: &[u8], cfg: &NormalizeConfig) -> Result<NormalizedImage, NormalizeError> {
     if bytes.is_empty() {
         return Err(NormalizeError::Empty);
@@ -127,7 +131,8 @@ pub fn normalize(bytes: &[u8], cfg: &NormalizeConfig) -> Result<NormalizedImage,
             decode(decoder)?
         }
         ImageFormat::WebP => {
-            let decoder = WebPDecoder::new(Cursor::new(bytes)).map_err(undecodable)?;
+            let mut decoder = WebPDecoder::new(Cursor::new(bytes)).map_err(undecodable)?;
+            decoder.set_limits(limits).map_err(undecodable)?;
             if decoder.has_animation() {
                 return Err(NormalizeError::Animated);
             }
@@ -142,24 +147,30 @@ pub fn normalize(bytes: &[u8], cfg: &NormalizeConfig) -> Result<NormalizedImage,
     let mut image = image;
     image.apply_orientation(orientation);
 
-    let mut rgb = flatten_onto_white(&image);
+    // Opaque images skip the alpha pass and its extra RGBA copy.
+    let mut rgb = if image.color().has_alpha() {
+        flatten_onto_white(&image)
+    } else {
+        image.to_rgb8()
+    };
+    drop(image);
     if rgb.width().max(rgb.height()) > cfg.max_side {
         rgb = DynamicImage::ImageRgb8(rgb)
             .resize(cfg.max_side, cfg.max_side, FilterType::Lanczos3)
             .to_rgb8();
     }
 
+    let (width, height) = (rgb.width(), rgb.height());
     let mut png = Vec::new();
-    DynamicImage::ImageRgb8(rgb.clone())
-        .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+    rgb.write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
         .map_err(undecodable)?;
 
     Ok(NormalizedImage {
         sha256: hex(&png),
         source_sha256: hex(bytes),
         png,
-        width: rgb.width(),
-        height: rgb.height(),
+        width,
+        height,
         source_format,
     })
 }

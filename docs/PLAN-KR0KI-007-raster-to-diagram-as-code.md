@@ -109,8 +109,10 @@ Errors: 413 too large, 415 unsupported type, 422 undecodable or over the pixel l
 **MCP**: a `raster_to_diagram` tool in `mcp_tool.rs`. `ArgPlacement::Body` passes one string as the whole request body,
 so the tool takes base64 and the bridge decodes to the raw-bytes route. *Detail to settle in Phase 1.*
 
-**Cache**: key = `sha256(image_sha256 ‖ format ‖ model ids ‖ prompt version ‖ loop config)`; the **final result** is
-cached, attempts are not. Uploads are never stored beyond the hash (kr0ki is not a blob store).
+**Cache**: key = `sha256(image_sha256 ‖ format ‖ model ids ‖ prompt version ‖ loop config)`; only a result that reached a
+verdict on the content (`Accepted`, `NotADiagram`; `LoopResult::is_cacheable`) is cached. An `Exhausted` run may simply
+have been cut short by time or load, which the key deliberately ignores. Attempts are never cached, and uploads are
+never stored beyond the hash (kr0ki is not a blob store).
 
 **Project directory convention** (written by the browser, never by the server):
 
@@ -147,9 +149,10 @@ component needs it.
 - **Privacy**: an uploaded image is sent to the configured endpoint. With the local model nothing leaves the machine.
   Guard anyway: only loopback/private addresses are accepted; a public endpoint requires `KR0KI_VISION_ALLOW_REMOTE=1`,
   and the UI names the endpoint before the first upload.
-- **Decode limits**: size cap (10 MiB default), pixel cap (e.g. 40 MP) checked from headers **before** decoding, allowed
+- **Decode limits**: size cap (10 MiB default), pixel cap (16 MP default, about 11 bytes of peak memory per declared pixel, so cap concurrent uploads) checked from headers **before** decoding, allowed
   types PNG/JPEG/WebP by content sniffing (not the header), single frame only (reject animated), metadata stripped.
-  An SVG upload is not raster input; route it to the existing `/render` path.
+  An SVG upload is not raster input; route it to the existing `/render` path. `normalize` is CPU-bound and synchronous:
+  the server calls it under `spawn_blocking`.
 - **Prompt injection**: text inside an image is data. System prompts say so; the model's output can do nothing except
   become a source that is then rendered and scored. Output format is restricted to `DiagramFormat::ALL` (not the
   agent's wider `VALID_INPUT_FORMATS`, which includes formats the server rejects).
