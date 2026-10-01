@@ -1,6 +1,6 @@
 # Handoff: agent harness mode, diagram skills, and a clearer agent UX
 
-_Written 2026-10-01 for whoever picks this up (human or agent). Everything marked **FACT** was verified in this
+_Written 2026-10-01 for whoever picks this up (human or agent). **Updated the same day with the owner's decisions: see [`DESIGN-NOTE-skills-identity-and-svg-enhancement.md`](DESIGN-NOTE-skills-identity-and-svg-enhancement.md), which supersedes §3 on runtime choice, brand, the skill type and the SVG overlay.** Everything marked **FACT** was verified in this
 session; **PROPOSAL** and **UNVERIFIED** are labelled. Companion: [`REPORT-mbse-sysmlv2-assistant.md`](REPORT-mbse-sysmlv2-assistant.md)._
 
 ## 1. What the user wants
@@ -32,7 +32,7 @@ advanced-syntax examples per format and each was rendered by kr0ki: **graphviz 6
 shapes/attributes (`cylinder`, `router`, `stack`), D2 escaping/substitution mistakes. Two consequences: skills have
 real value, **and the renderer is a free, automatic judge of every example** (the failing run took 9-19 s per format).
 
-## 3. Target design (PROPOSAL unless stated)
+## 3. Target design (PROPOSAL unless stated; **runtime choice, brand and skill typing revised by the design note**)
 ```
  playbook UI (Vue)  <--SSE ui events-->  kr0ki-server (:8787, MCP tool manifest, render, catalog)
         |  /run (AG-UI)                          ^
@@ -78,6 +78,8 @@ real value, **and the renderer is a free, automatic judge of every example** (th
 | 4 | **Harness mode in kr0ki:** run pi as a sidecar (`--mode rpc`), adapt the AG-UI `/run` endpoint (or a feature flag next to the Python agent) so the UI is unchanged; planner threads keep their own tool set | Claude agent | Same UI works against either backend; existing 50 agent tests + playbook tests pass |
 | 5 | **UX legibility** in `StoryB00k.vue`: a **plan card** before acting (mode, chosen type, skills loaded, round x/15, question budget); tool steps expandable with arguments, format and the real error; "stopped because ..." as a structured message with Retry/Edit | Claude agent | Component tests; a screenshot walk-through against a real run |
 | 6 | **b00t + UFO registration:** datums for every skill; `b00t lfmf` tips; usage events (skill loaded-for type, outcome verdict) written as a `SysGraph` snapshot or `b00t influence` entry; propose the Skill type upstream in `ufo-types` | Claude agent; user decides upstream | `b00t skill search diagram` lists them; a usage report answers "which skills were loaded, and did the render pass?" |
+| 6b | **Identifier rule + SysML display names:** skills require identifier-as-key, name-as-label; fix `sysml_render` so SysML nodes show names, not UUIDs (FACT: today they show UUIDs) | Claude agent | Rendered SysML snapshot shows names; the SVG still carries the `@id` |
+| 6c | **SVG enhancement layer** (identifier stamping, CSS-selected brand rules, packages, later live state): design note §8 order of work | Claude agent | Spike tests ported to the real implementation; browser check of selectors/icons/colours |
 | 7 | **MBSE skills** (14 in the report) as pi skills on top of the same harness, read-only first | Later; needs a live SysML v2 server | See the report's 30/60/90 plan |
 
 ## 5. Operating notes (FACT unless marked)
@@ -98,9 +100,8 @@ real value, **and the renderer is a free, automatic judge of every example** (th
   reports not transcripts; cap subagent output (<=700 words) and have them write files.
 
 ## 6. Decisions only the user can make
-1. Brand: which logo/icon set and **colour palettes** are canonical (b00t, PromptExecution, per application)? None is on
-   disk beyond the b00t VS Code icons.
-2. Harness: replace the Python agent with pi, or run both behind a flag until pi proves out (recommended: flag).
+1. Brand: **configurable** (decided). Still needed from the owner: the canonical logo/icon sets and palettes (b00t, PromptExecution, per application) to ship as the first real packages. None is on disk beyond the b00t VS Code icons; `brand.example.json` is a placeholder.
+2. ~~Harness~~ **Decided direction (design note §7):** skills as portable `SKILL.md`; Python agent stays the UX runtime with deterministic injection + gate; pi is the second harness (MBSE, errands, bulk generation).
 3. Where skills are hosted/auto-loaded ("GitHub auto-loaded", see §1).
-4. Whether `Skill` should be proposed as a new type in upstream `ufo-types`, or modelled with existing stereotypes first.
+4. `Skill` **is a UFO stereotype** (decided). Still to approve: the upstream `ufo-types` change (a Kind in a `CapabilityDomain` with an identifier and an icon reference); see design note §6.
 5. MBSE: whether to proceed to a read-only live demo against the organisation's SysML v2 server (needs a URL/token).
