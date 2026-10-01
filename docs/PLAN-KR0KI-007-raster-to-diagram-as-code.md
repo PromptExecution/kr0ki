@@ -57,8 +57,8 @@ fn run_loop(image: &NormalizedImage, cfg: &LoopConfig, m: &dyn VisionModel, j: &
 
 | Fact | Source | Consequence |
 |---|---|---|
-| The agent's `llm_client.chat_completion(messages, tools)` forwards messages to an OpenAI-compatible endpoint; nothing sends images today | `containers/kr0ki-storyb00k-agent/llm_client.py` | image content parts (`image_url`) can pass through, but **whether a given model accepts them is unverified** |
-| `/health` counts models but never issues a billable request | `README.md`, `health.rs` | vision capability is a config flag, not a probe |
+| The agent **already sends images to the model**: when a render returns a PNG it is base64-encoded and attached as a `user` message with an `image_url` data-URL part ("Internal candidate review: inspect this rendered image…"). `llm_client.chat_completion(messages, tools)` forwards those messages unchanged to an OpenAI-compatible endpoint | `containers/kr0ki-storyb00k-agent/server.py` (~L1050), `llm_client.py` | the multimodal call shape is proven in production; this plan reuses it. **Vision capability is a standing kr0ki requirement** (the agent must see its own diagrams); the operator confirmed on 2026-10-01 that the qwen38 NEO-CODER model is vision-capable. Not yet exercised: sending a *user-supplied* raster, two images in one message, and the model's maximum image size/resolution (*unverified*, tune the §3 downscale cap against it) |
+| `/health` counts models but never issues a billable request | `README.md`, `health.rs` | no capability probe and no `KR0KI_VISION_ENABLED` flag: vision is assumed from the configured model, and a run fails with a typed model error if it cannot see |
 | `RenderService` renders 26 formats; `flatten::svg_to_png` rasterizes any SVG in-process (`resvg`) | `kr0ki-core` | the render can be turned into a PNG for the judge without a browser |
 | `kr0ki-svg::parse_svg` returns an element tree with tag, attributes and text | `crates/kr0ki-svg/src/lib.rs` | deterministic text-label extraction from a rendered SVG |
 | There is **no raster decode dependency** (only `resvg`/`tiny-skia` for encoding) | `Cargo.toml` files | add a maintained decoder (`image`, limited features) rather than write one |
@@ -68,7 +68,7 @@ fn run_loop(image: &NormalizedImage, cfg: &LoopConfig, m: &dyn VisionModel, j: &
 | `filesystem-rs` in *awesome-wasm-components* is a **Wassette** (server-side MCP host) example, not a browser filesystem | `microsoft/wassette/examples/filesystem-rs` | it is not the building block for the browser side |
 | 37 catalog fixtures render to PNG (`?output=png`, or flattened) | `/api/catalog`, `flatten.rs` | a labelled evaluation set that needs no human labeling (§8) |
 | The agent once looped 60+ rounds re-sending the same failing call | [`LESSONS`](LESSONS-playbook-and-agent.md) | caps live in the orchestrator, never in a prompt |
-| The backend is private by design and `AGENTS.md` forbids pointing production at public services | `AGENTS.md` §3 | image bytes leaving the machine is a policy decision (§6, **D-7a**) |
+| The backend is private by design and `AGENTS.md` forbids pointing production at public services | `AGENTS.md` §3 | the model is a local one (NEO-CODER), so uploaded images need not leave the machine; the remote-endpoint guard in §6 stays as a safety rail |
 
 ## 3. The loop ("ralph loop")
 
@@ -142,11 +142,11 @@ component needs it.
 
 ## 6. Model access, privacy, and input safety
 
-- **Config**: `KR0KI_VISION_ENABLED`, `KR0KI_VISION_API_URL`/`_KEY`/`_MODEL` (fall back to `OPENAI_*`), optional
-  `KR0KI_VISION_JUDGE_MODEL`. Unset → `503 vision_not_configured`; nothing else changes.
-- **Privacy**: an uploaded image is sent to the configured endpoint. Default policy: only loopback/private addresses
-  are accepted; a public endpoint requires `KR0KI_VISION_ALLOW_REMOTE=1`. The UI names the endpoint before the first
-  upload. **D-7a** decides whether remote is ever allowed.
+- **Config**: reuse the agent's `OPENAI_API_URL` / `OPENAI_API_KEY`, with optional `KR0KI_VISION_MODEL` and
+  `KR0KI_VISION_JUDGE_MODEL` overrides. No separate enable flag: unset LLM config → `503 llm_not_configured`.
+- **Privacy**: an uploaded image is sent to the configured endpoint. With the local model nothing leaves the machine.
+  Guard anyway: only loopback/private addresses are accepted; a public endpoint requires `KR0KI_VISION_ALLOW_REMOTE=1`,
+  and the UI names the endpoint before the first upload.
 - **Decode limits**: size cap (10 MiB default), pixel cap (e.g. 40 MP) checked from headers **before** decoding, allowed
   types PNG/JPEG/WebP by content sniffing (not the header), single frame only (reject animated), metadata stripped.
   An SVG upload is not raster input; route it to the existing `/render` path.
@@ -163,6 +163,9 @@ component needs it.
 - **Judge.** A model sees the original and the render's PNG (`flatten::svg_to_png`) side by side and returns the
   Verdict. "Match" means the same nodes, labels and directed connections; styling and layout differences do not count
   unless they change meaning.
+- **Relation to the agent's self-review.** The StoryB00k agent already shows the model each PNG it renders and lets it
+  refine freely. That informal step stays. This plan adds the structured, capped, scored version for *externally supplied*
+  images; once it exists the agent can call it as a tool (`raster_to_diagram`) instead of duplicating the loop.
 - **Correlated error.** Proposer and judge are often the same model, so they can agree on a wrong answer. Mitigations:
   the deterministic check, an optional separate judge model, and the evaluation in §8. The plan does not claim the
   judge is an oracle.
@@ -180,7 +183,7 @@ a **negative set** (photos, screenshots, blank images) that must end in `not_a_d
 | Phase | Specific actions | Acceptance |
 |---|---|---|
 | **0 — contracts, no model** | crate skeleton; traits; `Normalize` on the `image` crate with limits; Verdict schema; `run_loop` against fake `VisionModel`/`Renderer`; cache key | fake-driven tests: converges, exhausts with best attempt, stalls, feeds render errors back, never exceeds any cap, `not_a_diagram` does not loop; `just check` |
-| **1 — server** | OpenAI-compatible vision client (`image_url` data URLs, timeouts, bounded retry); `/ingest/raster` SSE; route body limit; MCP tool; config and 503 path; wiremock tests with a fake VLM; one `#[ignore]` live test | 413/415/422/503/502 covered; a fake-model run streams the documented events; live test documented |
+| **1 — server** | OpenAI-compatible vision client that mirrors the agent's existing `image_url` data-URL message shape (adding timeouts, bounded retry, and two-image messages); `/ingest/raster` SSE; route body limit; MCP tool; config and 503 path; wiremock tests with a fake VLM; one `#[ignore]` live test, run once against the local NEO-CODER as the reachability and image-limit smoke test | 413/415/422/503/502 covered; a fake-model run streams the documented events; live test documented |
 | **2 — browser** | `ProjectFs` + both adapters; "Import image" in the gallery/editor; directory mapping UI; SSE progress; confirm-before-overwrite; vitest with an in-memory FS | verified in headless Chromium over CDP on `localhost` (write-back) and on a non-secure origin (fallback), per [`OPERATIONS.md` §7](OPERATIONS.md) |
 | **3 — scoring + eval** | label extraction via `kr0ki-svg`; fuzzy compare; judge step; `just eval-raster`; negative/adversarial sets | a published report; thresholds (τ, caps) set from data, not guessed |
 | **4 — typed graph (optional)** | have the model emit a typed graph (`iso_ir`/`SysGraph`) and a deterministic emitter produce the source | decided after Phase 3 data: zero-drift regeneration and any-format output vs. added complexity |
@@ -189,7 +192,7 @@ a **negative set** (photos, screenshots, blank images) that must end in `not_a_d
 
 | Risk | Mitigation |
 |---|---|
-| The available model cannot read diagrams well (or at all) | `Describe` → `not_a_diagram`/low-confidence exits early; Phase 3 eval reports it; **D-7a** |
+| The model reads some diagrams poorly (dense, low-resolution, or text drawn as small glyphs) | `Describe` → `not_a_diagram`/low-confidence exits early; the downscale cap is tuned against the model's real image limits; Phase 3 eval reports per-format results |
 | Some renderers convert text to paths, defeating label extraction | per-format fallback to two consecutive judge matches, flagged in the result |
 | Self-judging bias | deterministic check; optional separate judge; eval |
 | Cost or latency blow-ups | orchestrator-enforced caps; concurrency limit; result cache |
@@ -206,7 +209,7 @@ works.
 
 | ID | Question |
 |---|---|
-| **D-7a** | Which vision model, and may images leave the machine? As of 2026-09-23 the ch0nky inference deployment was crash-looping (model file missing) and the local llama-server ran in a different network namespace, so there may be no reachable vision-capable model today — re-check before Phase 1 |
+| **D-7a** | **Partly resolved 2026-10-01:** the model is the local qwen38 NEO-CODER, vision-capable, and images need not leave the machine. **Still open: reachability.** As of 2026-09-23 it ran as a `llama-server` on `:8080` in a network namespace this shell could not reach, and the b00t `ch0nky` deployment was crash-looping; kr0ki's `OPENAI_API_URL` must point at an address the server process can actually call. Confirm with a one-image smoke test before Phase 1 |
 | **D-7b** | Default output format(s) for v1 (D2, PlantUML, Graphviz?) |
 | **D-7c** | Default loop budget and who pays for model calls |
 | **D-7d** | Write-back policy: never overwrite, prompt, or version via the chart store's `jj` |
