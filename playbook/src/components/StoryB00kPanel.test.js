@@ -49,4 +49,40 @@ describe('StoryB00kPanel', () => {
     const wrapper = mount(StoryB00kPanel, { props: { panel: { kind: 'render', content: '<svg/>' } } })
     expect(wrapper.find('[data-testid="edit-in-editor"]').exists()).toBe(false)
   })
+
+  describe('editor handoff starting point', () => {
+    const handoff = { source: 'a -> b', format: 'd2', detectedType: 'd2', title: 'Demo', imageData: 'data:image/png;base64,AA==' }
+
+    it('shows the transferred code and diagram on the very first mount', async () => {
+      const w = mount(StoryB00k, { props: { editorHandoff: handoff } })
+      await flushPromises()
+      expect(w.find('[data-testid="starting-source"]').text()).toBe('a -> b')
+      expect(w.find('[data-testid="starting-image"]').attributes('src')).toBe(handoff.imageData)
+    })
+
+    it('can be collapsed but never removed, and survives a new message', async () => {
+      const w = mount(StoryB00k, { props: { editorHandoff: handoff } })
+      await flushPromises()
+      await w.find('.storyb00k__start-head').trigger('click')
+      expect(w.find('[data-testid="starting-point"]').exists()).toBe(true)
+      expect(w.find('[data-testid="starting-source"]').isVisible()).toBe(false)
+      expect(w.find('.storyb00k__start-head').attributes('aria-expanded')).toBe('false')
+      expect(w.find('[data-testid="starting-image"]').exists()).toBe(true)
+    })
+
+    it('says so when no image was captured, and is absent without a handoff', async () => {
+      const noImg = mount(StoryB00k, { props: { editorHandoff: { ...handoff, imageData: null } } })
+      await flushPromises()
+      expect(noImg.find('[data-testid="starting-image"]').exists()).toBe(false)
+      expect(noImg.text()).toContain('No rendered image was captured')
+      expect(mount(StoryB00k).find('[data-testid="starting-point"]').exists()).toBe(false)
+    })
+
+    it('reports an invalid handoff instead of showing a starting point', async () => {
+      const w = mount(StoryB00k, { props: { editorHandoff: { ...handoff, source: '  ' } } })
+      await flushPromises()
+      expect(w.find('[data-testid="starting-point"]').exists()).toBe(false)
+      expect(w.find('[data-testid="handoff-error"]').text()).toContain('Missing diagram source')
+    })
+  })
 })
