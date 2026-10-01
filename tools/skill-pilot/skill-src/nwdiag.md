@@ -1,0 +1,6 @@
+- Wrapper: `nwdiag { ... }`. Declare `network name { ... }` blocks; a node listed in two networks is drawn on both (a gateway). Node attributes go in brackets: `web01 [address = "10.0.0.1"];`.
+- A node that only appears outside any `network` fails: `DiagramNode X does not belong to any networks`. Peer links (`inet -- router;`) need the other end inside a network.
+- Network attributes: `address = "10.0.0.0/24";`, `color = "#CCFFCC";`, `label = "Office LAN";`. **`description` is not valid** (`Unknown attribute: Network.description`).
+- Node shapes must be ones nwdiag knows: `cloud`, `actor`, `note`, `box` and the flowchart family such as `flowchart.database` work; **`database`, `cylinder`, `router`, `stack` are rejected** (`unknown node shape`).
+- Quote names with spaces: `network "front end" { "web server 1" [address = "10.0.0.1"]; }`. Several addresses: `address = "10.0.1.1, 10.0.1.2"`.
+- Do not put `group` blocks around nodes that sit in several networks: a verified failure (`'<' not supported between instances of 'Network'`).
