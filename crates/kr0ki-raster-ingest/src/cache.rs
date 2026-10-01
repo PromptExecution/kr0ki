@@ -84,6 +84,17 @@ mod tests {
     }
 
     #[test]
+    fn the_minimum_match_score_changes_outcomes_so_it_is_part_of_the_key() {
+        let a = LoopConfig::new("d2");
+        let mut b = a.clone();
+        b.min_match_score = 0.95;
+        assert_ne!(
+            result_cache_key(&image(), &a, "p", "j"),
+            result_cache_key(&image(), &b, "p", "j")
+        );
+    }
+
+    #[test]
     fn the_consecutive_error_cap_changes_outcomes_so_it_is_part_of_the_key() {
         let a = LoopConfig::new("d2");
         let mut b = a.clone();

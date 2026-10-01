@@ -287,4 +287,32 @@ mod tests {
         // a dropped letter is still forgiven
         assert_eq!(label_scores(&s(&["Gateway"]), &s(&["Gatewy"])).recall, 1.0);
     }
+
+    #[test]
+    fn the_digit_rule_word_splitting_and_multi_word_rule_each_matter_on_their_own() {
+        // digits: a long single token whose only difference is a digit in the middle (char similarity 0.92)
+        assert_eq!(
+            label_scores(&s(&["Cluster10East"]), &s(&["Cluster12East"])).recall,
+            0.0
+        );
+        // multi-word: a differing one-letter word in the middle (whole-string similarity 0.91)
+        assert_eq!(
+            label_scores(&s(&["Data A Lake"]), &s(&["Data B Lake"])).recall,
+            0.0
+        );
+        // '-' and '_' separate words just like spaces do
+        assert_eq!(
+            label_scores(&s(&["Node-A-East"]), &s(&["Node-B-East"])).recall,
+            0.0
+        );
+        assert_eq!(
+            label_scores(&s(&["node_a_east"]), &s(&["node_b_east"])).recall,
+            0.0
+        );
+        // and the same labels still match
+        assert_eq!(
+            label_scores(&s(&["Node-A-East"]), &s(&["node-a-east"])).recall,
+            1.0
+        );
+    }
 }
