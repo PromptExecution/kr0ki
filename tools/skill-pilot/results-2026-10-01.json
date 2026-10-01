@@ -1,0 +1,222 @@
+{
+ "d2": {
+  "secs": 12,
+  "n": 6,
+  "ok": 3,
+  "rows": [
+   {
+    "name": "escape-colons-dots",
+    "ok": false,
+    "status": 422,
+    "err": "{\"error\":\"bad_source\",\"message\":\"Error 400: err: failed to compile -: -:2:16: substitutions must begin on {\\nerr: -:3:12: unexpected text after map key\\n (exit ",
+    "tip": "Colons, dots, and quotes in labels must be quoted or escaped",
+    "source": "\"user:name\": \"value\"\n\"item.price\": \"$9.99\"\n\"she said \"hello\"\": ok\n\"key|with|pipes\": ok"
+   },
+   {
+    "name": "multiline-md",
+    "ok": true,
+    "status": 200,
+    "err": "",
+    "tip": "Use |md blocks for multi-line markdown labels",
+    "source": "box {\n  label: |md\n  # Title\n  **Bold** and *italic*\n  - item 1\n  - item 2\n  |\n}"
+   },
+   {
+    "name": "nested-containers",
+    "ok": true,
+    "status": 200,
+    "err": "",
+    "tip": "Nested boxes create hierarchical groupings",
+    "source": "outer {\n  inner {\n    a: hello\n    b: world\n  }\n  c: outside\n}"
+   },
+   {
+    "name": "sql-table",
+    "ok": true,
+    "status": 200,
+    "err": "",
+    "tip": "sql_table shape renders a database table",
+    "source": "users: { shape: sql_table }\nusers.columns: [id, name, email]\norders: { shape: sql_table }\norders.columns: [id, user_id, total]"
+   },
+   {
+    "name": "styling-advanced",
+    "ok": false,
+    "status": 422,
+    "err": "{\"error\":\"bad_source\",\"message\":\"Error 400: err: failed to compile -: -:1:29: missing value after colon\\nerr: -:2:31: missing value after colon\\nerr: -:2:9: map",
+    "tip": "Combine shape, fill, stroke, and opacity",
+    "source": "db: { shape: cylinder; fill: #e3f2fd; stroke: #1976d2 }\nperson: { shape: person; fill: #fff3e0 }\nbox {\n  fill: rgba(255, 0, 0, 0.1)\n}"
+   },
+   {
+    "name": "sequence-diagram",
+    "ok": false,
+    "status": 422,
+    "err": "{\"error\":\"bad_source\",\"message\":\"Error 400: err: failed to compile -: -:3:39: unexpected text after double quoted string\\n (exit code 1)\"}",
+    "tip": "sequence_diagram shape for UML sequence diagrams",
+    "source": "diagram: { shape: sequence_diagram }\ndiagram.participants: [Alice, Bob, Server]\ndiagram.messages: [\"Alice->Bob: Hello\", \"Bob->Server: Query\", \"Server->Bob: Result\"]"
+   }
+  ]
+ },
+ "graphviz": {
+  "secs": 14,
+  "n": 6,
+  "ok": 6,
+  "rows": [
+   {
+    "name": "record-ports",
+    "ok": true,
+    "status": 200,
+    "err": "",
+    "tip": "Use | for fields and :: for field names; escape |{}<> in labels with backslash.",
+    "source": "digraph {\n  A [shape=record, label=\"{<f0>hello | <f1>world}\"];\n  B [shape=record, label=\"{<top>top | bottom}\"];\n  A:f0 -> B:top;\n}"
+   },
+   {
+    "name": "html-labels",
+    "ok": true,
+    "status": 200,
+    "err": "",
+    "tip": "HTML-like labels use < > tags; wrap the whole label in < > and escape inner < > as &lt; &gt;.",
+    "source": "digraph {\n  A [label=\"<b>Bold</b> and <i>italic</i>\"];\n  B [label=\"<table><tr><td>Cell 1</td><td>Cell 2</td></tr></table>\"];\n  A -> B;\n}"
+   },
+   {
+    "name": "clusters",
+    "ok": true,
+    "status": 200,
+    "err": "",
+    "tip": "Subgraphs with IDs starting with 'cluster' become boxes; label the cluster with the 'label' attribute.",
+    "source": "digraph {\n  subgraph cluster_0 {\n    label = \"Database Servers\";\n    db1;\n    db2;\n  }\n  app -> db1;\n  app -> db2;\n}"
+   },
+   {
+    "name": "rank-same",
+    "ok": true,
+    "status": 200,
+    "err": "",
+    "tip": "Use rank=same in a subgraph to align nodes horizontally; the subgraph must have no edges inside it.",
+    "source": "digraph {\n  subgraph { rank=same; A; B; C; }\n  A -> D;\n  B -> D;\n  C -> D;\n}"
+   },
+   {
+    "name": "edge-ports-compass",
+    "ok": true,
+    "status": 200,
+    "err": "",
+    "tip": "Use compass points (n,s,e,w,ne,nw,se,sw) on nodes and port names on edges to control connection points.",
+    "source": "digraph {\n  A [shape=box];\n  B [shape=box];\n  A:e -> B:w;\n  A:s -> C;\n}"
+   },
+   {
+    "name": "quoting-identifiers",
+    "ok": true,
+    "status": 200,
+    "err": "",
+    "tip": "Identifiers with spaces or special chars must be quoted; quotes inside labels use backslash escaping.",
+    "source": "digraph {\n  \"Node with spaces\" -> \"Another \\\"quoted\\\" node\";\n  \"Node with spaces\" [label=\"Label with | pipe\"];\n}"
+   }
+  ]
+ },
+ "plantuml": {
+  "secs": 9,
+  "n": 6,
+  "ok": 1,
+  "rows": [
+   {
+    "name": "escaping_special_chars",
+    "ok": false,
+    "status": 422,
+    "err": "{\"error\":\"bad_source\",\"message\":\"Error 400: Syntax Error? (Assumed diagram type: sequence) (line: 1)\"}",
+    "tip": "Use backslash escaping for quotes and brackets in labels",
+    "source": "class \"He said \\\"hello\\\"\" { }"
+   },
+   {
+    "name": "stereotypes",
+    "ok": true,
+    "status": 200,
+    "err": "",
+    "tip": "Wrap stereotypes in guillemets \u00ab \u00bb",
+    "source": "class Foo <<service>> { }"
+   },
+   {
+    "name": "generics",
+    "ok": false,
+    "status": 422,
+    "err": "{\"error\":\"bad_source\",\"message\":\"Error 400: Syntax Error? (Assumed diagram type: sequence) (line: 1)\"}",
+    "tip": "Use angle brackets for type parameters",
+    "source": "class List<T> { T get() }"
+   },
+   {
+    "name": "visibility_modifiers",
+    "ok": false,
+    "status": 422,
+    "err": "{\"error\":\"bad_source\",\"message\":\"Error 400: Syntax Error? (Assumed diagram type: sequence) (line: 1)\"}",
+    "tip": "Use + - # ~ for public private protected package",
+    "source": "class A { +pub() -priv() #prot() ~pkg() }"
+   },
+   {
+    "name": "abstract_and_interface",
+    "ok": false,
+    "status": 422,
+    "err": "{\"error\":\"bad_source\",\"message\":\"Error 400: Syntax Error? (Assumed diagram type: sequence) (line: 1)\"}",
+    "tip": "Use abstract keyword and <<interface>> stereotype",
+    "source": "abstract class Base { } class Impl implements <<interface>> Base { }"
+   },
+   {
+    "name": "skinparam_styling",
+    "ok": false,
+    "status": 422,
+    "err": "{\"error\":\"bad_source\",\"message\":\"Error 400: Syntax Error? (Assumed diagram type: sequence) (line: 2)\"}",
+    "tip": "Configure appearance with skinparam directives",
+    "source": "skinparam class { BackgroundColor lightyellow BorderColor blue }\nclass Styled { }"
+   }
+  ]
+ },
+ "nwdiag": {
+  "secs": 19,
+  "n": 6,
+  "ok": 1,
+  "rows": [
+   {
+    "name": "network_segments",
+    "ok": false,
+    "status": 422,
+    "err": "{\"error\":\"bad_source\",\"message\":\"Error 400: ERROR: Unknown attribute: DiagramNode.stack\\n (exit code 255)\"}",
+    "tip": "Each network block must declare its own address range; nodes in the same segment share the prefix.",
+    "source": "nwdiag {\n  network dmz {\n    address = \"10.0.1.0/24\"\n    web [stack];\n  }\n  network lan {\n    address = \"10.0.2.0/24\"\n    db [shape=cylinder];\n  }\n  dmz -- lan;\n}"
+   },
+   {
+    "name": "multi_network_node",
+    "ok": true,
+    "status": 200,
+    "err": "",
+    "tip": "A node can appear in multiple network blocks to represent interfaces on different subnets.",
+    "source": "nwdiag {\n  network wan {\n    address = \"203.0.113.0/24\"\n    router;\n  }\n  network lan {\n    address = \"192.168.1.0/24\"\n    router;\n    workstation;\n  }\n  router -- workstation;\n}"
+   },
+   {
+    "name": "groups",
+    "ok": false,
+    "status": 422,
+    "err": "{\"error\":\"bad_source\",\"message\":\"Error 400: ERROR: 12,13-12,14: got unexpected token: '--', expected: '}'\\n (exit code 255)\"}",
+    "tip": "Group syntax uses curly braces around node declarations; indentation is not required but improves readability.",
+    "source": "nwdiag {\n  network office {\n    address = \"10.10.0.0/16\"\n    group servers {\n      web;\n      app;\n    }\n    group clients {\n      pc1;\n      pc2;\n    }\n    servers -- clients;\n  }\n}"
+   },
+   {
+    "name": "colors_and_styles",
+    "ok": false,
+    "status": 422,
+    "err": "{\"error\":\"bad_source\",\"message\":\"Error 400: ERROR: unknown node shape: cylinder\\n (exit code 255)\"}",
+    "tip": "Use single quotes for color values; hex codes must be quoted too, not written bare.",
+    "source": "nwdiag {\n  network prod {\n    address = \"10.1.0.0/24\"\n    web [color=\"#ff6600\"];\n    db [color=\"#3399ff\", shape=cylinder];\n  }\n  network dev {\n    address = \"10.2.0.0/24\"\n    sandbox [color=\"#99cc66\", style=dashed];\n  }\n  prod -- dev;\n}"
+   },
+   {
+    "name": "labels_with_special_chars",
+    "ok": false,
+    "status": 422,
+    "err": "{\"error\":\"bad_source\",\"message\":\"Error 400: ERROR: unknown node shape: router\\n (exit code 255)\"}",
+    "tip": "Node labels containing spaces, quotes, or punctuation must be wrapped in double quotes.",
+    "source": "nwdiag {\n  network office {\n    address = \"172.16.0.0/12\"\n    \"Main Router\" [shape=router];\n    \"Firewall (Palo Alto)\" [shape=firewall];\n    \"DB Server (SQL)\" [shape=cylinder];\n  }\n  \"Main Router\" -- \"Firewall (Palo Alto)\" -- \"DB Server (SQL)\";\n}"
+   },
+   {
+    "name": "peer_networks",
+    "ok": false,
+    "status": 422,
+    "err": "{\"error\":\"bad_source\",\"message\":\"Error 400: ERROR: DiagramNode corp does not belong to any networks\\n (exit code 255)\"}",
+    "tip": "Use the peer keyword for networks that exchange traffic without a direct link line.",
+    "source": "nwdiag {\n  network corp {\n    address = \"10.0.0.0/8\"\n    app;\n  }\n  network partner {\n    address = \"10.100.0.0/16\"\n    api;\n  }\n  corp peer partner;\n}"
+   }
+  ]
+ }
+}
