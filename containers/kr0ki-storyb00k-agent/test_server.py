@@ -24,6 +24,24 @@ class ServerTest(unittest.TestCase):
         connection.request("POST" if body is not None else "GET", path, body=body, headers={"Content-Type": "application/json"} if body else {})
         return connection.getresponse()
 
+    def test_the_editor_can_fetch_a_languages_skill_as_text(self):
+        response = self.request("/skills/diagrams/d2")
+        self.assertEqual(response.status, 200)
+        self.assertTrue(response.getheader("Content-Type").startswith("text/plain"))
+        text = response.read().decode()
+        self.assertTrue(text.startswith("---\nname: kr0ki-d2"))
+        self.assertIn("## Verified examples", text)
+
+    def test_skill_routes_reject_unknown_and_unsafe_names(self):
+        for path in ("/skills/diagrams/nope", "/skills/diagrams/..%2Fserver", "/skills/diagrams/../../server.py", "/skills/diagrams/", "/skills/diagrams/d2%2F..%2F..%2Fx"):
+            self.assertEqual(self.request(path).status, 404, path)
+
+    def test_the_skill_listing_names_every_installed_language(self):
+        data = json.loads(self.request("/skills/diagrams").read())
+        formats = {s["format"] for s in data["skills"]}
+        self.assertTrue({"d2", "graphviz", "plantuml", "nwdiag"} <= formats, formats)
+        self.assertTrue(all(s["description"].startswith("Use before") for s in data["skills"]))
+
     def test_health(self):
         response = self.request("/health")
         self.assertEqual(response.status, 200)
