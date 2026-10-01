@@ -15,6 +15,7 @@
     "@ag-ui/client": "^0.0.59",
     "@assistant-ui/vue": "file:../vendor/assistant-ui/packages/vue",
     "@synoped/ag-ui-vue": "^2.0.0",
+    "quasar": "^2.34.0",
     "vue": "^3.5.42"
   },
   "devDependencies": {

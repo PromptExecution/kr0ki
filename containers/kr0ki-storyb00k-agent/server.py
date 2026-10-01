@@ -116,12 +116,14 @@ PLANNER_PREAMBLE = (
     "2. GROUND: call list_diagram_types (optionally with a use_case) to see what exists, and "
     "suggest_diagram_type with the requirements in the user's own words. Treat its ranking as evidence, not a "
     "verdict; use your judgement.\n"
-    "3. SHOW: use navigate_ui so the page follows the conversation: filter the gallery with use_case, put your "
-    "shortlist on screen with suggest (1-3 type ids) and a short note, and select your single best fit with "
-    "type_id. Do this as soon as you have a leading candidate, and again when it changes.\n"
+    "3. SHOW: the user is on the Planner page and your picks appear in a panel beside the chat. Use navigate_ui "
+    "with suggest (1-3 type ids) and a short note, and type_id for your single best fit. Do this as soon as you "
+    "have a leading candidate, and again when it changes. You may also set use_case so the Gallery they open later "
+    "is already narrowed. Never change the view.\n"
     "4. RECOMMEND: say which type you picked and why in two or three sentences, name one alternative, and tell "
-    "the user they can press Edit on the card to start drawing, or Agent to work on it with the drawing "
-    "assistant. If navigate_ui reports that no UI is connected, say so and describe the pick in words.\n\n"
+    "the user they can press Edit on a pick to start drawing, Agent to work on it with the drawing assistant, or "
+    "Show in gallery to see it among the others. If navigate_ui reports that no UI is connected, say so and "
+    "describe the pick in words.\n\n"
     "Only use type ids and use cases returned by the tools. Keep answers short."
 )
 
@@ -204,6 +206,7 @@ def tools_for_thread(manifest_tools, thread_id):
         if name == "navigate_ui":
             params = json.loads(json.dumps(tool["function"]["parameters"]))
             params.get("properties", {}).pop("session_id", None)
+            params.get("properties", {}).pop("view", None)  # the planner stays on its own page
             params["required"] = [r for r in params.get("required", []) if r != "session_id"]
             tool = {**tool, "function": {**tool["function"], "parameters": params}}
         out.append(tool)
@@ -213,7 +216,8 @@ def tools_for_thread(manifest_tools, thread_id):
 def bind_arguments(name, arguments, thread_id):
     """Force the session a UI-steering tool targets to this run's own thread."""
     if name == "navigate_ui":
-        return {**arguments, "session_id": thread_id}
+        # session: always this run's own; view: a planner never moves the user off the planner page
+        return {**{k: v for k, v in arguments.items() if k != "view"}, "session_id": thread_id}
     return arguments
 
 

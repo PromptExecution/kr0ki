@@ -17,6 +17,9 @@ importers:
       '@synoped/ag-ui-vue':
         specifier: ^2.0.0
         version: 2.0.0(@ag-ui/client@0.0.59)(vue@3.5.43)
+      quasar:
+        specifier: ^2.34.0
+        version: 2.34.0
       vue:
         specifier: ^3.5.42
         version: 3.5.43
@@ -1308,6 +1311,10 @@ packages:
   punycode@2.3.1:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
+
+  quasar@2.34.0:
+    resolution: {integrity: sha512-FwTTqffFyXtEMaEebo5olOHGAJtCZB7Gn6BtWBdypjYOarM6azllrgvVVIQp23qZ0W9leZDFqKRXFm87tua3DA==}
+    engines: {node: '>= 22.0.0'}
 
   queue-microtask@1.2.3:
     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
@@ -2957,6 +2964,8 @@ snapshots:
   punycode.js@2.3.1: {}
 
   punycode@2.3.1: {}
+
+  quasar@2.34.0: {}
 
   queue-microtask@1.2.3: {}
 

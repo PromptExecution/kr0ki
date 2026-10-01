@@ -1,6 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import StoryB00k from './StoryB00k.vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 const props = defineProps({
   examples: { type: Array, required: true },
@@ -12,32 +11,22 @@ const props = defineProps({
   selectedTypeId: { type: String, default: '' },
   suggested: { type: Array, default: () => [] },
   suggestNote: { type: String, default: '' },
-  plannerSession: { type: String, default: '' },
-  uiStatus: { type: String, default: 'closed' },
+  // The diagram-type catalog (/api/catalog), loaded once by the app and shared with the sidebar tree and the planner.
+  catalogData: { type: Object, default: null },
 })
 const emit = defineEmits(['open-in-editor', 'agent-handoff', 'update:useCase', 'update:selectedTypeId'])
 
 const rendererBase = computed(() => (props.rendererUrl || window.location.origin).trim())
-const plannerOpen = ref(true)
 
 // ---- Plan 005: intent-first catalog ----------------------------------------
-// Loaded from /api/catalog (Rust-owned taxonomy). The filter defaults to
+// The taxonomy is Rust-owned (/api/catalog) and loaded by the app. The filter defaults to
 // "All" and auto-resets to "All" whenever a selection stops matching.
-const catalog = ref(null)
+const catalog = computed(() => props.catalogData)
 const activeUseCase = computed({
   get: () => props.useCase,
   set: (value) => emit('update:useCase', value),
 })
 
-onMounted(async () => {
-  try {
-    const base = rendererBase.value
-    const res = await fetch(`${base.replace(/\/$/, '')}/api/catalog`)
-    if (res.ok) catalog.value = await res.json()
-  } catch (err) {
-    console.warn('[gallery] catalog unavailable:', err?.message)
-  }
-})
 
 const useCaseFilters = computed(() => ['All', ...(catalog.value?.useCases || [])])
 
@@ -222,7 +211,7 @@ async function testType(card) {
 </script>
 
 <template>
-  <section class="gallery" :class="{ 'gallery--planner': plannerOpen }">
+  <section class="gallery">
    <div class="gallery-main">
     <div class="controls gallery-controls">
       <button :disabled="running || (examples.length === 0 && !allTypeCards.length)" @click="testAll">
@@ -322,24 +311,5 @@ async function testType(card) {
     </div>
    </div>
 
-   <aside class="gallery-planner" aria-label="Diagram planner" data-testid="planner-panel">
-    <header class="gallery-planner-head">
-      <button type="button" class="secondary" :aria-expanded="plannerOpen" data-testid="planner-toggle" @click="plannerOpen = !plannerOpen">
-        {{ plannerOpen ? '▾' : '▸' }} Diagram planner
-      </button>
-      <span class="planner-link" :data-status="uiStatus" :title="`UI session ${plannerSession}`">
-        {{ uiStatus === 'open' ? '● page linked' : uiStatus === 'connecting' ? '○ linking…' : '○ not linked' }}
-      </span>
-    </header>
-    <StoryB00k
-      v-if="plannerOpen && plannerSession"
-      planner
-      :thread-id="plannerSession"
-      :agent-url="agentUrl"
-    />
-    <p v-if="plannerOpen && plannerSession" class="planner-session" data-testid="planner-session">
-      MCP clients can steer this page with <code>navigate_ui</code>, session <code>{{ plannerSession }}</code>
-    </p>
-   </aside>
   </section>
 </template>

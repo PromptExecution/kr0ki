@@ -41,6 +41,11 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    setupFiles: ['./src/test-setup.js'],
+    // Quasar's default export is its SSR build; under jsdom use the client build (the @quasar/vite-plugin does this
+    // alias for us, but that plugin does not support the Vite version pinned here).
+    alias: { quasar: 'quasar/dist/quasar.client.js' },
+    server: { deps: { inline: [/quasar/] } },
     // CI doesn't build the vendored @assistant-ui/vue package (a `file:`
     // dependency on the elasticdotventures/assistant-ui submodule) --
     // that requires installing the entire upstream monorepo (2,347
