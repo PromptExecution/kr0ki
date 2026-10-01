@@ -79,7 +79,7 @@ real value, **and the renderer is a free, automatic judge of every example** (th
 | 5 | **UX legibility** in `StoryB00k.vue`: a **plan card** before acting (mode, chosen type, skills loaded, round x/15, question budget); tool steps expandable with arguments, format and the real error; "stopped because ..." as a structured message with Retry/Edit | Claude agent | Component tests; a screenshot walk-through against a real run |
 | 6 | **b00t + UFO registration:** datums for every skill; `b00t lfmf` tips; usage events (skill loaded-for type, outcome verdict) written as a `SysGraph` snapshot or `b00t influence` entry; propose the Skill type upstream in `ufo-types` | Claude agent; user decides upstream | `b00t skill search diagram` lists them; a usage report answers "which skills were loaded, and did the render pass?" |
 | 6b | **Identifier rule** (skills require identifier-as-key, name-as-label). **SysML display names: DONE in v0.0.7** (`to_d2_named`, cache token `-v2`); WP0 also DONE (real error bodies, identical-render refusal) | Claude agent | Remaining: write the rule into the skills; rendered SysML already shows names and carries the `@id` |
-| 6c | **SVG enhancement layer** (identifier stamping, CSS-selected brand rules, packages, later live state): design note §8 order of work | Claude agent | Spike tests ported to the real implementation; browser check of selectors/icons/colours |
+| 6c | **SVG enhancement layer: DONE for SysML renders in v0.0.8** (design note §9: Rust layer, WASM export, `?brand=`, `/brand`); remaining: other renderers' index step, playbook/Setup UI, live state, canonical packs | Claude agent | Done items verified in a browser; remaining per design note §9 |
 | 7 | **MBSE skills** (14 in the report) as pi skills on top of the same harness, read-only first | Later; needs a live SysML v2 server | See the report's 30/60/90 plan |
 
 ## 5. Operating notes (FACT unless marked)
@@ -139,3 +139,7 @@ were written by three parallel subagents under the same rule; I rebuilt everythi
 claims independently (10/10 held). Silent-failure formats worth knowing: wavedrom returns HTTP 200 with an empty `<div>` for an unknown key; `vega` given a Vega-Lite spec returns a 0x0 SVG with no error;
 umlet renders a blank SVG for an unknown element id. The agent cannot detect those from the status code, so a future check should look at the SVG (size/emptiness).
 `build_skills.py` is now data-driven: `skill-src/<fmt>.md` (rules) + `skill-src/<fmt>.json` (description, identifier rule, examples).
+
+**Type-quality skills (v0.0.8).** All 24 catalog types now have `skills/types/<id>.md` (choose-when / not-when with the better type, anatomy, what makes it good / bad,
+questions to ask, and a Bad then Good example that both render; 24/24 via `tools/skill-pilot/verify_type_skills.py`). They load when the user has locked a type. The guidance is
+conventional practice, not renderer-verifiable; the examples are. Brand and palette *skills* still need the owner's canonical assets (the layer and placeholder package exist).

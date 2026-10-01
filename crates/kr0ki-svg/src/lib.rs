@@ -4,6 +4,7 @@
 //! for the kr0ki graph representation engine.
 
 pub mod constraint;
+pub mod enhance;
 pub mod graph;
 pub mod solver;
 
@@ -335,4 +336,17 @@ mod tests {
             Err(Kr0kiSvgError::Json(_))
         ));
     }
+}
+
+/// WASM/JS entry point for the enhancement layer. `known_json`: `[{"id","type","name"}]`; `brand_json`: a brand package.
+/// Returns `{"svg": "...", "report": {"indexed", "unindexed", "rewrites"}}`.
+#[wasm_bindgen]
+pub fn enhance_svg_json(svg: &str, known_json: &str, brand_json: &str) -> Result<String, JsValue> {
+    let known: Vec<enhance::KnownElement> =
+        serde_json::from_str(known_json).map_err(Kr0kiSvgError::from)?;
+    let brand: enhance::Brand = serde_json::from_str(brand_json).map_err(Kr0kiSvgError::from)?;
+    let (svg, report) =
+        enhance::enhance(svg, &known, &brand).map_err(|e| JsValue::from_str(&e.to_string()))?;
+    serde_json::to_string(&serde_json::json!({ "svg": svg, "report": report }))
+        .map_err(|e| Kr0kiSvgError::from(e).into())
 }

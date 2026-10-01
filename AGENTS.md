@@ -53,7 +53,7 @@ front-end semantic  recog-    constructs adapters
 
 **Current implemented surface:**
 - `kr0ki-core`: `RenderService` (cache + backend), `FsCache`, `HttpKrokiBackend`, `DiagramFormat` (26 companion-free Kroki formats), docgen (syn harvester + formatters), the recognizers (`k8s_recognizer`, `rust_recognizer`) and lifts (`ufo_graph`, `rust_lift`, `sysml_lift`, `sysml_render`), the requirements stack (`reqif_*`, `requirements_*`, `rule_eval`, `recompute`), and the write path (`sync_engine`, `digital_thread_sync`, `flexo_reqif_sync`)
-- `kr0ki-server`: axum routes `/health`, `/formats`, `/render/{format}`, `/render/k8s-topology`, `/render/rust-source`, `/model/projects/{id}/sync` (write a `SysGraph`'s `dbt:` nodes into a SysML v2 project), `/api/catalog[?use_case=]`, `POST /api/catalog/suggest` (explained type ranking), `GET /ui/{session}/events` (SSE) + `POST /ui/{session}/navigate` (steer a playbook tab), `/cache/{key}`, `/docs*` (HTML/JSON/tomllm/rustdoc)
+- `kr0ki-server`: axum routes `/health`, `/formats`, `/render/{format}`, `/render/k8s-topology`, `/render/rust-source`, `/model/projects/{id}/sync` (write a `SysGraph`'s `dbt:` nodes into a SysML v2 project), `/api/catalog[?use_case=]`, `POST /api/catalog/suggest` (explained type ranking), `GET /ui/{session}/events` (SSE) + `POST /ui/{session}/navigate` (steer a playbook tab), `GET /brand` + `?brand=<name>` on SysML renders (identifier-driven SVG overlay, `kr0ki-svg::enhance`), `/cache/{key}`, `/docs*` (HTML/JSON/tomllm/rustdoc)
 - `kr0ki-sysmlv2-client`: OMG-API REST client, `ModelSnapshot` with `content_hash`
 
 ---
@@ -93,6 +93,7 @@ crates/
 | `KR0KI_CACHE_DIR` | `./.kr0ki-cache` | Filesystem cache root |
 | `KR0KI_AUTH_TOKEN` | unset | If set, require `Authorization: Bearer <token>` on all routes except `/health` |
 | `KR0KI_PUBLIC_URL` / `KR0KI_AGENT_PUBLIC_URL` | loopback `:8787` / `:8789` | Where the server / StoryB00k agent are reached from a browser, `tests/functional`, and the Vite dev proxy. Put LAN/remote addresses in the gitignored `.env` (copy `.env.example`); `just` loads `.env` automatically. Never hard-code a machine address in tracked files |
+| `KR0KI_BRAND_DIR` | `./brand` | Brand packages: `<dir>/<name>/brand.json` (see `brand/example`, a placeholder) |
 | `KR0KI_TEST_BACKEND` | unset | Live render test backend; use the local/private kroki-compatible service |
 | `KR0KI_SYSMLV2_BASE_URL` | unset | Live SysML-v2 client test target |
 

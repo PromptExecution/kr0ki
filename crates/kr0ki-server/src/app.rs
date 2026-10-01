@@ -55,6 +55,8 @@ pub struct AppState {
     pub model_graph: Arc<kr0ki_core::graph_store::GraphStore>,
     /// Steers the playbook UI from the planning agent / MCP clients (`/ui/:session/*`).
     pub ui_bus: Arc<kr0ki_core::ui_bus::UiBus>,
+    /// Brand packages (`<dir>/<name>/brand.json`) applied by `?brand=<name>` on SysML renders.
+    pub brand_dir: PathBuf,
     /// AG-UI storyb00k sidecar base URL (deep /health probe). `None` skips it.
     pub storyb00k_agent_url: Option<String>,
     /// OpenAI-compatible LLM endpoint for the storyb00k agent. The /health LLM
@@ -88,6 +90,7 @@ pub fn router(
         .route("/playbook/api/examples.json", get(examples))
         .route("/api/catalog", get(catalog))
         .route("/api/catalog/suggest", post(suggest_diagram_type))
+        .route("/brand", get(list_brands))
         .route("/ui/:session/events", get(ui_events))
         .route("/ui/:session/navigate", post(ui_navigate))
         .route("/playbook", get(playbook_index))
@@ -616,6 +619,18 @@ async fn render_sysmlv2_snapshot(
         .and_then(|value| OutputKind::from_param(value))
         .unwrap_or(OutputKind::Svg);
 
+    // Optional brand overlay (SVG only): validated up front so a bad name fails before any rendering.
+    let brand = match params
+        .get("brand")
+        .map(String::as_str)
+        .filter(|b| !b.is_empty())
+    {
+        Some(name) => match load_brand(&state.brand_dir, name).await {
+            Ok(b) => Some((name.to_owned(), b)),
+            Err(response) => return *response,
+        },
+        None => None,
+    };
     match state
         .service
         .render_model(
@@ -630,7 +645,52 @@ async fn render_sysmlv2_snapshot(
         )
         .await
     {
-        Ok(rendered) => rendered_response(output, rendered),
+        Ok(rendered) => match (&brand, output) {
+            (Some((name, brand)), OutputKind::Svg) => {
+                let known: Vec<kr0ki_svg::enhance::KnownElement> = snapshot
+                    .elements
+                    .iter()
+                    // nodes have names; relationship elements (no name) are never drawn as nodes and would only
+                    // pad the "unindexed" count
+                    .filter(|e| e.name().is_some())
+                    .map(|e| kr0ki_svg::enhance::KnownElement {
+                        id: e.id().to_owned(),
+                        ty: Some(e.ty().to_owned()).filter(|t| !t.is_empty()),
+                        name: e.name().map(str::to_owned),
+                    })
+                    .collect();
+                let svg = String::from_utf8_lossy(&rendered.bytes).into_owned();
+                match kr0ki_svg::enhance::enhance(&svg, &known, brand) {
+                    Ok((enhanced, report)) => {
+                        let mut response = rendered_response(
+                            output,
+                            Rendered {
+                                bytes: enhanced.into_bytes(),
+                                ..rendered
+                            },
+                        );
+                        let headers = response.headers_mut();
+                        if let Ok(v) = header::HeaderValue::from_str(name) {
+                            headers.insert(header::HeaderName::from_static("x-kr0ki-brand"), v);
+                        }
+                        if let Ok(v) = header::HeaderValue::from_str(&format!(
+                            "indexed={};unindexed={}",
+                            report.indexed,
+                            report.unindexed.len()
+                        )) {
+                            headers.insert(header::HeaderName::from_static("x-kr0ki-enhance"), v);
+                        }
+                        response
+                    }
+                    Err(e) => error_json(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "brand_rejected",
+                        &e.to_string(),
+                    ),
+                }
+            }
+            _ => rendered_response(output, rendered),
+        },
         Err(error) => service_error_response(error),
     }
 }
@@ -1515,6 +1575,66 @@ fn parse_multi_doc_yaml(text: &str) -> Result<Vec<serde_json::Value>, serde_yaml
         .map(serde_json::Value::deserialize)
         .collect::<Result<Vec<_>, _>>()
         .map(|docs| docs.into_iter().filter(|v| !v.is_null()).collect())
+}
+
+const MAX_BRAND_BYTES: u64 = 256 * 1024;
+
+fn valid_brand_name(name: &str) -> bool {
+    (1..=40).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+}
+
+/// Read and parse `<brand_dir>/<name>/brand.json`. The name is validated first, so it cannot escape the directory.
+async fn load_brand(
+    dir: &std::path::Path,
+    name: &str,
+) -> Result<kr0ki_svg::enhance::Brand, Box<Response>> {
+    if !valid_brand_name(name) {
+        return Err(Box::new(error_json(
+            StatusCode::BAD_REQUEST,
+            "bad_brand_name",
+            "brand names are 1-40 characters of a-z, 0-9, '-' or '_'",
+        )));
+    }
+    let path = dir.join(name).join("brand.json");
+    let unknown = || {
+        Box::new(error_json(
+            StatusCode::NOT_FOUND,
+            "unknown_brand",
+            &format!("no brand package '{name}' (see GET /brand)"),
+        ))
+    };
+    let meta = tokio::fs::metadata(&path).await.map_err(|_| unknown())?;
+    if !meta.is_file() || meta.len() > MAX_BRAND_BYTES {
+        return Err(unknown());
+    }
+    let text = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|_| unknown())?;
+    serde_json::from_str(&text).map_err(|e| {
+        Box::new(error_json(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_brand",
+            &format!("brand '{name}' is not a valid brand package: {e}"),
+        ))
+    })
+}
+
+/// `GET /brand` — names of the installed brand packages.
+async fn list_brands(State(state): State<AppState>) -> Response {
+    let mut names = Vec::new();
+    if let Ok(mut rd) = tokio::fs::read_dir(&state.brand_dir).await {
+        while let Ok(Some(entry)) = rd.next_entry().await {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if valid_brand_name(&name) && entry.path().join("brand.json").is_file() {
+                names.push(name);
+            }
+        }
+    }
+    names.sort();
+    Json(serde_json::json!({ "brands": names })).into_response()
 }
 
 fn rendered_response(output: OutputKind, r: Rendered) -> Response {

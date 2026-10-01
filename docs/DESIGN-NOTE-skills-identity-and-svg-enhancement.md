@@ -112,3 +112,13 @@ playbook (class toggling from an SSE/OTLP-derived stream) reusing the `/ui` SSE 
 (`HANDOFF` WP1-3, 6); **(7)** upstream `Skill` stereotype proposal. Keep each step independently testable; do not claim a renderer
 gap without checking the fixture shape (§3).
 Pitfalls: close stdin for `pi` runs; the vision model is one GPU slot shared with the planner chat; check `OPENAI_API_URL` is `:8002`.
+
+## 9. Status update: the enhancement layer is built (v0.0.8)
+`crates/kr0ki-svg/src/enhance.rs` (+ WASM `enhance_svg_json`) implements §3-§4 for real: identifier **index/stamp** (D2 base64 classes), **brand rules**
+(CSS-subset selectors: tag, `.class`, `[attr]`, `[attr="v"]`, no combinators, unsupported = error), restored display names, `<symbol>` icons, brand CSS,
+**idempotent byte-range splicing** (the renderer's output is preserved exactly), and validation of everything injected (no scripts/handlers/foreignObject/external refs/@import;
+names XML-escaped). 34 tests incl. a captured real D2 SysML render; mutation-checked (13 mutants; 2 survived and the tests were strengthened).
+Server: `POST /render/sysmlv2/projects/{p}/commits/{c}?output=svg&brand=<name>` loads `KR0KI_BRAND_DIR/<name>/brand.json` (default `./brand`), enhances the render (post-cache, so one cached render serves
+every brand) and reports `x-kr0ki-brand` / `x-kr0ki-enhance: indexed=N;unindexed=M`. `GET /brand` lists packages. `brand/example/` is a **placeholder** package, not canonical.
+Verified end to end: fixture SysML server -> kr0ki -> D2 -> `?brand=example`; in headless Chromium the selectors, names, 4 icons and the brand stroke applied.
+**Still not built:** applying brand to non-SysML routes/Graphviz/PlantUML (index step differs per renderer), a browser-side use of the WASM export in the playbook, brand UI in Setup, animation/live state, canonical packs.

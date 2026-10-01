@@ -275,3 +275,23 @@ class ShippedSkillsTest(unittest.TestCase):
             self.assertIn("Never invent identifiers", raw, fmt)
             body = server.language_skill(fmt)
             self.assertTrue(body.startswith(f"# {fmt}"), fmt)
+
+
+class TypeSkillCoverageTest(unittest.TestCase):
+    """Every diagram type in the Rust catalog has a type skill with the required sections (quality guidance)."""
+
+    SECTIONS = ["## Choose it when", "## Not when", "## Anatomy", "## What makes it good", "## What makes it bad", "## Questions to ask", "## Contrast"]
+
+    def test_every_catalog_type_has_a_well_formed_type_skill(self):
+        import re
+        catalog = (Path(__file__).parents[2] / "crates/kr0ki-core/src/catalog.rs").read_text()
+        ids = re.findall(r'^\s{8}id: "([a-z0-9-]+)",', catalog, re.M)
+        self.assertGreaterEqual(len(ids), 20, ids)
+        for tid in ids:
+            path = server.SKILLS_DIR / "types" / f"{tid}.md"
+            self.assertTrue(path.is_file(), f"no type skill for catalog type '{tid}'")
+            text = path.read_text()
+            for section in self.SECTIONS:
+                self.assertIn(section, text, f"{tid} lacks '{section}'")
+            self.assertLessEqual(len(text), 4500, tid)
+            self.assertGreaterEqual(len(re.findall(r"```[a-z0-9-]+\n", text)), 2, f"{tid} needs a bad and a good example")

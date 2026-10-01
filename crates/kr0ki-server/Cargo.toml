@@ -14,6 +14,7 @@ path = "src/main.rs"
 uuid = { workspace = true }
 kr0ki-core = { path = "../kr0ki-core" }
 kr0ki-sysmlv2-client = { path = "../kr0ki-sysmlv2-client" }
+kr0ki-svg = { path = "../kr0ki-svg" }
 anyhow.workspace = true
 serde = { workspace = true }
 serde_json.workspace = true
