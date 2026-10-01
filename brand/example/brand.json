@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "_comment": "PLACEHOLDER brand package for development. Not canonical: replace with the real b00t / PromptExecution packs. Rules select with CSS over data-kr0ki-* stamps; D2's own CSS outranks plain rules, so use !important.",
+  "icons": {
+    "part": {
+      "svg": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"3\" fill=\"#38bdf8\"/>",
+      "view_box": "0 0 24 24"
+    },
+    "definition": {
+      "svg": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" fill=\"#a855f7\"/>",
+      "view_box": "0 0 24 24"
+    },
+    "requirement": {
+      "svg": "<circle cx=\"12\" cy=\"12\" r=\"9\" fill=\"#4ade80\"/>",
+      "view_box": "0 0 24 24"
+    }
+  },
+  "rules": [
+    {
+      "select": "[data-kr0ki-type=\"PartUsage\"]",
+      "class": "k-part",
+      "icon": "part",
+      "label": "name"
+    },
+    {
+      "select": "[data-kr0ki-type=\"PartDefinition\"]",
+      "class": "k-def",
+      "icon": "definition",
+      "label": "name"
+    },
+    {
+      "select": "[data-kr0ki-type=\"RequirementUsage\"]",
+      "class": "k-req",
+      "icon": "requirement",
+      "label": "name"
+    }
+  ],
+  "css": ".k-part rect { stroke: #0ea5e9 !important; stroke-width: 3 !important } .k-def rect { stroke: #9333ea !important; stroke-width: 3 !important }"
+}

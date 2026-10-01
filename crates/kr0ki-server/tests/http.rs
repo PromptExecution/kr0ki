@@ -33,6 +33,7 @@ fn test_state(tag: &str) -> AppState {
         sysmlv2_client: None,
         model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
         ui_bus: Arc::new(kr0ki_core::ui_bus::UiBus::new()),
+        brand_dir: std::env::temp_dir().join("kr0ki-no-brands"),
         storyb00k_agent_url: None,
         llm_api_url: None,
         llm_api_key: None,
@@ -1989,4 +1990,163 @@ async fn sysmlv2_render_labels_nodes_with_names_but_keys_them_by_id() {
     let (status, body) = body_string(response).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body, "<svg>named</svg>");
+}
+
+// ---- brand overlay on SysML renders --------------------------------------------------------------
+
+const SYSML_D2_FIXTURE: &str = include_str!("../../kr0ki-svg/tests/fixtures/sysml-d2.svg");
+
+fn brand_state(tag: &str, backend: &str, sysml: &str) -> (AppState, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("kr0ki-brands-{}-{tag}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("test")).unwrap();
+    std::fs::write(
+        dir.join("test/brand.json"),
+        r##"{"version":1,"icons":{"part":{"view_box":"0 0 24 24","svg":"<rect width=\"24\" height=\"24\"/>"}},
+            "rules":[{"select":"g[data-kr0ki-type=\"PartUsage\"]","class":"k-part","icon":"part"}],"css":".k-part rect{stroke:#0ea5e9 !important}"}"##,
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("broken")).unwrap();
+    std::fs::write(
+        dir.join("broken/brand.json"),
+        r#"{"icons":{"x":{"svg":"<script/>"}}}"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("garbage")).unwrap();
+    std::fs::write(dir.join("garbage/brand.json"), "not json").unwrap();
+    let mut state = test_state_with_sysmlv2_client(tag, sysml.to_owned());
+    state.service = Arc::new(RenderService::new(
+        HttpKrokiBackend::new(backend),
+        FsCache::new(std::env::temp_dir().join(format!(
+            "kr0ki-http-test-{}-{tag}-cache",
+            std::process::id()
+        ))),
+    ));
+    state.brand_dir = dir.clone();
+    (state, dir)
+}
+
+async fn brand_fixture_server() -> wiremock::MockServer {
+    let server = wiremock::MockServer::start().await;
+    let u = |n: u32| format!("00000000-0000-4000-8000-{n:012}");
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/projects/p1/commits/c1/elements"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!([
+                {"@id": u(1), "@type": "PartDefinition", "name": "Vehicle"},
+                {"@id": u(2), "@type": "PartUsage", "name": "engine"},
+                {"@id": u(3), "@type": "PartUsage", "name": "transmission"},
+                {"@id": u(4), "@type": "PartUsage", "name": "battery"},
+                {"@id": u(5), "@type": "RequirementUsage", "name": "range"},
+            ])),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path("/projects/p1/commits/c1/roots"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!([u(1)])))
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/d2/svg"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_string(SYSML_D2_FIXTURE))
+        .mount(&server)
+        .await;
+    server
+}
+
+async fn post_render(state: AppState, query: &str) -> axum::response::Response {
+    test_app(state)
+        .oneshot(
+            Request::post(format!(
+                "/render/sysmlv2/projects/p1/commits/c1?output=svg{query}"
+            ))
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn brand_overlay_stamps_identifiers_and_applies_the_package_to_a_sysml_render() {
+    let server = brand_fixture_server().await;
+    let (state, _dir) = brand_state("brand-ok", &server.uri(), &server.uri());
+    let plain = post_render(state.clone(), "").await;
+    let (status, plain_body) = body_string(plain).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        !plain_body.contains("data-kr0ki-id"),
+        "no brand, no overlay"
+    );
+
+    let branded = post_render(state, "&brand=test").await;
+    assert_eq!(branded.status(), StatusCode::OK);
+    assert_eq!(branded.headers()["x-kr0ki-brand"], "test");
+    assert_eq!(
+        branded.headers()["x-kr0ki-enhance"],
+        "indexed=4;unindexed=1"
+    ); // the requirement is not drawn
+    let (_, body) = body_string(branded).await;
+    assert_eq!(body.matches("data-kr0ki-type=\"PartUsage\"").count(), 3);
+    assert_eq!(body.matches("<use ").count(), 3);
+    assert!(body.contains("id=\"kr0ki-brand\"") && body.contains("data-d2-version"));
+}
+
+#[tokio::test]
+async fn brand_names_are_validated_and_bad_packages_are_rejected_not_applied() {
+    let server = brand_fixture_server().await;
+    let (state, _dir) = brand_state("brand-bad", &server.uri(), &server.uri());
+    for (query, expect, code) in [
+        ("&brand=nope", StatusCode::NOT_FOUND, "unknown_brand"),
+        ("&brand=..%2Fetc", StatusCode::BAD_REQUEST, "bad_brand_name"),
+        ("&brand=A%20B", StatusCode::BAD_REQUEST, "bad_brand_name"),
+        (
+            "&brand=garbage",
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "invalid_brand",
+        ),
+        (
+            "&brand=broken",
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "brand_rejected",
+        ),
+    ] {
+        let (status, body) = body_string(post_render(state.clone(), query).await).await;
+        assert_eq!(status, expect, "{query}: {body}");
+        assert!(body.contains(code), "{query}: {body}");
+    }
+}
+
+#[tokio::test]
+async fn brand_listing_shows_only_valid_installed_packages() {
+    let server = brand_fixture_server().await;
+    let (state, dir) = brand_state("brand-list", &server.uri(), &server.uri());
+    std::fs::create_dir_all(dir.join("Not Valid")).unwrap();
+    std::fs::write(dir.join("Not Valid/brand.json"), "{}").unwrap();
+    std::fs::create_dir_all(dir.join("empty")).unwrap(); // no brand.json
+    let resp = test_app(state)
+        .oneshot(Request::get("/brand").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let (status, body) = body_string(resp).await;
+    assert_eq!(status, StatusCode::OK);
+    let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        v["brands"],
+        serde_json::json!(["broken", "garbage", "test"])
+    );
+}
+
+#[test]
+fn the_shipped_example_brand_is_a_valid_package() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../brand/example/brand.json"
+    );
+    let text = std::fs::read_to_string(path).expect("brand/example/brand.json ships with the repo");
+    let brand: kr0ki_svg::enhance::Brand = serde_json::from_str(&text).unwrap();
+    let svg = SYSML_D2_FIXTURE;
+    kr0ki_svg::enhance::enhance(svg, &[], &brand)
+        .expect("the shipped placeholder passes the layer's own validation");
 }

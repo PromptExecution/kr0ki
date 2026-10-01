@@ -58,6 +58,7 @@ async fn b00t_graph_renders_a_real_turtle_fixture_to_svg() {
         sysmlv2_client: None,
         model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
         ui_bus: Arc::new(kr0ki_core::ui_bus::UiBus::new()),
+        brand_dir: std::env::temp_dir().join("kr0ki-no-brands"),
         storyb00k_agent_url: None,
         llm_api_url: None,
         llm_api_key: None,

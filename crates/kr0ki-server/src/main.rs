@@ -21,6 +21,7 @@
 //!                              http://127.0.0.1:8788. Unset disables the
 //!                              route with a 503, not a panic.
 //!   KR0KI_SYSMLV2_BASE_URL      if set, enables read-only `/model/*` routes.
+//!   KR0KI_BRAND_DIR             brand packages for `?brand=<name>` (default ./brand; <dir>/<name>/brand.json).
 //!   KR0KI_SYSMLV2_TOKEN         optional bearer token for that model server.
 
 mod app;
@@ -63,6 +64,9 @@ async fn main() -> anyhow::Result<()> {
     let kubediagram_worker_url = std::env::var("KR0KI_KUBEDIAGRAM_WORKER_URL").ok();
     // Deep /health probes the storyb00k agent and the LLM endpoint it uses.
     // The LLM check enumerates models only — never an inference request.
+    let brand_dir = std::path::PathBuf::from(
+        std::env::var("KR0KI_BRAND_DIR").unwrap_or_else(|_| "./brand".into()),
+    );
     let storyb00k_agent_url = std::env::var("KR0KI_STORYB00K_AGENT_URL").ok();
     let llm_api_url = std::env::var("OPENAI_API_URL").ok();
     let llm_api_key = std::env::var("OPENAI_API_KEY").ok();
@@ -116,6 +120,7 @@ async fn main() -> anyhow::Result<()> {
         sysmlv2_client,
         model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
         ui_bus: Arc::new(kr0ki_core::ui_bus::UiBus::new()),
+        brand_dir,
         storyb00k_agent_url,
         llm_api_url,
         llm_api_key,
