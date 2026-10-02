@@ -211,6 +211,13 @@ kr0ki exposes a service surface; agent interaction should go through b00t conven
 Long-term: a `kr0ki.mcp.toml` datum or vendored `kroki-mcp` server for MCP-native
 render calls. P0 uses direct HTTP.
 
+## 8b. Delegation: always use Qwen3.8 via pi
+
+Errands (reviews, drafts, test scaffolding, summaries, fact checks) are **always delegated** to the local Qwen3.8
+NEO-CODER through pi: `scripts/delegate-qwen38.sh` / `just delegate`. Read-only by default; `--tools` only in a throwaway
+worktree. The output is a first-pass lead: triage it, verify against source, run the tests. Never delegate the
+verification itself. Full pattern, exit codes and gotchas (`< /dev/null`, `127.0.0.1`): `docs/PATTERN-pi-subagents.md`.
+
 ## 8a. Agent communications and infrastructure squawks
 
 Agent-to-agent work is migrating to A2A semantics over NATS JetStream. NATS is the
