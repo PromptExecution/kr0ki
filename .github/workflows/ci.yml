@@ -56,6 +56,10 @@ jobs:
         run: |
           pnpm --dir tools/lsp-bridge install --frozen-lockfile
           pnpm --dir tools/lsp-bridge test
+      - name: sysml-mcp sidecar tests
+        run: |
+          pnpm --dir containers/kr0ki-sysml-mcp install --frozen-lockfile
+          pnpm --dir containers/kr0ki-sysml-mcp test
 
   # SysML-v2-Release conformance harness (phase 1). Runs in parallel with
   # `check` and does not block it: the corpus fetch (~110 MB tarball) and the
