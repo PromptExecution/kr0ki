@@ -2416,3 +2416,78 @@ async fn sparql_refuses_updates_bad_queries_and_malformed_bodies() {
     assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
     assert_eq!(b["error"], "invalid_request");
 }
+
+#[tokio::test]
+async fn requirements_export_is_the_inverse_of_import() {
+    let state = test_state("requirements-export");
+    let imported = test_app(state.clone())
+        .oneshot(
+            Request::post("/requirements/import")
+                .body(Body::from(include_str!(
+                    "../../kr0ki-core/tests/fixtures/reqif/roundtrip.reqif"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(imported).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let first: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let graph = serde_json::to_vec(&first["documents"][0]["graph"]).unwrap();
+
+    let exported = test_app(state.clone())
+        .oneshot(
+            Request::post("/requirements/export")
+                .body(Body::from(graph))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(exported.status(), StatusCode::OK);
+    assert!(exported.headers()["content-type"]
+        .to_str()
+        .unwrap()
+        .starts_with("application/reqif+xml"));
+    let (_, xml) = body_string(exported).await;
+    assert!(xml.contains("<REQ-IF"), "{xml}");
+
+    let again = test_app(state)
+        .oneshot(
+            Request::post("/requirements/import")
+                .body(Body::from(xml))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(again).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let second: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let texts = |v: &serde_json::Value| {
+        let mut t: Vec<(String, String)> = v["documents"][0]["graph"]["requirements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| (r["id"].to_string(), r["text"].to_string()))
+            .collect();
+        t.sort();
+        t
+    };
+    assert_eq!(
+        texts(&first).len(),
+        2,
+        "fixture must carry requirements or the round trip proves nothing"
+    );
+    assert_eq!(texts(&first), texts(&second));
+}
+
+#[tokio::test]
+async fn requirements_export_rejects_a_body_that_is_not_a_requirement_graph() {
+    let (s, b) = post_text(
+        test_app(test_state("requirements-export-bad")),
+        "/requirements/export",
+        b"{\"nodes\": []}".to_vec(),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+    assert_eq!(b["error"], "invalid_requirement_graph");
+}

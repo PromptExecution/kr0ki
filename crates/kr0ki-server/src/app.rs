@@ -124,6 +124,10 @@ pub fn router(
             )),
         )
         .route("/requirements/import/url", post(import_requirements_url))
+        .route(
+            "/requirements/export",
+            post(export_requirements).layer(DefaultBodyLimit::max(MAX_REQUIREMENTS_EXPORT_BYTES)),
+        )
         .route("/requirements/views", post(requirements_view))
         .route("/render/:format", post(render))
         .route("/render/requirements-view", post(render_requirements_view))
@@ -1888,4 +1892,34 @@ async fn sparql_shapes(body: Bytes) -> Response {
 /// `POST /sparql/rollup` `{graph, prefixDepth?}` -> cost attribution summed by code (optionally folded by code prefix).
 async fn sparql_rollup(body: Bytes) -> Response {
     with_rdf_store(body, |st, req| st.attribution_rollup(req.prefix_depth)).await
+}
+
+const MAX_REQUIREMENTS_EXPORT_BYTES: usize = 8 * 1024 * 1024;
+
+/// `POST /requirements/export` — a `RequirementGraph` as JSON (the `graph` of a document returned by
+/// `/requirements/import`, or a baseline read back from a project) in, a ReqIF XML document out. The inverse of
+/// `/requirements/import`: import -> export -> import yields the same requirements.
+async fn export_requirements(body: Bytes) -> Response {
+    let graph: kr0ki_core::requirements::RequirementGraph = match serde_json::from_slice(&body) {
+        Ok(g) => g,
+        Err(e) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_requirement_graph",
+                &format!("expected a RequirementGraph as JSON: {e}"),
+            )
+        }
+    };
+    match kr0ki_core::reqif_export::export_bundle_to_xml(&graph) {
+        Ok(xml) => (
+            [(header::CONTENT_TYPE, "application/reqif+xml; charset=utf-8")],
+            xml,
+        )
+            .into_response(),
+        Err(e) => error_json(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "reqif_export_failed",
+            &e.to_string(),
+        ),
+    }
 }
