@@ -17,3 +17,4 @@ __pycache__/
 /playbook/.histoire
 .venv/
 /.kr0ki-run/
+containers/kr0ki-sysml-mcp/node_modules/

@@ -1246,7 +1246,14 @@ class Handler(BaseHTTPRequestHandler):
                     stream.try_write({"type": "STATE_DELTA", "threadId": thread_id, "runId": stream.run_id, "delta": [{"op": "add", "path": "/panels/-", "value": panel}]})
                 llm_tool_content = tool_content[:MAX_SKILL_CHARS + 400] if ui_note else truncate(tool_content)[:2000]
                 messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": llm_tool_content})
-                if tool_image_data_url:
+                if tool_image_data_url and not client.vision_enabled():
+                    # A text-only model (llama.cpp without --mmproj) answers an image with HTTP 500 and the run dies. Say so instead.
+                    run_log.event("llm.vision", {"enabled": False, "note": "image review skipped"})
+                    messages.append({
+                        "role": "user",
+                        "content": "Internal candidate review: the render succeeded, but this model cannot view images. Judge the candidate from its source and the renderer's result; do not claim to have inspected the picture.",
+                    })
+                elif tool_image_data_url:
                     messages.append({
                         "role": "user",
                         "content": [
