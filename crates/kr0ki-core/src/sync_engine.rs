@@ -69,7 +69,8 @@ pub(crate) fn element_identifier(element: &Element) -> Option<&str> {
 /// An element a sync wants to exist, identified by `identifier`, together with the
 /// writable `fields` the sync owns (anything else on the server element is not ours and
 /// is preserved on update).
-pub(crate) struct DesiredElement {
+#[derive(Clone)]
+pub struct DesiredElement {
     pub identifier: String,
     pub type_: &'static str,
     pub fields: Map<String, Value>,

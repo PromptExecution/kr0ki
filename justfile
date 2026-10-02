@@ -518,6 +518,25 @@ test-live-sysml:
     KR0KI_SYSMLV2_BASE_URL="$base" KR0KI_SYSMLV2_TEST_PROJECT_ID="$id" CARGO_BUILD_JOBS=3 \
       cargo test -p kr0ki-sysmlv2-client --test live -p kr0ki-core --test flexo_reqif_sync --test recompute_live -- --ignored --test-threads=1
 
+# ── assurance thread (docs/assurance/) ──────────────────────────────────────────
+# Load the baseline, check the nine profile fields and statement lint, resolve links,
+# round-trip it through ReqIF, and list gaps. Exits 1 on a defect; `--strict` also fails on
+# dangling links. Same service the /assurance routes and MCP tools use.
+assurance-lint *flags:
+    cargo run -q -p kr0ki-core --bin kr0ki-assurance -- lint {{flags}}
+
+# Run the declared verification cases whose test targets exist and store revision-bound
+# evidence under .kr0ki-evidence/. Pass case ids to run only those.
+assurance-verify *cases:
+    cargo run -q -p kr0ki-core --bin kr0ki-assurance -- verify {{cases}}
+
+# Regenerate the requirements view from the baseline and the stored evidence.
+assurance-view format="table":
+    cargo run -q -p kr0ki-core --bin kr0ki-assurance -- view --format {{format}}
+
+assurance-gaps:
+    cargo run -q -p kr0ki-core --bin kr0ki-assurance -- gaps
+
 # Delegate an errand to the local Qwen3.8 via pi (read-only by default). See docs/PATTERN-pi-subagents.md.
 delegate +prompt:
     scripts/delegate-qwen38.sh {{prompt}}

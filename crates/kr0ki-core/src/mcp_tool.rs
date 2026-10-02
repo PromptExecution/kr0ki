@@ -34,6 +34,16 @@ pub enum McpTool {
     ValidateSysml,
     SysmlSymbols,
     SysmlSummary,
+    ListRequirements,
+    GetRequirement,
+    TraceRequirement,
+    RenderView,
+    GetEvidence,
+    ProposeChange,
+    ValidateChange,
+    CommitChange,
+    RunVerification,
+    GetAuditRecords,
 }
 
 impl McpTool {
@@ -60,6 +70,16 @@ impl McpTool {
         Self::ValidateSysml,
         Self::SysmlSymbols,
         Self::SysmlSummary,
+        Self::ListRequirements,
+        Self::GetRequirement,
+        Self::TraceRequirement,
+        Self::RenderView,
+        Self::GetEvidence,
+        Self::ProposeChange,
+        Self::ValidateChange,
+        Self::CommitChange,
+        Self::RunVerification,
+        Self::GetAuditRecords,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -86,6 +106,16 @@ impl McpTool {
             Self::ValidateSysml => "validate_sysml",
             Self::SysmlSymbols => "sysml_symbols",
             Self::SysmlSummary => "sysml_summary",
+            Self::ListRequirements => "list_requirements",
+            Self::GetRequirement => "get_requirement",
+            Self::TraceRequirement => "trace_requirement",
+            Self::RenderView => "render_view",
+            Self::GetEvidence => "get_evidence",
+            Self::ProposeChange => "propose_change",
+            Self::ValidateChange => "validate_change",
+            Self::CommitChange => "commit_change",
+            Self::RunVerification => "run_verification",
+            Self::GetAuditRecords => "get_audit_records",
         }
     }
 
@@ -162,6 +192,36 @@ impl McpTool {
             Self::SysmlSummary => {
                 "Summarise SysML v2 text: counts of elements by kind (part def, requirement, ...), via the SysML MCP sidecar."
             }
+            Self::ListRequirements => {
+                "List the assurance baseline's requirements, each with its status, owner, assurance state (unsatisfied / satisfied_untested / verified / failing / stale) and gap kinds. Filters narrow the result so only what is needed enters your context; call get_requirement for one in full."
+            }
+            Self::GetRequirement => {
+                "Get one requirement in full: its nine profile fields, its thread (source obligations, satisfying elements, enforcing controls, verification cases, evidence with result and freshness), its assurance state and its gaps, all qualified by the model, implementation and configuration revisions they were computed at."
+            }
+            Self::TraceRequirement => {
+                "Resolve one requirement's links - satisfying system elements against the current model revision, implementation paths and test targets against the repository - and report each as resolved or dangling with the reason. Use this to see implementation gaps."
+            }
+            Self::RenderView => {
+                "Render the assurance view. Satisfaction assertions (dashed edges) and verification results (evidence nodes with result and freshness) are drawn apart. format: json (default), table, d2, or svg."
+            }
+            Self::GetEvidence => {
+                "List revision-bound evidence records (result, the three revisions, artifact uri and digest, artifact integrity, freshness now). Filter by requirement and/or verification case."
+            }
+            Self::ProposeChange => {
+                "Draft a change to the requirement baseline and return its diff and diagnostics WITHOUT committing. The body is JSON: {project_id, branch_id?, requirements:[{id,title,statement,source,source_kind,owner,rationale,verification_id,acceptance,status}]}. Each requirement is validated against the profile and linted (one 'shall', a responsible component, no vague terms); a profile error means no change is proposed. The result names the base revision the diff was computed against."
+            }
+            Self::ValidateChange => {
+                "Check a drafted change: is it still based on the current model revision (current=true), or has the model moved on (stale)? Does not commit."
+            }
+            Self::CommitChange => {
+                "Apply a drafted change IF AND ONLY IF the model head is expected_revision. A stale expected_revision is rejected (409, stale_base) with both revisions named and nothing written - re-read, then propose again. Requires the model.commit grant, checked by the service for every transport."
+            }
+            Self::RunVerification => {
+                "Run a declared verification case and store revision-bound evidence. `revision` is the implementation revision you expect to be verifying; if the repository is at a different revision the run is refused (409). Only `cargo test -p <package> --test <name>` cases run; a run that executed zero tests is an error, not a pass."
+            }
+            Self::GetAuditRecords => {
+                "Read the audit log: one record per tool invocation, permitted or denied, with caller, operation, decision, model revision and correlation id. Filter by caller, operation, decision, correlation_id or phase. Requires the audit.read grant. The result says whether the hash chain verifies."
+            }
         }
     }
 
@@ -171,6 +231,61 @@ impl McpTool {
                 "type": "object",
                 "required": ["code"],
                 "properties": {"code": {"type": "string", "description": "SysML v2 textual notation (max 256 KiB)."}}
+            }),
+            Self::ListRequirements => serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["draft", "review", "validated", "gated", "implemented"]},
+                    "owner": {"type": "string"},
+                    "state": {"type": "string", "enum": ["unsatisfied", "satisfied_untested", "verified", "failing", "stale"]},
+                    "gap": {"type": "string", "description": "Only requirements with this gap kind (e.g. control_not_implemented, satisfied_untested, stale, dangling_element)."}
+                }
+            }),
+            Self::GetRequirement | Self::TraceRequirement => serde_json::json!({
+                "type": "object", "required": ["id"],
+                "properties": {"id": {"type": "string", "description": "Requirement id, e.g. KR-A01."}}
+            }),
+            Self::RenderView => serde_json::json!({
+                "type": "object",
+                "properties": {"format": {"type": "string", "enum": ["json", "table", "d2", "svg"], "default": "json"}}
+            }),
+            Self::GetEvidence => serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "requirement": {"type": "string", "description": "Requirement id."},
+                    "case": {"type": "string", "description": "Verification case id, e.g. VC-A01."}
+                }
+            }),
+            Self::ProposeChange => serde_json::json!({
+                "type": "object", "required": ["change"],
+                "properties": {"change": {"type": "string", "description": "JSON: {project_id, branch_id?, requirements:[{id,title,statement,source,source_kind,owner,rationale,verification_id,acceptance,status}]}."}}
+            }),
+            Self::ValidateChange => serde_json::json!({
+                "type": "object", "required": ["change_id"],
+                "properties": {"change_id": {"type": "string"}}
+            }),
+            Self::CommitChange => serde_json::json!({
+                "type": "object", "required": ["change_id", "expected_revision"],
+                "properties": {
+                    "change_id": {"type": "string"},
+                    "expected_revision": {"type": "string", "description": "The model revision you believe is current: the base_revision the proposal named. Rejected if the head differs."}
+                }
+            }),
+            Self::RunVerification => serde_json::json!({
+                "type": "object", "required": ["case_id", "revision"],
+                "properties": {
+                    "case_id": {"type": "string", "description": "Verification case id, e.g. VC-A01."},
+                    "revision": {"type": "string", "description": "The implementation revision you expect to verify."}
+                }
+            }),
+            Self::GetAuditRecords => serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "caller": {"type": "string"}, "operation": {"type": "string"},
+                    "decision": {"type": "string", "enum": ["permit", "deny"]},
+                    "correlation_id": {"type": "string"},
+                    "phase": {"type": "string", "enum": ["decision", "outcome"]}
+                }
             }),
             Self::ListDiagramTypes => serde_json::json!({
                 "type": "object",
@@ -467,6 +582,86 @@ impl McpTool {
                     placement: ArgPlacement::Path,
                 }],
             },
+            Self::ListRequirements => HttpBinding {
+                method: HttpMethod::Get,
+                path_template: "/assurance/requirements",
+                args: &[
+                    ArgBinding { name: "status", placement: ArgPlacement::Query },
+                    ArgBinding { name: "owner", placement: ArgPlacement::Query },
+                    ArgBinding { name: "state", placement: ArgPlacement::Query },
+                    ArgBinding { name: "gap", placement: ArgPlacement::Query }
+                ],
+            },
+            Self::GetRequirement => HttpBinding {
+                method: HttpMethod::Get,
+                path_template: "/assurance/requirements/{id}",
+                args: &[
+                    ArgBinding { name: "id", placement: ArgPlacement::Path }
+                ],
+            },
+            Self::TraceRequirement => HttpBinding {
+                method: HttpMethod::Get,
+                path_template: "/assurance/requirements/{id}/trace",
+                args: &[
+                    ArgBinding { name: "id", placement: ArgPlacement::Path }
+                ],
+            },
+            Self::RenderView => HttpBinding {
+                method: HttpMethod::Get,
+                path_template: "/assurance/view",
+                args: &[
+                    ArgBinding { name: "format", placement: ArgPlacement::Query }
+                ],
+            },
+            Self::GetEvidence => HttpBinding {
+                method: HttpMethod::Get,
+                path_template: "/assurance/evidence",
+                args: &[
+                    ArgBinding { name: "requirement", placement: ArgPlacement::Query },
+                    ArgBinding { name: "case", placement: ArgPlacement::Query }
+                ],
+            },
+            Self::ProposeChange => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/assurance/changes",
+                args: &[
+                    ArgBinding { name: "change", placement: ArgPlacement::Body }
+                ],
+            },
+            Self::ValidateChange => HttpBinding {
+                method: HttpMethod::Get,
+                path_template: "/assurance/changes/{change_id}",
+                args: &[
+                    ArgBinding { name: "change_id", placement: ArgPlacement::Path }
+                ],
+            },
+            Self::CommitChange => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/assurance/changes/{change_id}/commit",
+                args: &[
+                    ArgBinding { name: "change_id", placement: ArgPlacement::Path },
+                    ArgBinding { name: "expected_revision", placement: ArgPlacement::Query }
+                ],
+            },
+            Self::RunVerification => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/assurance/verify/{case_id}",
+                args: &[
+                    ArgBinding { name: "case_id", placement: ArgPlacement::Path },
+                    ArgBinding { name: "revision", placement: ArgPlacement::Query }
+                ],
+            },
+            Self::GetAuditRecords => HttpBinding {
+                method: HttpMethod::Get,
+                path_template: "/assurance/audit",
+                args: &[
+                    ArgBinding { name: "caller", placement: ArgPlacement::Query },
+                    ArgBinding { name: "operation", placement: ArgPlacement::Query },
+                    ArgBinding { name: "decision", placement: ArgPlacement::Query },
+                    ArgBinding { name: "correlation_id", placement: ArgPlacement::Query },
+                    ArgBinding { name: "phase", placement: ArgPlacement::Query }
+                ],
+            },
             Self::SyncDigitalThread => HttpBinding {
                 method: HttpMethod::Post,
                 path_template: "/model/projects/{project_id}/sync",
@@ -525,7 +720,7 @@ pub enum HttpMethod {
 }
 
 /// Where in the HTTP request a `tools/call` argument by this name lands.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArgPlacement {
     /// Substituted into the path template at `{name}`.
     Path,
@@ -582,13 +777,105 @@ mod tests {
             .any(|a| a.name == "url" && matches!(a.placement, ArgPlacement::Body)));
     }
     #[test]
+    fn assurance_tools_bind_to_the_assurance_routes() {
+        let b = |t: McpTool| {
+            let h = t.http_binding();
+            let m = match h.method {
+                HttpMethod::Get => "GET",
+                HttpMethod::Post => "POST",
+            };
+            let args: Vec<(&str, &str)> = h
+                .args
+                .iter()
+                .map(|a| {
+                    (
+                        a.name,
+                        match a.placement {
+                            ArgPlacement::Path => "path",
+                            ArgPlacement::Query => "query",
+                            ArgPlacement::Body => "body",
+                        },
+                    )
+                })
+                .collect();
+            (m, h.path_template, args)
+        };
+        assert_eq!(
+            b(McpTool::GetRequirement),
+            ("GET", "/assurance/requirements/{id}", vec![("id", "path")])
+        );
+        assert_eq!(
+            b(McpTool::TraceRequirement),
+            (
+                "GET",
+                "/assurance/requirements/{id}/trace",
+                vec![("id", "path")]
+            )
+        );
+        assert_eq!(
+            b(McpTool::RenderView),
+            ("GET", "/assurance/view", vec![("format", "query")])
+        );
+        assert_eq!(
+            b(McpTool::CommitChange),
+            (
+                "POST",
+                "/assurance/changes/{change_id}/commit",
+                vec![("change_id", "path"), ("expected_revision", "query")]
+            ),
+            "the commit tool carries the expected revision, so a stale caller can be refused"
+        );
+        assert_eq!(
+            b(McpTool::RunVerification),
+            (
+                "POST",
+                "/assurance/verify/{case_id}",
+                vec![("case_id", "path"), ("revision", "query")]
+            )
+        );
+        assert_eq!(
+            b(McpTool::ProposeChange),
+            ("POST", "/assurance/changes", vec![("change", "body")])
+        );
+        assert_eq!(
+            b(McpTool::ValidateChange).0,
+            "GET",
+            "validating a draft must not be a write"
+        );
+        assert_eq!(b(McpTool::GetAuditRecords).1, "/assurance/audit");
+        assert_eq!(b(McpTool::GetEvidence).1, "/assurance/evidence");
+        assert_eq!(b(McpTool::ListRequirements).1, "/assurance/requirements");
+    }
+
+    #[test]
+    fn every_required_argument_in_a_schema_has_a_binding() {
+        // A required argument with nowhere to go on the wire would be silently dropped.
+        for t in McpTool::ALL {
+            let schema = t.input_schema();
+            let bound: Vec<&str> = t.http_binding().args.iter().map(|a| a.name).collect();
+            for r in schema["required"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|v| v.as_str())
+            {
+                assert!(
+                    bound.contains(&r),
+                    "{}: required `{r}` has no HTTP binding",
+                    t.name()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn all_tools_have_unique_names() {
         let mut names: Vec<&str> = McpTool::ALL.iter().map(|t| t.name()).collect();
         let before = names.len();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), before, "duplicate McpTool name in ALL");
-        assert_eq!(McpTool::ALL.len(), 22);
+        assert_eq!(McpTool::ALL.len(), 32);
     }
 
     #[test]
