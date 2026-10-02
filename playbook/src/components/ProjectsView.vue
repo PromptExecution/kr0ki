@@ -221,6 +221,23 @@ async function drawGraph() {
   } catch (e) { say('error', `Could not draw the graph: ${e.message}`) } finally { graphBusy.value = false }
 }
 
+// Ask the real SysML v2 parser (the MCP sidecar behind /sysml/validate) rather than the browser's heuristic scanner.
+const validation = ref(null)
+const validating = ref(false)
+async function validateSysml() {
+  const path = selectedPath.value
+  if (!path || fileKind(path) !== 'sysml') return
+  validating.value = true
+  try {
+    const base = (props.rendererUrl || window.location.origin).replace(/\/$/, '')
+    const res = await fetch(`${base}/sysml/validate`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: work[path] })
+    const body = await res.json()
+    if (!res.ok) throw new Error(body.message || `server returned ${res.status}`)
+    validation.value = { path, syntax: body.syntaxErrors || [], semantic: body.semanticIssues || [] }
+  } catch (e) { validation.value = null; say('error', `Could not validate: ${e.message}`) } finally { validating.value = false }
+}
+const issueLine = (i) => `${i.line != null ? `line ${i.line}: ` : ''}${i.message}`
+
 async function importReqif(event) {
   const file = event.target.files?.[0]
   event.target.value = ''
@@ -310,6 +327,16 @@ const fmtTime = (t) => new Date(t).toLocaleString()
         <template v-if="selectedPath">
           <p class="projects__path">{{ selectedPath }}</p>
           <CodeEditor v-model="work[selectedPath]" :format="''" data-testid="project-editor" />
+          <div v-if="fileKind(selectedPath) === 'sysml'" class="projects__validate">
+            <button type="button" class="secondary" :disabled="validating" data-testid="validate-sysml" @click="validateSysml">{{ validating ? 'Validating…' : 'Validate with SysML v2 parser' }}</button>
+            <template v-if="validation && validation.path === selectedPath">
+              <span v-if="!validation.syntax.length" class="muted" data-testid="validation-ok">No syntax errors<template v-if="validation.semantic.length"> · {{ validation.semantic.length }} semantic note{{ validation.semantic.length === 1 ? '' : 's' }}</template>.</span>
+              <ul v-if="validation.syntax.length || validation.semantic.length" class="projects__issues" data-testid="validation-issues">
+                <li v-for="(i, n) in validation.syntax" :key="`s${n}`" class="issue-error">{{ issueLine(i) }}</li>
+                <li v-for="(i, n) in validation.semantic.slice(0, 20)" :key="`m${n}`" class="issue-note">{{ issueLine(i) }}</li>
+              </ul>
+            </template>
+          </div>
           <div v-if="fileKind(selectedPath) === 'diagram'" class="projects__depicts">
             <span>This diagram depicts requirement:</span>
             <span v-for="t in depictsHere" :key="t.requirement" class="chip">{{ t.requirement }}<button type="button" :aria-label="`Unlink ${t.requirement}`" @click="removeDepicts(t)">×</button></span>
@@ -504,4 +531,8 @@ td.gap { color: #fca5a5; }
 .projects__warn { margin: .5rem 0; padding: .4rem .6rem; border-radius: .4rem; background: #3b2a0a; border: 1px solid #92400e; color: #fde68a; font-size: .8rem; }
 .projects__graph { display: block; max-width: 100%; margin-top: .6rem; background: #fff; border-radius: .4rem; }
 @media (max-width: 760px) { .projects__main { grid-template-columns: 1fr; } }
+.projects__validate { margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.projects__issues { margin: 0; padding-left: 1.2rem; font-size: 0.85rem; flex-basis: 100%; }
+.issue-error { color: #c0392b; }
+.issue-note { opacity: 0.8; }
 </style>

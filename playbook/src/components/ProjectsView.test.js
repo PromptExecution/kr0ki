@@ -249,6 +249,31 @@ describe('ProjectsView', () => {
     expect(w.find('[data-testid="notice"]').text()).toContain('missing <REQ-IF>')
   })
 
+  it('validates a SysML file with the real parser and lists syntax errors and semantic notes', async () => {
+    let sent = null
+    vi.stubGlobal('fetch', vi.fn(async (url, init) => { sent = [String(url), init.body]; return { ok: true, status: 200, json: async () => ({ syntaxErrors: [{ line: 3, message: 'extraneous input' }], semanticIssues: [{ line: 1, message: 'no documentation' }] }) } }))
+    const w = await mountView()
+    await createWith(w, 'V', 'v.sysml'); await edit(w, REQS)
+    await w.find('[data-testid="validate-sysml"]').trigger('click'); await flushPromises()
+    expect(sent[0]).toBe('http://k.test:8787/sysml/validate')
+    expect(sent[1]).toContain('requirement')
+    const issues = w.find('[data-testid="validation-issues"]').text()
+    expect(issues).toContain('line 3: extraneous input')
+    expect(issues).toContain('line 1: no documentation')
+    expect(w.find('[data-testid="validation-ok"]').exists()).toBe(false)
+  })
+
+  it('says so when validation is clean, and reports an unconfigured sidecar instead of failing silently', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ syntaxErrors: [], semanticIssues: [] }) })))
+    const w = await mountView()
+    await createWith(w, 'V', 'v.sysml')
+    await w.find('[data-testid="validate-sysml"]').trigger('click'); await flushPromises()
+    expect(w.find('[data-testid="validation-ok"]').text()).toContain('No syntax errors')
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503, json: async () => ({ message: 'set KR0KI_SYSML_MCP_URL' }) })))
+    await w.find('[data-testid="validate-sysml"]').trigger('click'); await flushPromises()
+    expect(w.find('[data-testid="notice"]').text()).toContain('KR0KI_SYSML_MCP_URL')
+  })
+
   it('draws the requirement graph by posting D2 to the renderer', async () => {
     let posted = null
     vi.stubGlobal('fetch', vi.fn(async (url, init) => { posted = [String(url), init.body]; return { ok: true, blob: async () => new Blob(['<svg/>']) } }))
