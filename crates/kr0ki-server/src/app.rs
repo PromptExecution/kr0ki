@@ -93,6 +93,9 @@ pub fn router(
         .route("/api/catalog", get(catalog))
         .route("/api/catalog/suggest", post(suggest_diagram_type))
         .route("/brand", get(list_brands))
+        .route("/sparql", post(sparql_query))
+        .route("/sparql/shapes", post(sparql_shapes))
+        .route("/sparql/rollup", post(sparql_rollup))
         .route(
             "/sysml/validate",
             post(|s: State<AppState>, b: Bytes| sysml_tool(s, "validate", b)),
@@ -1793,4 +1796,96 @@ pub(crate) fn error_json_with_id(
         )),
     )
         .into_response()
+}
+
+// ---- /sparql*: the requirements graph as RDF in a per-request oxigraph store (PLAN-KR0KI-008 WP7) ----
+const MAX_SPARQL_BODY_BYTES: usize = 4 * 1024 * 1024;
+const SPARQL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+#[derive(serde::Deserialize)]
+struct SparqlRequest {
+    graph: kr0ki_core::rdf_store::ReqGraph,
+    #[serde(default)]
+    query: String,
+    #[serde(default, rename = "prefixDepth")]
+    prefix_depth: Option<usize>,
+}
+
+/// Parse the body, build the store, and run `work` on a blocking thread under a deadline. Property-path queries can be
+/// expensive; the deadline bounds the *response*, and the row/query/node caps in `rdf_store` bound the work.
+async fn with_rdf_store<F>(body: Bytes, work: F) -> Response
+where
+    F: FnOnce(
+            &kr0ki_core::rdf_store::RdfStore,
+            &SparqlRequest,
+        ) -> Result<serde_json::Value, kr0ki_core::rdf_store::RdfError>
+        + Send
+        + 'static,
+{
+    use kr0ki_core::rdf_store::{RdfError, RdfStore};
+    if body.len() > MAX_SPARQL_BODY_BYTES {
+        return error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "sparql_body_too_large",
+            "request is limited to 4 MiB",
+        );
+    }
+    let req: SparqlRequest = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(e) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                &format!("expected {{graph, query}}: {e}"),
+            )
+        }
+    };
+    let job = tokio::task::spawn_blocking(move || {
+        RdfStore::from_graph(&req.graph).and_then(|st| work(&st, &req))
+    });
+    match tokio::time::timeout(SPARQL_TIMEOUT, job).await {
+        Err(_) => error_json(
+            StatusCode::GATEWAY_TIMEOUT,
+            "sparql_timeout",
+            "query exceeded 10s",
+        ),
+        Ok(Err(e)) => error_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "sparql_task_failed",
+            &e.to_string(),
+        ),
+        Ok(Ok(Ok(v))) => Json(v).into_response(),
+        Ok(Ok(Err(e @ (RdfError::Parse(_) | RdfError::NotReadOnly | RdfError::QueryTooLarge)))) => {
+            error_json(StatusCode::BAD_REQUEST, "invalid_sparql", &e.to_string())
+        }
+        Ok(Ok(Err(e @ RdfError::TooLarge(_)))) => error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "graph_too_large",
+            &e.to_string(),
+        ),
+        Ok(Ok(Err(e))) => error_json(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "sparql_error",
+            &e.to_string(),
+        ),
+    }
+}
+
+/// `POST /sparql` `{graph, query}` -> SELECT rows or an ASK boolean. Read-only; the store is rebuilt per request.
+async fn sparql_query(body: Bytes) -> Response {
+    with_rdf_store(body, |st, req| st.query(&req.query)).await
+}
+
+/// `POST /sparql/shapes` `{graph}` -> the starter rule pack's violations (SHACL-style checks as SPARQL).
+async fn sparql_shapes(body: Bytes) -> Response {
+    with_rdf_store(body, |st, _| {
+        st.check_shapes()
+            .map(|r| serde_json::json!({ "shapes": r }))
+    })
+    .await
+}
+
+/// `POST /sparql/rollup` `{graph, prefixDepth?}` -> cost attribution summed by code (optionally folded by code prefix).
+async fn sparql_rollup(body: Bytes) -> Response {
+    with_rdf_store(body, |st, req| st.attribution_rollup(req.prefix_depth)).await
 }

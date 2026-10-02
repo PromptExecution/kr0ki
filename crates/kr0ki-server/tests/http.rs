@@ -2346,3 +2346,73 @@ async fn mcp_manifest_advertises_the_sysml_tools_bound_to_the_sysml_routes() {
         assert_eq!(t["httpBinding"]["args"][0]["placement"], "body");
     }
 }
+
+fn sparql_graph() -> serde_json::Value {
+    serde_json::json!({
+        "nodes": [
+            {"id": "R1", "satisfiedBy": ["Engine"], "verifiedBy": ["T1"], "attributions": [{"code": "CC-1/WBS-1", "share": 1.0}]},
+            {"id": "R2", "attributions": [{"code": "CC-1/WBS-2", "share": 0.7}, {"code": "CC-2", "share": 0.5}]}
+        ],
+        "edges": [{"from": "R2", "to": "R1", "kind": "derive"}]
+    })
+}
+
+#[tokio::test]
+async fn sparql_routes_answer_over_the_requirements_graph() {
+    let state = state_with_sysml_mcp("sparql", "http://127.0.0.1:1");
+    let post = |path: &'static str, body: serde_json::Value| {
+        let app = test_app(state.clone());
+        async move { post_text(app, path, serde_json::to_vec(&body).unwrap()).await }
+    };
+
+    let (s, b) = post("/sparql", serde_json::json!({"graph": sparql_graph(), "query": "PREFIX r: <urn:kr0ki:req#> SELECT ?id WHERE { ?q r:derivedFrom+ ?p . ?p r:id 'R1' . ?q r:id ?id }"})).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["rows"][0]["id"]["value"], "R2");
+
+    let (s, b) = post(
+        "/sparql/shapes",
+        serde_json::json!({"graph": sparql_graph()}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let over = b["shapes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["shape"] == "over-allocated")
+        .unwrap();
+    assert_eq!(over["violations"], serde_json::json!(["R2"]));
+
+    let (s, b) = post(
+        "/sparql/rollup",
+        serde_json::json!({"graph": sparql_graph(), "prefixDepth": 1}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let cc1 = b["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["code"] == "CC-1")
+        .unwrap();
+    assert!((cc1["total"].as_f64().unwrap() - 1.7).abs() < 1e-9);
+}
+
+#[tokio::test]
+async fn sparql_refuses_updates_bad_queries_and_malformed_bodies() {
+    let state = state_with_sysml_mcp("sparql-bad", "http://127.0.0.1:1");
+    for q in [
+        "INSERT DATA { <x:a> <x:b> <x:c> }",
+        "SELECT nonsense",
+        "CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }",
+    ] {
+        let body =
+            serde_json::to_vec(&serde_json::json!({"graph": sparql_graph(), "query": q})).unwrap();
+        let (s, b) = post_text(test_app(state.clone()), "/sparql", body).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{q}: {b}");
+        assert_eq!(b["error"], "invalid_sparql");
+    }
+    let (s, b) = post_text(test_app(state), "/sparql", b"not json".to_vec()).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+    assert_eq!(b["error"], "invalid_request");
+}
