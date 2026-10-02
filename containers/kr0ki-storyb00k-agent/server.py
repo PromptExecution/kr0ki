@@ -171,6 +171,34 @@ def language_skill(fmt):
     return text.strip()[:MAX_SKILL_CHARS]
 
 
+MBSE_SKILLS_DIR = SKILLS_DIR / "mbse"
+
+
+def mbse_skill_file(name):
+    """The whole skills/mbse/<name>.md (frontmatter included), or None."""
+    if not _valid_skill_name(name):
+        return None
+    try:
+        return (MBSE_SKILLS_DIR / f"{name.lower()}.md").read_text()
+    except OSError:
+        return None
+
+
+def list_mbse_skills():
+    """[{name, description, confidence}] for the MBSE assistant skills (V-model traceability, requirement writing, ...)."""
+    out = []
+    try:
+        files = sorted(MBSE_SKILLS_DIR.glob("*.md"))
+    except OSError:
+        return out
+    for f in files:
+        text = mbse_skill_file(f.stem) or ""
+        head = text.splitlines()[:6]
+        field = lambda key: next((line[len(key) + 1:].strip() for line in head if line.startswith(key + ":")), "")
+        out.append({"name": f.stem, "description": field("description"), "confidence": field("confidence")})
+    return out
+
+
 class SkillRequiredError(Exception):
     """A render named a language whose syntax guide has not yet been delivered this run: deliver it first.
     This is the deterministic gate: unlike a model-judged skill load, it cannot be skipped."""
@@ -547,6 +575,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"skills": list_language_skills()})
         elif self.path.startswith("/skills/diagrams/"):
             text = language_skill_file(self.path[len("/skills/diagrams/"):].split("?")[0])
+            if text is None:
+                return self._json(404, {"error": "skill_not_found"})
+            self._text(200, text)
+        elif self.path == "/skills/mbse":
+            self._json(200, {"skills": list_mbse_skills()})
+        elif self.path.startswith("/skills/mbse/"):
+            text = mbse_skill_file(self.path[len("/skills/mbse/"):].split("?")[0])
             if text is None:
                 return self._json(404, {"error": "skill_not_found"})
             self._text(200, text)

@@ -42,6 +42,21 @@ class ServerTest(unittest.TestCase):
         self.assertTrue({"d2", "graphviz", "plantuml", "nwdiag"} <= formats, formats)
         self.assertTrue(all(s["description"].startswith("Use before") for s in data["skills"]))
 
+    def test_the_mbse_assistant_skills_are_listed_and_fetchable_with_their_confidence(self):
+        data = json.loads(self.request("/skills/mbse").read())
+        names = {s["name"] for s in data["skills"]}
+        self.assertTrue({"v-model-traceability", "requirement-writing", "sysml-v2-modeling", "cost-attribution-and-compliance"} <= names, names)
+        # a skill that rests on recalled standards must say so; none may claim to be verified
+        for skill in data["skills"]:
+            self.assertTrue(skill["description"] and skill["confidence"].startswith("recalled"), skill)
+        response = self.request("/skills/mbse/v-model-traceability")
+        self.assertEqual(response.status, 200)
+        self.assertIn("## The V, as questions to ask of the model", response.read().decode())
+
+    def test_mbse_skill_routes_reject_unknown_and_unsafe_names(self):
+        for path in ("/skills/mbse/nope", "/skills/mbse/..%2Fserver", "/skills/mbse/../../server.py", "/skills/mbse/", "/skills/mbse/v-model-traceability%2F..%2Fx"):
+            self.assertEqual(self.request(path).status, 404, path)
+
     def test_health(self):
         response = self.request("/health")
         self.assertEqual(response.status, 200)
