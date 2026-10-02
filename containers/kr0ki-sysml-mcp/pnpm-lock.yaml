@@ -1,0 +1,24 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      sysml-v2-lsp:
+        specifier: 0.32.0
+        version: 0.32.0
+
+packages:
+
+  sysml-v2-lsp@0.32.0:
+    resolution: {integrity: sha512-e1ZWOac/nULGEQGIGEw1yYMY3va4eIIxFExHLJD1hOL4FFKCJ8Ijq1LCE/dlgifOotgTBy+3f8f1wmegxKqnfA==}
+    engines: {node: '>=20', vscode: ^1.85.0}
+    hasBin: true
+
+snapshots:
+
+  sysml-v2-lsp@0.32.0: {}

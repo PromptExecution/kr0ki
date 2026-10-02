@@ -43,6 +43,9 @@ holon-viz = { git = "https://github.com/PromptExecution/ledgrrr", rev = "3e9e3f4
 # here, just SPO triples).
 oxttl = "0.2"
 oxrdf = "0.3"
+# The requirements graph store + read-only SPARQL (PLAN-KR0KI-008, decision 1: oxigraph approved, EVAL-rdf-stores).
+# default-features=false: no RocksDB, no HTTP client; in-memory store only, and it still builds for wasm32.
+oxigraph = { version = "0.5", default-features = false }
 # Box 1's cross-crate `requires` slice (rust_recognizer.rs, PATTERNS-rust-
 # source.md #5): reads workspace Cargo.toml files to tell a workspace-sibling
 # crate apart from a genuine external dependency.

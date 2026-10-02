@@ -21,6 +21,7 @@
 //!                              http://127.0.0.1:8788. Unset disables the
 //!                              route with a 503, not a panic.
 //!   KR0KI_SYSMLV2_BASE_URL      if set, enables read-only `/model/*` routes.
+//!   KR0KI_SYSML_MCP_URL         SysML v2 MCP sidecar (enables /sysml/validate, /sysml/parse, /sysml/symbols, /sysml/summary).
 //!   KR0KI_BRAND_DIR             brand packages for `?brand=<name>` (default ./brand; <dir>/<name>/brand.json).
 //!   KR0KI_SYSMLV2_TOKEN         optional bearer token for that model server.
 
@@ -67,6 +68,11 @@ async fn main() -> anyhow::Result<()> {
     let brand_dir = std::path::PathBuf::from(
         std::env::var("KR0KI_BRAND_DIR").unwrap_or_else(|_| "./brand".into()),
     );
+    // SysML v2 MCP sidecar (containers/kr0ki-sysml-mcp): read-only parse/validate/symbols over SysML text.
+    let sysml_mcp = std::env::var("KR0KI_SYSML_MCP_URL")
+        .ok()
+        .filter(|u| !u.trim().is_empty())
+        .map(|u| Arc::new(kr0ki_core::sysml_mcp::SysmlMcpClient::new(u)));
     let storyb00k_agent_url = std::env::var("KR0KI_STORYB00K_AGENT_URL").ok();
     let llm_api_url = std::env::var("OPENAI_API_URL").ok();
     let llm_api_key = std::env::var("OPENAI_API_KEY").ok();
@@ -121,6 +127,7 @@ async fn main() -> anyhow::Result<()> {
         model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
         ui_bus: Arc::new(kr0ki_core::ui_bus::UiBus::new()),
         brand_dir,
+        sysml_mcp,
         storyb00k_agent_url,
         llm_api_url,
         llm_api_key,

@@ -101,6 +101,26 @@ describe('traceability of changes to requirements', () => {
     expect(store.requirementHistory(p.id, 'REQ-9')).toEqual([])
   })
 
+  it('a link-only change (an attribution line or compliance tag) is saved, versioned and flags that requirement', () => {
+    const tag = { requirement: 'REQ-1', relation: 'tagged', target: 'au-ai6:P5', artifact: '(project)', basis: 'judgement' }
+    store.commit(p.id, { files: { 'a.sysml': REQ_V1 }, message: 'initial' })
+    expect(store.commit(p.id, { files: { 'a.sysml': REQ_V1 }, message: 'nothing' })).toBeNull()
+    const c = store.commit(p.id, { files: { 'a.sysml': REQ_V1 }, message: 'tag it', traces: [tag] })
+    expect(c.changes).toEqual([])
+    expect(c.traceChanges).toEqual([{ op: 'added', requirement: 'REQ-1', relation: 'tagged', target: 'au-ai6:P5' }])
+    expect(c.impact.requirements).toEqual(['REQ-1'])
+    const c2 = store.commit(p.id, { files: { 'a.sysml': REQ_V1 }, message: 'untag', traces: [] })
+    expect(c2.traceChanges).toEqual([{ op: 'removed', requirement: 'REQ-1', relation: 'tagged', target: 'au-ai6:P5' }])
+    expect(store.requirementHistory(p.id, 'REQ-1').map((h) => h.message)).toEqual(['untag', 'tag it', 'initial'])
+  })
+
+  it('a changed share on the same attribution code counts as a change', () => {
+    const line = (share) => ({ requirement: 'REQ-1', relation: 'attributed', target: 'CC-1', artifact: '(project)', share })
+    store.commit(p.id, { files: { 'a.sysml': REQ_V1 }, message: 'initial', traces: [line(0.5)] })
+    const c = store.commit(p.id, { files: { 'a.sysml': REQ_V1 }, message: 'rebalance', traces: [line(1)] })
+    expect(c.traceChanges.map((t) => t.op).sort()).toEqual(['added', 'removed'])
+  })
+
   it('a removed file still flags the requirements it carried', () => {
     store.commit(p.id, { files: { 'a.sysml': REQ_V1, 'b.sysml': 'package Q {}' }, message: 'initial' })
     const c = store.commit(p.id, { files: { 'b.sysml': 'package Q {}' }, message: 'delete the requirements file' })

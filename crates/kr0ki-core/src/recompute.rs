@@ -32,8 +32,7 @@ pub struct RecomputeResult {
     pub violations: Vec<RuleViolation>,
 }
 
-/// Fetches the project's newest commit (`commits()` is already
-/// newest-first, per `docs/TODO.md`'s "Commit poll loop" note), builds its
+/// Fetches the project's branch-head commit, builds its
 /// `SysGraph`, evaluates every `RuleDocument` element against it, and
 /// returns both the raw per-rule results and the `RequirementGraph` they
 /// were folded into. A project with zero commits or zero rule docs is a
@@ -42,23 +41,25 @@ pub async fn recompute_and_evaluate(
     client: &SysmlV2Client,
     project_id: &str,
 ) -> Result<RecomputeResult, ClientError> {
-    let commits = client.commits(project_id).await?;
-    // TODO: this assumes `commits()` returns commits newest-first, so
-    // `.first()` is the latest. That assumption rests entirely on the OMG
-    // API server's own ordering behavior, which `SysmlV2Client::commits()`
-    // does not itself verify or enforce -- kr0ki has no control over it and
-    // it is currently unverified against any real server in this
-    // environment (see `docs/TODO.md`'s "Commit poll loop" note and the
-    // requirements-rules-system final review ledger). A defensive fix would
-    // sort by `Commit.created` (falling back to server order when `created`
-    // is absent) rather than trusting `.first()` outright; that change was
-    // judged too risky to make inside this already-large fix wave (risk of
-    // subtly changing existing test semantics around tie-breaking), so it
-    // is deliberately left as a visible, tracked assumption instead.
-    let latest = commits.first().ok_or_else(|| ClientError::Status {
-        code: 404,
-        body: format!("project {project_id} has no commits"),
-    })?;
+    // The branch head, never `commits()[0]`: the OMG pilot lists commits in id order, not newest-first (found live,
+    // 2026-10-02: recompute read a three-commits-old snapshot and found none of the rules just committed).
+    let config = crate::sync_engine::SyncConfig {
+        project_id: project_id.to_string(),
+        branch_id: None,
+    };
+    let latest = crate::sync_engine::resolve_head(client, &config)
+        .await
+        .map_err(|e| match e {
+            crate::sync_engine::SyncError::Client(c) => c,
+            other => ClientError::Status {
+                code: 502,
+                body: other.to_string(),
+            },
+        })?
+        .ok_or_else(|| ClientError::Status {
+            code: 404,
+            body: format!("project {project_id} has no commits"),
+        })?;
     let snapshot = client.snapshot(project_id, &latest.at_id).await?;
     let sysgraph = build_sysgraph(&snapshot);
     let rule_docs = extract_rule_docs(&snapshot);

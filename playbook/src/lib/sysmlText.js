@@ -44,15 +44,50 @@ function bodyAfter(text, index) {
 }
 
 // `attribute cost : Real = 120.5 [USD];` -> { cost: 120.5 }. Numeric literals only (no expressions): an honest, checkable subset.
-// Only the body's OWN attributes: nested `{ ... }` blocks (inner requirements, constraints) are removed first.
-function ownBody(body) {
-  let b = body
-  for (let prev = ''; prev !== b; ) { prev = b; b = b.replace(/\{[^{}]*\}/g, ' ') }
-  return b
+// Cost ATTRIBUTION, not cost: an accounting-style code the requirement is charged to, written as SysML v2 metadata:
+//   @CostAttribution { code = 'CC-4410/WBS-2.3'; share = 0.6; }      (also `metadata CostAttribution { ... }`)
+// `code` is a hierarchical code (cost centre / work breakdown / activity); `share` is the fraction of the requirement attributed to it
+// (default 1). Only metadata that sits directly in the requirement's own body counts (nested requirements keep their own).
+export const CODE_RE = /^[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)*(?:\/[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)*)*$/
+
+/** Split a body into its own text (nested blocks removed) and its nested blocks with the text that introduced each. */
+function topLevel(body) {
+  let depth = 0, plain = '', head = '', start = -1
+  const blocks = []
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]
+    if (ch === '{') { if (depth++ === 0) { start = i + 1; head = plain.slice(-120) } }
+    else if (ch === '}' && depth > 0) { if (--depth === 0) { blocks.push({ head, content: body.slice(start, i) }); plain += ' ' } }
+    else if (depth === 0) plain += ch
+  }
+  return { plain, blocks }
 }
 
-function numericAttributes(rawBody) {
-  const body = ownBody(rawBody)
+// Compliance tags: `@ComplianceTag { tag = 'iso42001:A.6.2.6'; basis = 'judgement'; }` -> { tag, basis } (basis: official | judgement).
+function complianceTags(blocks) {
+  const out = []
+  for (const b of blocks) {
+    if (!/(?:@|\bmetadata\s+)ComplianceTag\s*$/.test(b.head.trimEnd())) continue
+    const tag = new RegExp(String.raw`\btag\s*=\s*(?:'([^']*)'|"([^"]*)")\s*;`).exec(b.content)
+    const basis = new RegExp(String.raw`\bbasis\s*=\s*(?:'([^']*)'|"([^"]*)")\s*;`).exec(b.content)
+    if (tag) out.push({ tag: (tag[1] ?? tag[2]).trim(), basis: basis ? (basis[1] ?? basis[2]).trim() : 'judgement' })
+  }
+  return out
+}
+
+function costAttributions(blocks) {
+  const out = []
+  for (const b of blocks) {
+    if (!/(?:@|\bmetadata\s+)CostAttribution\s*$/.test(b.head.trimEnd())) continue
+    const code = new RegExp(String.raw`\bcode\s*=\s*(?:'([^']*)'|"([^"]*)")\s*;`).exec(b.content)
+    const share = /\bshare\s*=\s*(-?\d+(?:\.\d+)?)\s*;/.exec(b.content)
+    if (code) out.push({ code: (code[1] ?? code[2]).trim(), share: share ? Number(share[1]) : 1 })
+  }
+  return out
+}
+
+// Numeric literals only (no expressions) from the body's own text: an honest, checkable subset. Kept for old projects (`attribute cost = N;`).
+function numericAttributes(body) {
   const out = {}
   const re = new RegExp(String.raw`\battribute\s+(${ID})(?:\s*:\s*${QNAME})?\s*=\s*(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)\s*(?:\[[^\]]*\])?\s*;`, 'g')
   for (let m; (m = re.exec(body)); ) out[unquote(m[1])] = Number(m[2])
@@ -71,12 +106,12 @@ export function scanRequirements(source) {
   const usages = []
   const defRe = new RegExp(String.raw`\brequirement\s+def\s+(?:<\s*(${ID})\s*>\s*)?(${ID})`, 'g')
   for (let m; (m = defRe.exec(text)); ) {
-    definitions.push({ name: unquote(m[2]), shortName: unquote(m[1]) ?? null, doc: docAfter(m.index + m[0].length), attributes: numericAttributes(bodyAfter(text, m.index + m[0].length)) })
+    definitions.push({ name: unquote(m[2]), shortName: unquote(m[1]) ?? null, doc: docAfter(m.index + m[0].length), attributes: numericAttributes(topLevel(bodyAfter(text, m.index + m[0].length)).plain), attributions: costAttributions(topLevel(bodyAfter(text, m.index + m[0].length)).blocks), tags: complianceTags(topLevel(bodyAfter(text, m.index + m[0].length)).blocks) })
   }
   // usage: `requirement [<'id'>] name [: Type] [:> general]` that is not `requirement def`, `satisfy requirement` or `verify requirement`
   const useRe = new RegExp(String.raw`(?<!\b(?:satisfy|verify|assume|require|refine|derive|allocate)\s)\brequirement\s+(?!def\b)(?:<\s*(${ID})\s*>\s*)?(${ID})(?:\s*:\s*(${QNAME}))?(?:\s*:>\s*(${QNAME}))?`, 'g')
   for (let m; (m = useRe.exec(text)); ) {
-    usages.push({ name: unquote(m[2]), shortName: unquote(m[1]) ?? null, type: m[3] ? unquote(m[3]) : null, general: m[4] ? unquote(m[4]) : null, doc: docAfter(m.index + m[0].length), attributes: numericAttributes(bodyAfter(text, m.index + m[0].length)) })
+    usages.push({ name: unquote(m[2]), shortName: unquote(m[1]) ?? null, type: m[3] ? unquote(m[3]) : null, general: m[4] ? unquote(m[4]) : null, doc: docAfter(m.index + m[0].length), attributes: numericAttributes(topLevel(bodyAfter(text, m.index + m[0].length)).plain), attributions: costAttributions(topLevel(bodyAfter(text, m.index + m[0].length)).blocks), tags: complianceTags(topLevel(bodyAfter(text, m.index + m[0].length)).blocks) })
   }
   const relations = []
   const relRe = new RegExp(String.raw`\b(${KINDS.join('|')})\s+(?:requirement\s+)?(${QNAME})(?:\s+(?:by|from|to)\s+(${QNAME}))?\s*;`, 'g')
@@ -88,8 +123,8 @@ export function scanRequirements(source) {
 export function declaredRequirements(source) {
   const s = scanRequirements(source)
   return [
-    ...s.definitions.map((d) => ({ id: d.shortName || d.name, name: d.name, doc: d.doc, attributes: d.attributes, kind: 'definition' })),
-    ...s.usages.map((u) => ({ id: u.shortName || u.name, name: u.name, doc: u.doc, attributes: u.attributes, kind: 'usage' })),
+    ...s.definitions.map((d) => ({ id: d.shortName || d.name, name: d.name, doc: d.doc, attributes: d.attributes, kind: 'definition', attributions: d.attributions, tags: d.tags })),
+    ...s.usages.map((u) => ({ id: u.shortName || u.name, name: u.name, doc: u.doc, attributes: u.attributes, kind: 'usage', attributions: u.attributions, tags: u.tags })),
   ]
 }
 

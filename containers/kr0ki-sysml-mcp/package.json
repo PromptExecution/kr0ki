@@ -1,0 +1,10 @@
+{
+  "name": "kr0ki-sysml-mcp-bridge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HTTP front for the sysml-v2-lsp MCP server (stdio), run as a kr0ki sidecar.",
+  "scripts": { "start": "node bridge.mjs", "test": "node --test \"test/*.test.mjs\"" },
+  "dependencies": { "sysml-v2-lsp": "0.32.0" },
+  "devDependencies": {}
+}

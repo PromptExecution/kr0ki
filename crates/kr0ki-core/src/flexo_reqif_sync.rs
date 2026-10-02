@@ -89,7 +89,8 @@ fn desired_elements(graph: &RequirementGraph) -> Result<Vec<DesiredElement>, Syn
 
             let mut fields = Map::new();
             fields.insert("name".into(), req.title.clone().into());
-            fields.insert("text".into(), req.text.clone().into());
+            // `text` is `String[0..*]` on a SysML v2 RequirementUsage; the pilot server rejects a bare string (HTTP 500, found live).
+            fields.insert("text".into(), serde_json::json!([req.text]));
             fields.insert("reqif_baseline_id".into(), baseline_id.clone().into());
             fields.insert(
                 "reqif_baseline_revision".into(),
@@ -163,6 +164,30 @@ fn required<T: DeserializeOwned>(
         .map_err(|err| malformed(identifier, format!("field '{name}': {err}")))
 }
 
+/// `text` as stored by a SysML v2 server (a list of strings, joined by newlines). A bare string is also accepted so
+/// elements written before the list form was fixed still read back.
+fn requirement_text(e: &Element, identifier: &str) -> Result<String, FetchError> {
+    let v = field(e, identifier, "text")?;
+    match v {
+        serde_json::Value::String(s) => Ok(s.clone()),
+        serde_json::Value::Array(items) => items
+            .iter()
+            .map(|i| i.as_str().map(str::to_owned))
+            .collect::<Option<Vec<_>>>()
+            .map(|parts| parts.join("\n"))
+            .ok_or_else(|| {
+                malformed(
+                    identifier,
+                    "field 'text': list must contain only strings".into(),
+                )
+            }),
+        _ => Err(malformed(
+            identifier,
+            "field 'text': expected a string or a list of strings".into(),
+        )),
+    }
+}
+
 /// An optional field: absent means `T::default()`, present-but-wrong is still an error.
 fn optional<T: DeserializeOwned + Default>(
     e: &Element,
@@ -211,6 +236,14 @@ pub fn requirement_graph_from_elements(
     let mut relations = Vec::new();
     for (e, identifier) in managed {
         let id = unescape(&identifier[prefix.len()..]);
+        if !e.fields.contains_key("identifier") && !e.fields.contains_key("reqif_provenance") {
+            // Only the alias marker survived: a strictly typed server (the OMG pilot) drops extension fields. Provenance,
+            // attributes, evidence and relations are not recoverable from it, and inventing them would be worse.
+            return Err(malformed(
+                identifier,
+                "the server does not persist kr0ki's extension fields (reqif_provenance, relations, evidence); only id, name and text survive on a strictly typed SysML v2 server".into(),
+            ));
+        }
         let provenance: Provenance = required(e, identifier, "reqif_provenance")?;
         let attributes: BTreeMap<String, String> = optional(e, identifier, "reqif_attributes")?;
         let evidence: Vec<EvidenceRef> = optional(e, identifier, "reqif_evidence")?;
@@ -235,7 +268,7 @@ pub fn requirement_graph_from_elements(
         requirements.push(Requirement {
             id,
             title: required(e, identifier, "name")?,
-            text: required(e, identifier, "text")?,
+            text: requirement_text(e, identifier)?,
             baseline: baseline.clone(),
             provenance,
             attributes,

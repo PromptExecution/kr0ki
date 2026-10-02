@@ -1,5 +1,6 @@
 """Planner mode: the gallery's planning agent may steer *its own* browser tab and nothing else."""
 
+import base64
 import json
 import tempfile
 import threading
@@ -298,3 +299,33 @@ class TypeSkillCoverageTest(unittest.TestCase):
                 self.assertIn(section, text, f"{tid} lacks '{section}'")
             self.assertLessEqual(len(text), 4500, tid)
             self.assertGreaterEqual(len(re.findall(r"```[a-z0-9-]+\n", text)), 2, f"{tid} needs a bad and a good example")
+
+
+class TextOnlyModelRunTest(DuplicateRenderTest):
+    """A PNG render on a text-only model must not put an image in the conversation (the server would answer HTTP 500)."""
+
+    test_an_identical_successful_render_is_refused_not_repeated = None
+
+    def run_png_render(self, vision):
+        self.client.vision_enabled.return_value = vision
+        png = base64.b64encode(b"\x89PNG fake").decode()
+        with patch("server.http_call", side_effect=lambda m, u, d=None, h=None: self.calls.append((m, u, d)) or ("image/png", b"\x89PNG fake")):
+            self.client.chat_completion.side_effect = [
+                {"model": "m", "choices": [{"message": {"content": "", "tool_calls": [{"id": "c1", "function": {"name": "render_diagram", "arguments": json.dumps({"format": "graphviz", "source": "digraph{a->b}", "output": "png"})}}]}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+                {"model": "m", "choices": [{"message": {"content": "Done."}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+            ]
+            body = json.dumps({"threadId": "regular-vis", "runId": "rv", "messages": [{"role": "user", "content": "draw"}]}).encode()
+            req = urllib.request.Request(f"http://127.0.0.1:{self.port}/run", data=body, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                resp.read()
+        sent = self.client.chat_completion.call_args_list[1].args[0]
+        return [m for m in sent if isinstance(m.get("content"), list) and any(p.get("type") == "image_url" for p in m["content"])], sent
+
+    def test_no_image_is_sent_to_a_text_only_model_and_the_model_is_told_why(self):
+        images, sent = self.run_png_render(vision=False)
+        self.assertEqual(images, [])
+        self.assertTrue(any("cannot view images" in str(m.get("content")) for m in sent))
+
+    def test_a_vision_model_still_gets_the_image(self):
+        images, _ = self.run_png_render(vision=True)
+        self.assertEqual(len(images), 1)

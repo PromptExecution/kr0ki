@@ -21,18 +21,38 @@ pub struct RuleDoc {
     pub backend: RuleBackendKind,
 }
 
-/// Extract every `RuleDocument` element from `snapshot`. An element whose
-/// `@type` is `"RuleDocument"` but is missing its `rego` field is silently
-/// skipped — same "never abort the whole snapshot's graph build" convention
-/// `ufo_graph.rs` already uses for malformed relationship elements.
+/// Extract every rule document from `snapshot`, in either of two shapes:
+///
+/// - `@type: "RuleDocument"` with a `rego` field (this crate's own convention; needs a server that accepts custom
+///   element types), or
+/// - the standard KerML `TextualRepresentation` with `language: "rego"` and the source in `body`. A strictly typed
+///   server (the OMG pilot, which answers HTTP 500 to an unknown `@type`) accepts this one; verified live 2026-10-02.
+///
+/// An element of either shape missing its source is silently skipped — same "never abort the whole snapshot's graph
+/// build" convention `ufo_graph.rs` already uses for malformed relationship elements.
 pub fn extract_rule_docs(snapshot: &ModelSnapshot) -> Vec<RuleDoc> {
     snapshot
         .elements
         .iter()
-        .filter(|el| el.ty() == "RuleDocument")
+        .filter(|el| {
+            el.ty() == "RuleDocument"
+                || (el.ty() == "TextualRepresentation"
+                    && el
+                        .get("language")
+                        .and_then(|l| l.as_str())
+                        .is_some_and(|l| l.eq_ignore_ascii_case("rego")))
+        })
         .filter_map(|el| {
-            let rego_source = el.get("rego")?.as_str()?.to_string();
-            let name = el.name().unwrap_or_else(|| el.id()).to_string();
+            let rego_source = el
+                .get("rego")
+                .or_else(|| el.get("body"))?
+                .as_str()?
+                .to_string();
+            let name = el
+                .name()
+                .or_else(|| el.get("declaredName").and_then(|n| n.as_str()))
+                .unwrap_or_else(|| el.id())
+                .to_string();
             Some(RuleDoc {
                 id: ElementId::new(el.id()),
                 name,
@@ -86,6 +106,25 @@ mod tests {
         }))]);
         let docs = extract_rule_docs(&snap);
         assert_eq!(docs[0].name, "rule:unnamed");
+    }
+
+    #[test]
+    fn extracts_a_rego_textual_representation_as_the_standard_encoding() {
+        let snap = snapshot(vec![
+            element(
+                json!({"@id": "t1", "@type": "TextualRepresentation", "declaredName": "R", "language": "rego", "body": "package kr0ki\n"}),
+            ),
+            element(
+                json!({"@id": "t2", "@type": "TextualRepresentation", "language": "ocl", "body": "not rego"}),
+            ),
+            element(json!({"@id": "t3", "@type": "TextualRepresentation", "language": "rego"})),
+        ]);
+        let docs = extract_rule_docs(&snap);
+        assert_eq!(docs.len(), 1, "{docs:?}");
+        assert_eq!(
+            (docs[0].name.as_str(), docs[0].rego_source.as_str()),
+            ("R", "package kr0ki\n")
+        );
     }
 
     #[test]

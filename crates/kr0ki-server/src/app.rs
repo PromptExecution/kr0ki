@@ -57,6 +57,8 @@ pub struct AppState {
     pub ui_bus: Arc<kr0ki_core::ui_bus::UiBus>,
     /// Brand packages (`<dir>/<name>/brand.json`) applied by `?brand=<name>` on SysML renders.
     pub brand_dir: PathBuf,
+    /// SysML v2 MCP sidecar client (`KR0KI_SYSML_MCP_URL`); `None` makes `/sysml/*` return 503.
+    pub sysml_mcp: Option<Arc<kr0ki_core::sysml_mcp::SysmlMcpClient>>,
     /// AG-UI storyb00k sidecar base URL (deep /health probe). `None` skips it.
     pub storyb00k_agent_url: Option<String>,
     /// OpenAI-compatible LLM endpoint for the storyb00k agent. The /health LLM
@@ -91,6 +93,25 @@ pub fn router(
         .route("/api/catalog", get(catalog))
         .route("/api/catalog/suggest", post(suggest_diagram_type))
         .route("/brand", get(list_brands))
+        .route("/sparql", post(sparql_query))
+        .route("/sparql/shapes", post(sparql_shapes))
+        .route("/sparql/rollup", post(sparql_rollup))
+        .route(
+            "/sysml/validate",
+            post(|s: State<AppState>, b: Bytes| sysml_tool(s, "validate", b)),
+        )
+        .route(
+            "/sysml/parse",
+            post(|s: State<AppState>, b: Bytes| sysml_tool(s, "parse", b)),
+        )
+        .route(
+            "/sysml/symbols",
+            post(|s: State<AppState>, b: Bytes| sysml_tool(s, "getSymbols", b)),
+        )
+        .route(
+            "/sysml/summary",
+            post(|s: State<AppState>, b: Bytes| sysml_tool(s, "getModelSummary", b)),
+        )
         .route("/ui/:session/events", get(ui_events))
         .route("/ui/:session/navigate", post(ui_navigate))
         .route("/playbook", get(playbook_index))
@@ -103,6 +124,10 @@ pub fn router(
             )),
         )
         .route("/requirements/import/url", post(import_requirements_url))
+        .route(
+            "/requirements/export",
+            post(export_requirements).layer(DefaultBodyLimit::max(MAX_REQUIREMENTS_EXPORT_BYTES)),
+        )
         .route("/requirements/views", post(requirements_view))
         .route("/render/:format", post(render))
         .route("/render/requirements-view", post(render_requirements_view))
@@ -127,6 +152,10 @@ pub fn router(
             post(recompute_model),
         )
         .route("/model/projects/:project_id/sync", post(sync_model))
+        .route(
+            "/model/projects/:project_id/requirements",
+            post(sync_requirements).layer(DefaultBodyLimit::max(MAX_REQUIREMENTS_EXPORT_BYTES)),
+        )
         .route(
             "/model/projects/:project_id/commits/:commit_id/elements",
             get(query_model_elements),
@@ -521,7 +550,7 @@ async fn sync_model(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
     body: Bytes,
 ) -> Response {
-    use kr0ki_core::digital_thread_sync::{sync_dbt_graph, SyncConfig, SyncError, SysGraph};
+    use kr0ki_core::digital_thread_sync::{sync_dbt_graph, SyncConfig, SysGraph};
 
     let client = match require_sysmlv2_client(&state) {
         Ok(client) => client,
@@ -550,22 +579,63 @@ async fn sync_model(
     };
     match sync_dbt_graph(&client, &graph, &config).await {
         Ok(commit) => Json(serde_json::json!({ "commit": commit })).into_response(),
-        Err(SyncError::Conflict { attempts }) => error_json(
+        Err(e) => sync_error_response(e),
+    }
+}
+
+fn sync_error_response(e: kr0ki_core::digital_thread_sync::SyncError) -> Response {
+    use kr0ki_core::digital_thread_sync::SyncError;
+    match e {
+        SyncError::Conflict { attempts } => error_json(
             StatusCode::CONFLICT,
             "sync_conflict",
             &format!("concurrent commits kept moving the branch after {attempts} attempt(s); nothing was committed"),
         ),
-        Err(e @ SyncError::DuplicateIdentifier(_)) => error_json(
+        e @ SyncError::DuplicateIdentifier(_) => error_json(
             StatusCode::UNPROCESSABLE_ENTITY,
             "duplicate_identifier",
             &e.to_string(),
         ),
-        Err(SyncError::Client(e)) => client_error_response(e),
-        Err(e @ SyncError::Encode(_)) => error_json(
+        SyncError::Client(e) => client_error_response(e),
+        e @ SyncError::Encode(_) => error_json(
             StatusCode::INTERNAL_SERVER_ERROR,
             "sync_encode_error",
             &e.to_string(),
         ),
+    }
+}
+
+/// `POST /model/projects/{project_id}/requirements[?branch_id=...]` -- body is a `RequirementGraph` as JSON (the
+/// `graph` of a `/requirements/import` document). Reconciles that baseline's requirements into the project as
+/// `RequirementUsage` elements, at most one commit; other baselines and unrelated elements are never touched.
+/// Responds `{"commit": {...}}` (the new commit, or the unchanged head when nothing differs).
+async fn sync_requirements(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    body: Bytes,
+) -> Response {
+    let client = match require_sysmlv2_client(&state) {
+        Ok(client) => client,
+        Err(response) => return *response,
+    };
+    let graph: kr0ki_core::requirements::RequirementGraph = match serde_json::from_slice(&body) {
+        Ok(g) => g,
+        Err(e) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_requirement_graph",
+                &format!("body is not a valid RequirementGraph: {e}"),
+            )
+        }
+    };
+    let config = kr0ki_core::digital_thread_sync::SyncConfig {
+        project_id,
+        branch_id: params.get("branch_id").cloned(),
+    };
+    match kr0ki_core::flexo_reqif_sync::sync_requirement_baseline(&client, &graph, &config).await {
+        Ok(commit) => Json(serde_json::json!({ "commit": commit })).into_response(),
+        Err(e) => sync_error_response(e),
     }
 }
 
@@ -1577,6 +1647,44 @@ fn parse_multi_doc_yaml(text: &str) -> Result<Vec<serde_json::Value>, serde_yaml
         .map(|docs| docs.into_iter().filter(|v| !v.is_null()).collect())
 }
 
+/// `POST /sysml/{validate,parse,symbols,summary}` — body is SysML v2 text; answered by the MCP sidecar. Read-only language
+/// service: it does not know `satisfy` relations or short names (use the model routes for requirement graphs).
+async fn sysml_tool(State(state): State<AppState>, tool: &'static str, body: Bytes) -> Response {
+    use kr0ki_core::sysml_mcp::SysmlMcpError;
+    let Some(client) = state.sysml_mcp.as_ref() else {
+        return error_json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "sysml_mcp_not_configured",
+            "set KR0KI_SYSML_MCP_URL to the SysML MCP sidecar (just sysml-mcp-up)",
+        );
+    };
+    let Ok(source) = std::str::from_utf8(&body) else {
+        return error_json(
+            StatusCode::BAD_REQUEST,
+            "invalid_utf8",
+            "SysML source must be UTF-8 text",
+        );
+    };
+    match client.call_tool(tool, source).await {
+        Ok(result) => Json(result).into_response(),
+        Err(SysmlMcpError::TooLarge) => error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "sysml_source_too_large",
+            "SysML source is limited to 256 KiB",
+        ),
+        Err(e @ (SysmlMcpError::Unavailable(_) | SysmlMcpError::Protocol(_))) => error_json(
+            StatusCode::BAD_GATEWAY,
+            "sysml_mcp_unavailable",
+            &e.to_string(),
+        ),
+        Err(e) => error_json(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "sysml_mcp_error",
+            &e.to_string(),
+        ),
+    }
+}
+
 const MAX_BRAND_BYTES: u64 = 256 * 1024;
 
 fn valid_brand_name(name: &str) -> bool {
@@ -1737,4 +1845,126 @@ pub(crate) fn error_json_with_id(
         )),
     )
         .into_response()
+}
+
+// ---- /sparql*: the requirements graph as RDF in a per-request oxigraph store (PLAN-KR0KI-008 WP7) ----
+const MAX_SPARQL_BODY_BYTES: usize = 4 * 1024 * 1024;
+const SPARQL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+#[derive(serde::Deserialize)]
+struct SparqlRequest {
+    graph: kr0ki_core::rdf_store::ReqGraph,
+    #[serde(default)]
+    query: String,
+    #[serde(default, rename = "prefixDepth")]
+    prefix_depth: Option<usize>,
+}
+
+/// Parse the body, build the store, and run `work` on a blocking thread under a deadline. Property-path queries can be
+/// expensive; the deadline bounds the *response*, and the row/query/node caps in `rdf_store` bound the work.
+async fn with_rdf_store<F>(body: Bytes, work: F) -> Response
+where
+    F: FnOnce(
+            &kr0ki_core::rdf_store::RdfStore,
+            &SparqlRequest,
+        ) -> Result<serde_json::Value, kr0ki_core::rdf_store::RdfError>
+        + Send
+        + 'static,
+{
+    use kr0ki_core::rdf_store::{RdfError, RdfStore};
+    if body.len() > MAX_SPARQL_BODY_BYTES {
+        return error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "sparql_body_too_large",
+            "request is limited to 4 MiB",
+        );
+    }
+    let req: SparqlRequest = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(e) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_request",
+                &format!("expected {{graph, query}}: {e}"),
+            )
+        }
+    };
+    let job = tokio::task::spawn_blocking(move || {
+        RdfStore::from_graph(&req.graph).and_then(|st| work(&st, &req))
+    });
+    match tokio::time::timeout(SPARQL_TIMEOUT, job).await {
+        Err(_) => error_json(
+            StatusCode::GATEWAY_TIMEOUT,
+            "sparql_timeout",
+            "query exceeded 10s",
+        ),
+        Ok(Err(e)) => error_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "sparql_task_failed",
+            &e.to_string(),
+        ),
+        Ok(Ok(Ok(v))) => Json(v).into_response(),
+        Ok(Ok(Err(e @ (RdfError::Parse(_) | RdfError::NotReadOnly | RdfError::QueryTooLarge)))) => {
+            error_json(StatusCode::BAD_REQUEST, "invalid_sparql", &e.to_string())
+        }
+        Ok(Ok(Err(e @ RdfError::TooLarge(_)))) => error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "graph_too_large",
+            &e.to_string(),
+        ),
+        Ok(Ok(Err(e))) => error_json(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "sparql_error",
+            &e.to_string(),
+        ),
+    }
+}
+
+/// `POST /sparql` `{graph, query}` -> SELECT rows or an ASK boolean. Read-only; the store is rebuilt per request.
+async fn sparql_query(body: Bytes) -> Response {
+    with_rdf_store(body, |st, req| st.query(&req.query)).await
+}
+
+/// `POST /sparql/shapes` `{graph}` -> the starter rule pack's violations (SHACL-style checks as SPARQL).
+async fn sparql_shapes(body: Bytes) -> Response {
+    with_rdf_store(body, |st, _| {
+        st.check_shapes()
+            .map(|r| serde_json::json!({ "shapes": r }))
+    })
+    .await
+}
+
+/// `POST /sparql/rollup` `{graph, prefixDepth?}` -> cost attribution summed by code (optionally folded by code prefix).
+async fn sparql_rollup(body: Bytes) -> Response {
+    with_rdf_store(body, |st, req| st.attribution_rollup(req.prefix_depth)).await
+}
+
+const MAX_REQUIREMENTS_EXPORT_BYTES: usize = 8 * 1024 * 1024;
+
+/// `POST /requirements/export` — a `RequirementGraph` as JSON (the `graph` of a document returned by
+/// `/requirements/import`, or a baseline read back from a project) in, a ReqIF XML document out. The inverse of
+/// `/requirements/import`: import -> export -> import yields the same requirements.
+async fn export_requirements(body: Bytes) -> Response {
+    let graph: kr0ki_core::requirements::RequirementGraph = match serde_json::from_slice(&body) {
+        Ok(g) => g,
+        Err(e) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_requirement_graph",
+                &format!("expected a RequirementGraph as JSON: {e}"),
+            )
+        }
+    };
+    match kr0ki_core::reqif_export::export_bundle_to_xml(&graph) {
+        Ok(xml) => (
+            [(header::CONTENT_TYPE, "application/reqif+xml; charset=utf-8")],
+            xml,
+        )
+            .into_response(),
+        Err(e) => error_json(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "reqif_export_failed",
+            &e.to_string(),
+        ),
+    }
 }

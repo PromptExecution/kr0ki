@@ -1,0 +1,16 @@
+[Unit]
+Description=kr0ki: render server (:8787)
+Wants=kr0ki-kroki.service kr0ki-sysml-mcp.service
+After=kr0ki-kroki.service kr0ki-sysml-mcp.service
+
+[Service]
+WorkingDirectory=%h/promptexecution/kr0ki
+EnvironmentFile=-%h/promptexecution/kr0ki/.env
+Environment=KR0KI_BIND=0.0.0.0:8787 KR0KI_BACKEND_URL=http://127.0.0.1:8010 KR0KI_SYSML_MCP_URL=http://127.0.0.1:8790
+ExecStart=%h/promptexecution/kr0ki/target/debug/kr0ki
+MemoryMax=1G
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

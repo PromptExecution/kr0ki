@@ -31,6 +31,18 @@ describe('CatalogTree', () => {
     expect(w.findAll('.tree-leaf').length).toBe(3) // flowchart + erd under process flow, erd under data model
   })
 
+  it('draws the expand arrow as an image, not as the Material Icons ligature text "play_arrow" (no icon font is bundled)', async () => {
+    const w = mountTree()
+    await flushPromises()
+    expect(w.text()).not.toContain('play_arrow')
+    const arrows = w.findAll('.q-tree__arrow')
+    expect(arrows.length).toBeGreaterThan(0)
+    for (const a of arrows) {
+      expect(a.text()).toBe('')
+      expect(a.find('img').attributes('src')).toMatch(/^data:image\/svg\+xml/)
+    }
+  })
+
   it('selecting a type emits its example and type id; selecting a group only toggles it', async () => {
     const w = mountTree()
     await flushPromises()

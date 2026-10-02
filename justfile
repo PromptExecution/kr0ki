@@ -472,3 +472,48 @@ status-agent port="8789":
     else
         echo "✗ Agent server is not running on port {{port}}"
     fi
+
+# Boot persistence: user-level systemd units (linger is enabled for this account, so they start at boot, not login).
+# Needs the images built (`just dev-kroki-up`, `just sysml-mcp-image`) and ./target/debug/kr0ki (`cargo build`).
+services_units := "kr0ki-kroki kr0ki-sysml-mcp kr0ki-server kr0ki-agent"
+services-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p ~/.config/systemd/user
+    for u in {{services_units}}; do install -m 644 deploy/systemd/$u.service ~/.config/systemd/user/$u.service; done
+    systemctl --user daemon-reload
+    systemctl --user enable {{services_units}}
+    echo "installed + enabled; start now with: just services-start (stop any hand-started copies first)"
+services-start:
+    systemctl --user start kr0ki-agent.service
+services-stop:
+    systemctl --user stop {{services_units}}
+services-status:
+    systemctl --user --no-pager status {{services_units}} | grep -E "^(●|○)|Active:" || true
+services-uninstall:
+    -systemctl --user disable --now {{services_units}}
+    rm -f $(for u in {{services_units}}; do echo ~/.config/systemd/user/$u.service; done)
+    systemctl --user daemon-reload
+
+sysml-mcp-image:
+    pnpm --dir containers/kr0ki-sysml-mcp install --frozen-lockfile
+    podman build --memory=4g --memory-swap=4g -t localhost/kr0ki-sysml-mcp:dev -f containers/kr0ki-sysml-mcp/Containerfile containers/kr0ki-sysml-mcp
+
+test-sysml-mcp:
+    pnpm --dir containers/kr0ki-sysml-mcp install --frozen-lockfile
+    pnpm --dir containers/kr0ki-sysml-mcp test
+
+# SysML v2 pilot API server + postgres (loopback :9000). Build it once with ~/.local/share/kr0ki/sysml-api/build.sh.
+sysml-api-up:
+    scripts/sysml-api-up.sh
+sysml-api-down:
+    -podman rm -f kr0ki-sysml-api-app kr0ki-sysml-pg
+
+# Live write-path tests against the OMG pilot server (`just sysml-api-up` first). Creates a throwaway project.
+test-live-sysml:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="${KR0KI_SYSMLV2_BASE_URL:-http://127.0.0.1:9000}"
+    id=$(curl -fsS -X POST "$base/projects" -H 'content-type: application/json' -d '{"@type":"Project","name":"kr0ki live '"$(date +%s)"'"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["@id"])')
+    KR0KI_SYSMLV2_BASE_URL="$base" KR0KI_SYSMLV2_TEST_PROJECT_ID="$id" CARGO_BUILD_JOBS=3 \
+      cargo test -p kr0ki-sysmlv2-client --test live -p kr0ki-core --test flexo_reqif_sync --test recompute_live -- --ignored --test-threads=1

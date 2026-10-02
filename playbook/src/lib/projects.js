@@ -4,7 +4,7 @@
 //
 //   project  = { id, name, head, createdAt, updatedAt }          (index entry + meta)
 //   commit   = { id, parent, message, author, time, tree: {path: blobId}, changes: [{path,status}], traces: [...],
-//                impact: { requirements: [...] } }               id = sha256 of the canonical commit body
+//                traceChanges: [{op,requirement,relation,target}], impact: { requirements: [...] } }               id = sha256 of the canonical commit body
 //   blob     = file text, stored once per project under its sha256 (identical files across commits cost nothing)
 //
 // Limits (be honest): localStorage is synchronous and capped (~5 MB per origin, shared with the rest of the playbook), so
@@ -116,18 +116,20 @@ export function createProjectStore({ storage, now = () => new Date().toISOString
       if (read(k(id, 'blob', b)) === null) newBlobs.push([b, String(text)])
     }
     const changes = diffTrees(before, tree)
-    if (!changes.length) return null
     const extracted = Object.entries(files).filter(([p]) => fileKind(p) === 'sysml').flatMap(([p, t]) => tracesOf(p, String(t)))
     const all = dedupeTraces([...extracted, ...traces])
+    // Links (attribution lines, compliance tags, 'depicts') are versioned too: a save with only a link change is still a change.
+    const previous = parent ? getCommit(id, parent).traces : []
+    const traceChanges = diffTraces(previous, all)
+    if (!changes.length && !traceChanges.length) return null
     const changedPaths = new Set(changes.map((c) => c.path))
     // Requirements affected by this commit: declared in a changed file, or linked from/to a changed artifact (now or before).
-    const previous = parent ? getCommit(id, parent).traces : []
-    const impacted = new Set()
+    const impacted = new Set(traceChanges.map((t) => t.requirement))
     for (const t of [...all, ...previous]) {
       if (changedPaths.has(t.artifact)) impacted.add(t.requirement)
       if (t.target && changedPaths.has(t.target)) impacted.add(t.requirement)
     }
-    const body = { parent, message: msg, author, time: now(), tree, changes, traces: all, impact: { requirements: [...impacted].sort() } }
+    const body = { parent, message: msg, author, time: now(), tree, changes, traces: all, traceChanges, impact: { requirements: [...impacted].sort() } }
     const commitId = sha(canonical(body))
     // write blobs and commit, then move head; if anything throws we roll back what we added
     const written = []
@@ -219,7 +221,16 @@ export function createProjectStore({ storage, now = () => new Date().toISOString
   return { saveDraft, loadDraft, createProject, getProject, listProjects, renameProject, deleteProject, commit, log, checkout, diff, getCommit, traceability, requirementHistory, exportProject, importProject, usage }
 }
 
+const traceKey = (t) => `${t.requirement}|${t.relation}|${t.target}|${t.artifact}|${t.share ?? ''}|${t.basis ?? ''}`
+function diffTraces(before, after) {
+  const a = new Map(before.map((t) => [traceKey(t), t])), b = new Map(after.map((t) => [traceKey(t), t]))
+  const out = []
+  for (const [k, t] of b) if (!a.has(k)) out.push({ op: 'added', requirement: t.requirement, relation: t.relation, target: t.target ?? null })
+  for (const [k, t] of a) if (!b.has(k)) out.push({ op: 'removed', requirement: t.requirement, relation: t.relation, target: t.target ?? null })
+  return out.sort((x, y) => `${x.requirement}${x.relation}${x.target}${x.op}`.localeCompare(`${y.requirement}${y.relation}${y.target}${y.op}`))
+}
+
 function dedupeTraces(list) {
   const seen = new Set()
-  return list.filter((t) => { const key = `${t.requirement}|${t.relation}|${t.target}|${t.artifact}`; if (seen.has(key)) return false; seen.add(key); return true })
+  return list.filter((t) => { const key = traceKey(t); if (seen.has(key)) return false; seen.add(key); return true })
 }

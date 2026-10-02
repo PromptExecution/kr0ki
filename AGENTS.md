@@ -53,7 +53,7 @@ front-end semantic  recog-    constructs adapters
 
 **Current implemented surface:**
 - `kr0ki-core`: `RenderService` (cache + backend), `FsCache`, `HttpKrokiBackend`, `DiagramFormat` (26 companion-free Kroki formats), docgen (syn harvester + formatters), the recognizers (`k8s_recognizer`, `rust_recognizer`) and lifts (`ufo_graph`, `rust_lift`, `sysml_lift`, `sysml_render`), the requirements stack (`reqif_*`, `requirements_*`, `rule_eval`, `recompute`), and the write path (`sync_engine`, `digital_thread_sync`, `flexo_reqif_sync`)
-- `kr0ki-server`: axum routes `/health`, `/formats`, `/render/{format}`, `/render/k8s-topology`, `/render/rust-source`, `/model/projects/{id}/sync` (write a `SysGraph`'s `dbt:` nodes into a SysML v2 project), `/api/catalog[?use_case=]`, `POST /api/catalog/suggest` (explained type ranking), `GET /ui/{session}/events` (SSE) + `POST /ui/{session}/navigate` (steer a playbook tab), `GET /brand` + `?brand=<name>` on SysML renders (identifier-driven SVG overlay, `kr0ki-svg::enhance`), `/cache/{key}`, `/docs*` (HTML/JSON/tomllm/rustdoc)
+- `kr0ki-server`: axum routes `/health`, `/formats`, `/render/{format}`, `/render/k8s-topology`, `/render/rust-source`, `POST /requirements/export` (RequirementGraph JSON → ReqIF XML, inverse of `/requirements/import`), `POST /model/projects/{id}/requirements` (write a RequirementGraph baseline into a SysML v2 project as RequirementUsage elements; idempotent), `/model/projects/{id}/sync` (write a `SysGraph`'s `dbt:` nodes into a SysML v2 project), `/api/catalog[?use_case=]`, `POST /api/catalog/suggest` (explained type ranking), `GET /ui/{session}/events` (SSE) + `POST /ui/{session}/navigate` (steer a playbook tab), `GET /brand` + `?brand=<name>` on SysML renders (identifier-driven SVG overlay, `kr0ki-svg::enhance`), `/cache/{key}`, `/docs*` (HTML/JSON/tomllm/rustdoc)
 - `kr0ki-sysmlv2-client`: OMG-API REST client, `ModelSnapshot` with `content_hash`
 
 ---
@@ -95,7 +95,9 @@ crates/
 | `KR0KI_PUBLIC_URL` / `KR0KI_AGENT_PUBLIC_URL` | loopback `:8787` / `:8789` | Where the server / StoryB00k agent are reached from a browser, `tests/functional`, and the Vite dev proxy. Put LAN/remote addresses in the gitignored `.env` (copy `.env.example`); `just` loads `.env` automatically. Never hard-code a machine address in tracked files |
 | `KR0KI_BRAND_DIR` | `./brand` | Brand packages: `<dir>/<name>/brand.json` (see `brand/example`, a placeholder) |
 | `KR0KI_TEST_BACKEND` | unset | Live render test backend; use the local/private kroki-compatible service |
-| `KR0KI_SYSMLV2_BASE_URL` | unset | Live SysML-v2 client test target |
+| `KR0KI_SYSMLV2_BASE_URL` | unset | Live SysML-v2 client test target (`just sysml-api-up` serves one on `127.0.0.1:9000`; `just test-live-sysml`) |
+| `OPENAI_API_URL` | (in `.env`) | The agent's / `/health`'s LLM. Boot default is Qwen3.8 NEO-CODER + mmproj (vision) on `127.0.0.1:8002/v1` via `deploy/systemd/b00t-hive-inference-heretic-neo-coder.service`; Qwen3.6 units are disabled |
+| `KR0KI_SYSML_MCP_URL` | unset | SysML v2 MCP sidecar (`containers/kr0ki-sysml-mcp`, `127.0.0.1:8790`); enables `/sysml/{validate,parse,symbols,summary}` and the `sysml_mcp` health check |
 
 ---
 
@@ -176,6 +178,21 @@ before playbook tests can run: `just build-assistant-ui-vue` (or it runs as part
 `just test` / `just build`). The built `dist/` is not committed — it lives in the
 submodule's `.gitignore`. If `just test` fails on playbook import, run
 `just build-assistant-ui-vue` then `pnpm --dir playbook install`.
+
+🤓 **The OMG pilot server is strictly typed (found live, 2026-10-02).** It answers HTTP 500 to an unknown
+`@type` and *silently drops unknown fields*. Consequences already handled: sync markers go in both `identifier`
+and the standard `aliasIds`; the diff compares only fields the server returned when `identifier` is missing;
+`text` on a `RequirementUsage` is a list of strings; rule documents are accepted as `TextualRepresentation`
+(`language: "rego"`, `body`) as well as the custom `RuleDocument`; and the full ReqIF graph (provenance, relations,
+evidence) cannot be read back from it, which `fetch_requirement_baseline` reports as an error rather than inventing
+data. Its commit list is in **id order, not newest-first**: always resolve the branch head (`resolve_head`).
+Services: `just services-install` (boot units), `just sysml-api-up` (pilot + postgres; build it once with
+`~/.local/share/kr0ki/sysml-api/build.sh`, JDK 11, run alone, never beside cargo builds).
+
+🤓 **Requirements graph over SPARQL.** `POST /sparql`, `/sparql/shapes`, `/sparql/rollup` take the playbook's
+`buildRequirementGraph` JSON and answer from a per-request in-memory oxigraph store (`rdf_store.rs`). Cost is an
+attribution code + share, never money. The `md-5`/`sha1` pins to 0.10 in `Cargo.lock` are deliberate (oxigraph's
+spareval needs one `digest` major); a blanket `cargo update` can break the build.
 
 🚩 **Auth is FR7 minimal** — single shared bearer token via env var. No OAuth, no JWT,
 no per-key rate limiting. Suitable for localhost/trusted-proxy only until D4/D5 land.

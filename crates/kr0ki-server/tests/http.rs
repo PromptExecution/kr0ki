@@ -34,6 +34,7 @@ fn test_state(tag: &str) -> AppState {
         model_graph: Arc::new(kr0ki_core::graph_store::GraphStore::new()),
         ui_bus: Arc::new(kr0ki_core::ui_bus::UiBus::new()),
         brand_dir: std::env::temp_dir().join("kr0ki-no-brands"),
+        sysml_mcp: None,
         storyb00k_agent_url: None,
         llm_api_url: None,
         llm_api_key: None,
@@ -198,7 +199,7 @@ async fn mcp_tools_lists_all_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 19);
+    assert_eq!(tools.len(), 22);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
@@ -2149,4 +2150,418 @@ fn the_shipped_example_brand_is_a_valid_package() {
     let svg = SYSML_D2_FIXTURE;
     kr0ki_svg::enhance::enhance(svg, &[], &brand)
         .expect("the shipped placeholder passes the layer's own validation");
+}
+
+// ---- SysML v2 MCP sidecar routes ------------------------------------------------------------------
+
+async fn sysml_sidecar(tool_result: serde_json::Value) -> wiremock::MockServer {
+    use wiremock::matchers::{body_partial_json, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    let s = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/mcp"))
+        .and(body_partial_json(
+            serde_json::json!({"method": "initialize"}),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("mcp-session-id", "S")
+                .set_body_json(serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": {}})),
+        )
+        .mount(&s)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/mcp"))
+        .and(body_partial_json(
+            serde_json::json!({"method": "notifications/initialized"}),
+        ))
+        .respond_with(ResponseTemplate::new(202))
+        .mount(&s)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/mcp"))
+        .and(body_partial_json(
+            serde_json::json!({"method": "tools/call"}),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({"jsonrpc": "2.0", "id": 2, "result": tool_result}),
+            ),
+        )
+        .mount(&s)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/health"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok": true})))
+        .mount(&s)
+        .await;
+    s
+}
+
+fn state_with_sysml_mcp(tag: &str, url: &str) -> AppState {
+    let mut state = test_state(tag);
+    state.sysml_mcp = Some(Arc::new(kr0ki_core::sysml_mcp::SysmlMcpClient::new(url)));
+    state
+}
+
+async fn post_text(app: axum::Router, uri: &str, body: Vec<u8>) -> (StatusCode, serde_json::Value) {
+    let resp = app
+        .oneshot(Request::post(uri).body(Body::from(body)).unwrap())
+        .await
+        .unwrap();
+    let status = resp.status();
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+    )
+}
+
+#[tokio::test]
+async fn sysml_routes_answer_from_the_mcp_sidecar() {
+    let sidecar = sysml_sidecar(serde_json::json!({"structuredContent": {"valid": false, "syntaxErrors": [{"line": 1, "message": "extraneous input"}]}})).await;
+    let state = state_with_sysml_mcp("sysml-ok", &sidecar.uri());
+    for route in ["validate", "parse", "symbols", "summary"] {
+        let (status, body) = post_text(
+            test_app(state.clone()),
+            &format!("/sysml/{route}"),
+            b"package P { part x : ; }".to_vec(),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{route}: {body}");
+        assert_eq!(body["syntaxErrors"][0]["line"], 1);
+    }
+    let sent = sidecar.received_requests().await.unwrap();
+    let names: Vec<String> = sent
+        .iter()
+        .filter_map(|r| serde_json::from_slice::<serde_json::Value>(&r.body).ok())
+        .filter(|v| v["method"] == "tools/call")
+        .map(|v| v["params"]["name"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        names,
+        ["validate", "parse", "getSymbols", "getModelSummary"]
+    );
+}
+
+#[tokio::test]
+async fn sysml_routes_say_so_when_unconfigured_and_validate_their_input() {
+    let (s, b) = post_text(
+        test_app(test_state("sysml-off")),
+        "/sysml/validate",
+        b"package P {}".to_vec(),
+    )
+    .await;
+    assert_eq!(
+        (s, b["error"].as_str()),
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Some("sysml_mcp_not_configured")
+        )
+    );
+    let sidecar = sysml_sidecar(serde_json::json!({"structuredContent": {}})).await;
+    let state = state_with_sysml_mcp("sysml-in", &sidecar.uri());
+    let (s, b) = post_text(
+        test_app(state.clone()),
+        "/sysml/validate",
+        vec![0xff, 0xfe, 0x00],
+    )
+    .await;
+    assert_eq!(
+        (s, b["error"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("invalid_utf8"))
+    );
+    let (s, b) = post_text(
+        test_app(state),
+        "/sysml/validate",
+        vec![b'x'; 256 * 1024 + 1],
+    )
+    .await;
+    assert_eq!(
+        (s, b["error"].as_str()),
+        (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Some("sysml_source_too_large")
+        )
+    );
+    assert!(
+        sidecar.received_requests().await.unwrap().is_empty(),
+        "refused input must never reach the sidecar"
+    );
+}
+
+#[tokio::test]
+async fn sysml_routes_map_sidecar_failures_to_distinct_statuses() {
+    let down = state_with_sysml_mcp("sysml-down", "http://127.0.0.1:1");
+    let (s, b) = post_text(test_app(down), "/sysml/validate", b"package P {}".to_vec()).await;
+    assert_eq!(
+        (s, b["error"].as_str()),
+        (StatusCode::BAD_GATEWAY, Some("sysml_mcp_unavailable"))
+    );
+    let failing = sysml_sidecar(serde_json::json!({"isError": true, "content": [{"type": "text", "text": "parser crashed"}]})).await;
+    let (s, b) = post_text(
+        test_app(state_with_sysml_mcp("sysml-err", &failing.uri())),
+        "/sysml/validate",
+        b"package P {}".to_vec(),
+    )
+    .await;
+    assert_eq!(
+        (s, b["error"].as_str()),
+        (StatusCode::UNPROCESSABLE_ENTITY, Some("sysml_mcp_error"))
+    );
+    assert!(b["message"].as_str().unwrap().contains("parser crashed"));
+}
+
+#[tokio::test]
+async fn health_reports_the_sysml_sidecar_when_configured_and_omits_it_otherwise() {
+    let sidecar = sysml_sidecar(serde_json::json!({})).await;
+    let (_, with) = get_json(
+        test_app(state_with_sysml_mcp("sysml-health", &sidecar.uri())),
+        "/health",
+    )
+    .await;
+    assert_eq!(with["checks"]["sysml_mcp"]["ok"], true);
+    let (_, without) = get_json(test_app(test_state("sysml-nohealth")), "/health").await;
+    assert!(without["checks"]["sysml_mcp"].is_null());
+}
+
+#[tokio::test]
+async fn mcp_manifest_advertises_the_sysml_tools_bound_to_the_sysml_routes() {
+    let (_, v) = get_json(test_app(test_state("mcp-sysml")), "/mcp/tools").await;
+    for (name, path) in [
+        ("validate_sysml", "/sysml/validate"),
+        ("sysml_symbols", "/sysml/symbols"),
+        ("sysml_summary", "/sysml/summary"),
+    ] {
+        let t = v
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == name)
+            .unwrap_or_else(|| panic!("{name} missing"));
+        assert_eq!(t["httpBinding"]["pathTemplate"], path);
+        assert_eq!(t["httpBinding"]["args"][0]["name"], "code");
+        assert_eq!(t["httpBinding"]["args"][0]["placement"], "body");
+    }
+}
+
+fn sparql_graph() -> serde_json::Value {
+    serde_json::json!({
+        "nodes": [
+            {"id": "R1", "satisfiedBy": ["Engine"], "verifiedBy": ["T1"], "attributions": [{"code": "CC-1/WBS-1", "share": 1.0}]},
+            {"id": "R2", "attributions": [{"code": "CC-1/WBS-2", "share": 0.7}, {"code": "CC-2", "share": 0.5}]}
+        ],
+        "edges": [{"from": "R2", "to": "R1", "kind": "derive"}]
+    })
+}
+
+#[tokio::test]
+async fn sparql_routes_answer_over_the_requirements_graph() {
+    let state = state_with_sysml_mcp("sparql", "http://127.0.0.1:1");
+    let post = |path: &'static str, body: serde_json::Value| {
+        let app = test_app(state.clone());
+        async move { post_text(app, path, serde_json::to_vec(&body).unwrap()).await }
+    };
+
+    let (s, b) = post("/sparql", serde_json::json!({"graph": sparql_graph(), "query": "PREFIX r: <urn:kr0ki:req#> SELECT ?id WHERE { ?q r:derivedFrom+ ?p . ?p r:id 'R1' . ?q r:id ?id }"})).await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["rows"][0]["id"]["value"], "R2");
+
+    let (s, b) = post(
+        "/sparql/shapes",
+        serde_json::json!({"graph": sparql_graph()}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let over = b["shapes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["shape"] == "over-allocated")
+        .unwrap();
+    assert_eq!(over["violations"], serde_json::json!(["R2"]));
+
+    let (s, b) = post(
+        "/sparql/rollup",
+        serde_json::json!({"graph": sparql_graph(), "prefixDepth": 1}),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    let cc1 = b["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["code"] == "CC-1")
+        .unwrap();
+    assert!((cc1["total"].as_f64().unwrap() - 1.7).abs() < 1e-9);
+}
+
+#[tokio::test]
+async fn sparql_refuses_updates_bad_queries_and_malformed_bodies() {
+    let state = state_with_sysml_mcp("sparql-bad", "http://127.0.0.1:1");
+    for q in [
+        "INSERT DATA { <x:a> <x:b> <x:c> }",
+        "SELECT nonsense",
+        "CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }",
+    ] {
+        let body =
+            serde_json::to_vec(&serde_json::json!({"graph": sparql_graph(), "query": q})).unwrap();
+        let (s, b) = post_text(test_app(state.clone()), "/sparql", body).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{q}: {b}");
+        assert_eq!(b["error"], "invalid_sparql");
+    }
+    let (s, b) = post_text(test_app(state), "/sparql", b"not json".to_vec()).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+    assert_eq!(b["error"], "invalid_request");
+}
+
+#[tokio::test]
+async fn requirements_export_is_the_inverse_of_import() {
+    let state = test_state("requirements-export");
+    let imported = test_app(state.clone())
+        .oneshot(
+            Request::post("/requirements/import")
+                .body(Body::from(include_str!(
+                    "../../kr0ki-core/tests/fixtures/reqif/roundtrip.reqif"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(imported).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let first: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let graph = serde_json::to_vec(&first["documents"][0]["graph"]).unwrap();
+
+    let exported = test_app(state.clone())
+        .oneshot(
+            Request::post("/requirements/export")
+                .body(Body::from(graph))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(exported.status(), StatusCode::OK);
+    assert!(exported.headers()["content-type"]
+        .to_str()
+        .unwrap()
+        .starts_with("application/reqif+xml"));
+    let (_, xml) = body_string(exported).await;
+    assert!(xml.contains("<REQ-IF"), "{xml}");
+
+    let again = test_app(state)
+        .oneshot(
+            Request::post("/requirements/import")
+                .body(Body::from(xml))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(again).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let second: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let texts = |v: &serde_json::Value| {
+        let mut t: Vec<(String, String)> = v["documents"][0]["graph"]["requirements"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| (r["id"].to_string(), r["text"].to_string()))
+            .collect();
+        t.sort();
+        t
+    };
+    assert_eq!(
+        texts(&first).len(),
+        2,
+        "fixture must carry requirements or the round trip proves nothing"
+    );
+    assert_eq!(texts(&first), texts(&second));
+}
+
+#[tokio::test]
+async fn requirements_export_rejects_a_body_that_is_not_a_requirement_graph() {
+    let (s, b) = post_text(
+        test_app(test_state("requirements-export-bad")),
+        "/requirements/export",
+        b"{\"nodes\": []}".to_vec(),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+    assert_eq!(b["error"], "invalid_requirement_graph");
+}
+
+#[tokio::test]
+async fn requirements_sync_writes_an_imported_baseline_into_a_project() {
+    let state = test_state("requirements-sync-import");
+    let imported = test_app(state)
+        .oneshot(
+            Request::post("/requirements/import")
+                .body(Body::from(include_str!(
+                    "../../kr0ki-core/tests/fixtures/reqif/roundtrip.reqif"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (_, body) = body_string(imported).await;
+    let first: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let graph = serde_json::to_string(&first["documents"][0]["graph"]).unwrap();
+
+    let server = wiremock::MockServer::start().await;
+    mount_sync_project(&server, serde_json::json!([])).await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/projects/p1/commits"))
+        .and(wiremock::matchers::body_partial_json(serde_json::json!({
+            "previousCommit": {"@id": "c1"},
+            "change": [{"payload": {"@type": "RequirementUsage"}}, {"payload": {"@type": "RequirementUsage"}}]
+        })))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({"@id": "c2", "@type": "Commit"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let response = test_app(test_state_with_sysmlv2_client(
+        "requirements-sync",
+        server.uri(),
+    ))
+    .oneshot(
+        Request::post("/model/projects/p1/requirements")
+            .body(Body::from(graph))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body.contains("\"@id\":\"c2\""), "{body}");
+}
+
+#[tokio::test]
+async fn requirements_sync_rejects_bad_bodies_and_needs_a_configured_server() {
+    let server = wiremock::MockServer::start().await;
+    let response = test_app(test_state_with_sysmlv2_client(
+        "requirements-sync-bad",
+        server.uri(),
+    ))
+    .oneshot(
+        Request::post("/model/projects/p1/requirements")
+            .body(Body::from("{\"nodes\": 1}"))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains("invalid_requirement_graph"));
+
+    let response = test_app(test_state("requirements-sync-unconfigured"))
+        .oneshot(
+            Request::post("/model/projects/p1/requirements")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
 }

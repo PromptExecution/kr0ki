@@ -6,7 +6,9 @@ import { LocalStorage } from 'quasar'
 import CodeEditor from './CodeEditor.vue'
 import { createProjectStore, fileKind, QuotaError } from '../lib/projects.js'
 import { declaredRequirements, tracesOf } from '../lib/sysmlText.js'
-import { buildRequirementGraph, coverageGaps, duplicateIds, rollUpCosts, toD2 } from '../lib/requirementsGraph.js'
+import { attributionSummary, buildRequirementGraph, coverageGaps, duplicateIds, rollUpCosts, toD2 } from '../lib/requirementsGraph.js'
+import { CODE_RE } from '../lib/sysmlText.js'
+import { FRAMEWORKS, complianceCoverage, parseTag } from '../lib/compliance.js'
 import { reqifToSysml } from '../lib/reqif.js'
 
 const props = defineProps({
@@ -31,6 +33,9 @@ const graphBusy = ref(false)
 const newName = ref('')
 const newFile = ref('')
 const depictId = ref('')
+const framework = ref('au-ai6')
+const link = reactive({ requirement: '', kind: 'attribution', value: '', share: 1, basis: 'judgement' })
+const CODEBOOK_PATH = 'attribution/codebook.json'
 const usage = ref({ bytes: 0, budgetBytes: 1, fraction: 0 })
 
 // Vue wraps state in proxies; storage engines (and structuredClone) want plain data.
@@ -90,6 +95,15 @@ const traces = computed(() => [...paths.value.filter((p) => fileKind(p) === 'sys
 const graph = computed(() => buildRequirementGraph(traces.value, declared.value))
 const gaps = computed(() => coverageGaps(graph.value))
 const duplicates = computed(() => duplicateIds(graph.value))
+// Optional code book: attribution/codebook.json = { codes: [{ code, name, owner }] }. When present, unknown codes are flagged.
+const codebook = computed(() => {
+  if (!(CODEBOOK_PATH in work)) return null
+  try { return new Set((JSON.parse(work[CODEBOOK_PATH]).codes || []).map((c) => c.code)) } catch { return null }
+})
+const attribution = computed(() => attributionSummary(graph.value, { include: scenario.value, codebook: codebook.value }))
+const coverage = computed(() => complianceCoverage(graph.value, framework.value, { include: scenario.value }))
+const hasLegacyCost = computed(() => graph.value.nodes.some((n) => n.cost !== null))
+const manualLinks = computed(() => extraTraces.value.filter((t) => t.relation === 'attributed' || t.relation === 'tagged'))
 const rollup = computed(() => rollUpCosts(graph.value, scenario.value))
 const depictsHere = computed(() => extraTraces.value.filter((t) => t.relation === 'depicts' && t.artifact === selectedPath.value))
 
@@ -112,7 +126,7 @@ function deleteProject() {
 }
 
 const TEMPLATES = {
-  sysml: (name) => `package ${name.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_]/g, '_') || 'Model'} {\n  requirement <'REQ-1'> req_1 {\n    doc /* The system shall ... */\n    attribute cost = 0;\n  }\n}\n`,
+  sysml: (name) => `package ${name.replace(/\.[^.]+$/, '').replace(/[^A-Za-z0-9_]/g, '_') || 'Model'} {\n  requirement <'REQ-1'> req_1 {\n    doc /* The system shall ... */\n    // Charge it to an accounting code (not an amount), for example:\n    // @CostAttribution { code = 'CC-4410/WBS-2.3'; share = 1; }\n    // Tag it against a compliance framework, for example:\n    // @ComplianceTag { tag = 'au-ai6:P5'; basis = 'judgement'; }\n  }\n}\n`,
   diagram: () => 'a -> b\n',
 }
 function addFile() {
@@ -136,6 +150,28 @@ function addDepicts() {
     extraTraces.value = [...extraTraces.value, { requirement: id, relation: 'depicts', target: null, artifact: selectedPath.value }]
   }
   depictId.value = ''
+}
+function addLink() {
+  const id = link.requirement
+  const value = link.value.trim()
+  if (!id || !value) return say('error', 'Pick a requirement and enter a value.')
+  if (link.kind === 'attribution') {
+    if (!CODE_RE.test(value)) return say('error', `"${value}" is not a valid attribution code. Use letters, digits and - _ . within each part, parts separated by / (for example CC-4410/WBS-2.3).`)
+    const share = Number(link.share)
+    if (!(share > 0 && share <= 1)) return say('error', 'The share must be above 0 and at most 1.')
+    extraTraces.value = [...extraTraces.value, { requirement: id, relation: 'attributed', target: value, artifact: '(project)', share }]
+  } else {
+    if (!parseTag(value)) return say('error', `"${value}" is not a tag. Use framework:control, for example au-ai6:P5 or iso42001:A.6.2.6.`)
+    extraTraces.value = [...extraTraces.value, { requirement: id, relation: 'tagged', target: value, artifact: '(project)', basis: link.basis }]
+  }
+  link.value = ''
+}
+const removeLink = (t) => { extraTraces.value = extraTraces.value.filter((x) => x !== t) }
+function createCodebook() {
+  if (CODEBOOK_PATH in work) { selectedPath.value = CODEBOOK_PATH; return }
+  work[CODEBOOK_PATH] = JSON.stringify({ codes: [{ code: 'CC-0000', name: 'Replace with your first accounting code', owner: '' }] }, null, 2) + '\n'
+  selectedPath.value = CODEBOOK_PATH
+  say('ok', 'Created attribution/codebook.json. List your valid codes there; unknown codes are then flagged.')
 }
 const removeDepicts = (t) => { extraTraces.value = extraTraces.value.filter((x) => x !== t) }
 
@@ -184,6 +220,23 @@ async function drawGraph() {
     graphUrl.value = URL.createObjectURL(await res.blob())
   } catch (e) { say('error', `Could not draw the graph: ${e.message}`) } finally { graphBusy.value = false }
 }
+
+// Ask the real SysML v2 parser (the MCP sidecar behind /sysml/validate) rather than the browser's heuristic scanner.
+const validation = ref(null)
+const validating = ref(false)
+async function validateSysml() {
+  const path = selectedPath.value
+  if (!path || fileKind(path) !== 'sysml') return
+  validating.value = true
+  try {
+    const base = (props.rendererUrl || window.location.origin).replace(/\/$/, '')
+    const res = await fetch(`${base}/sysml/validate`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: work[path] })
+    const body = await res.json()
+    if (!res.ok) throw new Error(body.message || `server returned ${res.status}`)
+    validation.value = { path, syntax: body.syntaxErrors || [], semantic: body.semanticIssues || [] }
+  } catch (e) { validation.value = null; say('error', `Could not validate: ${e.message}`) } finally { validating.value = false }
+}
+const issueLine = (i) => `${i.line != null ? `line ${i.line}: ` : ''}${i.message}`
 
 async function importReqif(event) {
   const file = event.target.files?.[0]
@@ -274,6 +327,16 @@ const fmtTime = (t) => new Date(t).toLocaleString()
         <template v-if="selectedPath">
           <p class="projects__path">{{ selectedPath }}</p>
           <CodeEditor v-model="work[selectedPath]" :format="''" data-testid="project-editor" />
+          <div v-if="fileKind(selectedPath) === 'sysml'" class="projects__validate">
+            <button type="button" class="secondary" :disabled="validating" data-testid="validate-sysml" @click="validateSysml">{{ validating ? 'Validating…' : 'Validate with SysML v2 parser' }}</button>
+            <template v-if="validation && validation.path === selectedPath">
+              <span v-if="!validation.syntax.length" class="muted" data-testid="validation-ok">No syntax errors<template v-if="validation.semantic.length"> · {{ validation.semantic.length }} semantic note{{ validation.semantic.length === 1 ? '' : 's' }}</template>.</span>
+              <ul v-if="validation.syntax.length || validation.semantic.length" class="projects__issues" data-testid="validation-issues">
+                <li v-for="(i, n) in validation.syntax" :key="`s${n}`" class="issue-error">{{ issueLine(i) }}</li>
+                <li v-for="(i, n) in validation.semantic.slice(0, 20)" :key="`m${n}`" class="issue-note">{{ issueLine(i) }}</li>
+              </ul>
+            </template>
+          </div>
           <div v-if="fileKind(selectedPath) === 'diagram'" class="projects__depicts">
             <span>This diagram depicts requirement:</span>
             <span v-for="t in depictsHere" :key="t.requirement" class="chip">{{ t.requirement }}<button type="button" :aria-label="`Unlink ${t.requirement}`" @click="removeDepicts(t)">×</button></span>
@@ -291,8 +354,8 @@ const fmtTime = (t) => new Date(t).toLocaleString()
 
     <div v-if="current" class="projects__tabs">
       <nav role="tablist">
-        <button v-for="t in ['history', 'requirements', 'graph']" :key="t" role="tab" :aria-selected="tab === t" :class="{ active: tab === t }" :data-testid="`tab-${t}`" @click="tab = t">
-          {{ t === 'history' ? `History (${history.length})` : t === 'requirements' ? `Requirements (${graph.nodes.length})` : 'Graph & cost' }}
+        <button v-for="t in ['history', 'requirements', 'attribution', 'compliance', 'graph']" :key="t" role="tab" :aria-selected="tab === t" :class="{ active: tab === t }" :data-testid="`tab-${t}`" @click="tab = t">
+          {{ t === 'history' ? `History (${history.length})` : t === 'requirements' ? `Requirements (${graph.nodes.length})` : t === 'attribution' ? 'Cost attribution' : t === 'compliance' ? 'Compliance' : 'Graph' }}
         </button>
       </nav>
 
@@ -316,31 +379,94 @@ const fmtTime = (t) => new Date(t).toLocaleString()
       </div>
 
       <div v-show="tab === 'requirements'" class="projects__panel" data-testid="panel-requirements">
-        <p v-if="!graph.nodes.length" class="muted">No requirements found. Declare one in a .sysml file: <code>requirement &lt;'REQ-1'&gt; name { doc /* text */ attribute cost = 10; }</code></p>
+        <p v-if="!graph.nodes.length" class="muted">No requirements found. Declare one in a .sysml file: <code>requirement &lt;'REQ-1'&gt; name { doc /* text */ }</code></p>
         <table v-else>
-          <thead><tr><th>Include</th><th>Id</th><th>Text</th><th>Cost</th><th>Σ derived</th><th>Satisfied by</th><th>Verified</th><th></th></tr></thead>
+          <thead><tr><th>Include</th><th>Id</th><th>Text</th><th>Charged to (code · share)</th><th>Compliance tags</th><th>Satisfied by</th><th>Verified</th><th></th></tr></thead>
           <tbody>
             <tr v-for="n in graph.nodes" :key="n.id" :data-testid="`req-${n.id}`">
               <td><input type="checkbox" :checked="includedIn(n.id)" :aria-label="`Include ${n.id}`" @change="toggleInScenario(n.id, $event.target.checked)" /></td>
               <td><code>{{ n.id }}</code></td>
               <td>{{ n.title }}</td>
-              <td>{{ n.cost ?? '—' }}</td>
-              <td>{{ rollup.perRequirement[n.id]?.rollup }}</td>
+              <td :class="{ gap: !n.attributions.length }" data-col="attribution">
+                <span v-for="a in n.attributions" :key="a.code + a.share" class="chip">{{ a.code }} · {{ Math.round(a.share * 100) }}%</span>
+                <template v-if="!n.attributions.length">not charged</template>
+              </td>
+              <td data-col="tags"><span v-for="t in n.tags" :key="t.tag" class="chip" :title="t.basis">{{ t.tag }}</span></td>
               <td :class="{ gap: !n.satisfiedBy.length }">{{ n.satisfiedBy.join(', ') || 'nothing yet' }}</td>
               <td :class="{ gap: !n.verifiedBy.length }">{{ n.verifiedBy.length ? 'yes' : 'no' }}</td>
               <td><button type="button" class="link" @click="showHistoryOf(n.id)">history</button></td>
             </tr>
           </tbody>
         </table>
-        <p v-if="graph.nodes.length" class="projects__total" data-testid="scenario-total">
-          Scenario total cost: <strong>{{ rollup.total }}</strong>
-          <span v-if="rollup.unpriced.length" class="muted"> · {{ rollup.unpriced.length }} included requirement{{ rollup.unpriced.length === 1 ? '' : 's' }} without a cost ({{ rollup.unpriced.join(', ') }}) count as 0</span>
+        <form v-if="graph.nodes.length" class="projects__link" data-testid="add-link" @submit.prevent="addLink">
+          <strong>Add to a requirement:</strong>
+          <select v-model="link.requirement" aria-label="Requirement" data-testid="link-requirement"><option value="" disabled>requirement…</option><option v-for="n in graph.nodes" :key="n.id" :value="n.id">{{ n.id }}</option></select>
+          <select v-model="link.kind" aria-label="Kind" data-testid="link-kind"><option value="attribution">attribution code</option><option value="tag">compliance tag</option></select>
+          <input v-model="link.value" :placeholder="link.kind === 'attribution' ? 'CC-4410/WBS-2.3' : 'au-ai6:P5'" aria-label="Value" data-testid="link-value" />
+          <input v-if="link.kind === 'attribution'" v-model.number="link.share" type="number" min="0" max="1" step="any" aria-label="Share" data-testid="link-share" />
+          <select v-else v-model="link.basis" aria-label="Basis" data-testid="link-basis"><option value="judgement">judgement</option><option value="official">official crosswalk</option></select>
+          <button type="submit" data-testid="link-add">Add</button>
+        </form>
+        <p v-if="manualLinks.length" class="muted">Added here (saved with the project):
+          <span v-for="t in manualLinks" :key="t.requirement + t.relation + t.target + t.share" class="chip">{{ t.requirement }} → {{ t.target }}<template v-if="t.relation === 'attributed'"> · {{ Math.round(t.share * 100) }}%</template><button type="button" :aria-label="`Remove ${t.target} from ${t.requirement}`" @click="removeLink(t)">×</button></span>
+        </p>
+        <p v-if="hasLegacyCost" class="projects__total muted" data-testid="scenario-total">
+          Legacy numeric weight (from <code>attribute cost</code>, kept for old projects; not an accounting amount): <strong>{{ rollup.total }}</strong>
           <button v-if="scenario" type="button" class="link" @click="scenario = null">include all</button>
         </p>
+        <p v-if="scenario" class="muted">A scenario is active: {{ scenario.size }} requirement{{ scenario.size === 1 ? '' : 's' }} included. <button type="button" class="link" @click="scenario = null">include all</button></p>
         <p v-if="duplicates.length" class="projects__warn" data-testid="duplicates">
           Same id in more than one file: <span v-for="d in duplicates" :key="d.id"><code>{{ d.id }}</code> ({{ d.files.join(', ') }}) </span>. They are merged into one requirement here; ids should be unique.
         </p>
         <p v-if="gaps.length" class="muted" data-testid="gaps">{{ gaps.length }} requirement{{ gaps.length === 1 ? '' : 's' }} not yet fully covered (no <code>satisfy</code> and/or <code>verify</code> link).</p>
+      </div>
+
+      <div v-show="tab === 'attribution'" class="projects__panel" data-testid="panel-attribution">
+        <p class="muted">Requirements are <strong>charged to accounting-style codes</strong> (cost centre / work breakdown / activity), not given a dollar amount. Shares are fractions of a requirement. Budget estimates per code are a later layer.</p>
+        <p v-if="!graph.nodes.length" class="muted">No requirements yet.</p>
+        <template v-else>
+          <table v-if="attribution.byPrefix.length" data-testid="attribution-table">
+            <thead><tr><th>Code (and every parent)</th><th>Requirements</th><th>Share</th></tr></thead>
+            <tbody><tr v-for="r in attribution.byPrefix" :key="r.prefix"><td><code>{{ r.prefix }}</code></td><td>{{ r.requirements.join(', ') }}</td><td>{{ r.share }}</td></tr></tbody>
+          </table>
+          <p v-else class="muted">No codes assigned yet. Add one in the Requirements tab or with <code>@CostAttribution</code> in SysML.</p>
+          <ul class="projects__issues" data-testid="attribution-issues">
+            <li v-if="attribution.unattributed.length" class="gap">Not charged to any code: {{ attribution.unattributed.join(', ') }}</li>
+            <li v-for="o in attribution.overAllocated" :key="'o' + o.id" class="gap">{{ o.id }}: shares add up to {{ o.total }} (over 1)</li>
+            <li v-for="o in attribution.partlyAttributed" :key="'p' + o.id">{{ o.id }}: only {{ o.total }} of the requirement is charged to a code</li>
+            <li v-for="c in attribution.invalidCodes" :key="'i' + c" class="gap">Not a valid code: <code>{{ c }}</code></li>
+            <li v-for="u in attribution.unknownCodes" :key="'u' + u.code" class="gap">Not in the code book: <code>{{ u.code }}</code> ({{ u.requirements.join(', ') }})</li>
+          </ul>
+          <p class="muted">Code book: <template v-if="codebook">{{ codebook.size }} code{{ codebook.size === 1 ? '' : 's' }} listed.</template><template v-else>none yet (codes are not checked).</template>
+            <button type="button" class="link" data-testid="codebook" @click="createCodebook">{{ codebook ? 'Open the code book' : 'Create a code book' }}</button></p>
+        </template>
+      </div>
+
+      <div v-show="tab === 'compliance'" class="projects__panel" data-testid="panel-compliance">
+        <label>Framework
+          <select v-model="framework" data-testid="framework-select"><option v-for="(fw, slug) in FRAMEWORKS" :key="slug" :value="slug">{{ slug }}: {{ fw.name }}</option></select>
+        </label>
+        <p class="muted">
+          Source: <a :href="FRAMEWORKS[framework].url" target="_blank" rel="noopener">{{ FRAMEWORKS[framework].url }}</a> · control ids are
+          <strong>{{ FRAMEWORKS[framework].confidence }}</strong>{{ FRAMEWORKS[framework].confidence === 'recalled' ? ' (from the published text as remembered, not re-fetched: verify before relying on an id)' : '' }}.
+          <span v-if="FRAMEWORKS[framework].note"> {{ FRAMEWORKS[framework].note }}</span> Working aid, not legal advice.
+        </p>
+        <table data-testid="coverage-table">
+          <thead><tr><th>Control</th><th>Name</th><th>Requirements</th><th>Basis</th></tr></thead>
+          <tbody>
+            <tr v-for="r in coverage.rows" :key="r.control" :data-testid="`ctl-${r.control}`">
+              <td><code>{{ r.control }}</code></td><td>{{ r.name }}</td>
+              <td :class="{ gap: !r.requirements.length }">{{ r.requirements.join(', ') || 'no requirement yet' }}</td>
+              <td class="muted">{{ r.requirements.length ? `${r.official} official · ${r.judgement} judgement` : '' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="muted" data-testid="coverage-summary">{{ coverage.rows.length - coverage.gaps.length }} of {{ coverage.rows.length }} controls have at least one requirement.</p>
+        <ul class="projects__issues">
+          <li v-if="coverage.untagged.length">No compliance tag at all: {{ coverage.untagged.join(', ') }}</li>
+          <li v-for="m in coverage.malformed" :key="'m' + m.requirement + m.tag" class="gap">{{ m.requirement }}: <code>{{ m.tag }}</code> is not a tag (use framework:control)</li>
+          <li v-for="u in coverage.unknown" :key="'k' + u.requirement + u.tag" class="gap">{{ u.requirement }}: <code>{{ u.tag }}</code> is not a control in this catalogue</li>
+        </ul>
       </div>
 
       <div v-show="tab === 'graph'" class="projects__panel" data-testid="panel-graph">
@@ -398,7 +524,15 @@ th, td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #1f2b5
 th { color: #8d9bbd; font-weight: 700; font-size: .7rem; text-transform: uppercase; }
 td.gap { color: #fca5a5; }
 .projects__total { margin: .6rem 0 .2rem; }
+.projects__link { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin: .6rem 0; font-size: .8rem; }
+.projects__link input[type="number"] { width: 5rem; }
+.projects__issues { margin: .5rem 0; padding-left: 1.1rem; font-size: .82rem; }
+.projects__issues .gap { color: #fca5a5; }
 .projects__warn { margin: .5rem 0; padding: .4rem .6rem; border-radius: .4rem; background: #3b2a0a; border: 1px solid #92400e; color: #fde68a; font-size: .8rem; }
 .projects__graph { display: block; max-width: 100%; margin-top: .6rem; background: #fff; border-radius: .4rem; }
 @media (max-width: 760px) { .projects__main { grid-template-columns: 1fr; } }
+.projects__validate { margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.projects__issues { margin: 0; padding-left: 1.2rem; font-size: 0.85rem; flex-basis: 100%; }
+.issue-error { color: #c0392b; }
+.issue-note { opacity: 0.8; }
 </style>
