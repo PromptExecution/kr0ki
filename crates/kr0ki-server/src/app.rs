@@ -153,6 +153,10 @@ pub fn router(
         )
         .route("/model/projects/:project_id/sync", post(sync_model))
         .route(
+            "/model/projects/:project_id/requirements",
+            post(sync_requirements).layer(DefaultBodyLimit::max(MAX_REQUIREMENTS_EXPORT_BYTES)),
+        )
+        .route(
             "/model/projects/:project_id/commits/:commit_id/elements",
             get(query_model_elements),
         )
@@ -546,7 +550,7 @@ async fn sync_model(
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
     body: Bytes,
 ) -> Response {
-    use kr0ki_core::digital_thread_sync::{sync_dbt_graph, SyncConfig, SyncError, SysGraph};
+    use kr0ki_core::digital_thread_sync::{sync_dbt_graph, SyncConfig, SysGraph};
 
     let client = match require_sysmlv2_client(&state) {
         Ok(client) => client,
@@ -575,22 +579,63 @@ async fn sync_model(
     };
     match sync_dbt_graph(&client, &graph, &config).await {
         Ok(commit) => Json(serde_json::json!({ "commit": commit })).into_response(),
-        Err(SyncError::Conflict { attempts }) => error_json(
+        Err(e) => sync_error_response(e),
+    }
+}
+
+fn sync_error_response(e: kr0ki_core::digital_thread_sync::SyncError) -> Response {
+    use kr0ki_core::digital_thread_sync::SyncError;
+    match e {
+        SyncError::Conflict { attempts } => error_json(
             StatusCode::CONFLICT,
             "sync_conflict",
             &format!("concurrent commits kept moving the branch after {attempts} attempt(s); nothing was committed"),
         ),
-        Err(e @ SyncError::DuplicateIdentifier(_)) => error_json(
+        e @ SyncError::DuplicateIdentifier(_) => error_json(
             StatusCode::UNPROCESSABLE_ENTITY,
             "duplicate_identifier",
             &e.to_string(),
         ),
-        Err(SyncError::Client(e)) => client_error_response(e),
-        Err(e @ SyncError::Encode(_)) => error_json(
+        SyncError::Client(e) => client_error_response(e),
+        e @ SyncError::Encode(_) => error_json(
             StatusCode::INTERNAL_SERVER_ERROR,
             "sync_encode_error",
             &e.to_string(),
         ),
+    }
+}
+
+/// `POST /model/projects/{project_id}/requirements[?branch_id=...]` -- body is a `RequirementGraph` as JSON (the
+/// `graph` of a `/requirements/import` document). Reconciles that baseline's requirements into the project as
+/// `RequirementUsage` elements, at most one commit; other baselines and unrelated elements are never touched.
+/// Responds `{"commit": {...}}` (the new commit, or the unchanged head when nothing differs).
+async fn sync_requirements(
+    State(state): State<AppState>,
+    Path(project_id): Path<String>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+    body: Bytes,
+) -> Response {
+    let client = match require_sysmlv2_client(&state) {
+        Ok(client) => client,
+        Err(response) => return *response,
+    };
+    let graph: kr0ki_core::requirements::RequirementGraph = match serde_json::from_slice(&body) {
+        Ok(g) => g,
+        Err(e) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_requirement_graph",
+                &format!("body is not a valid RequirementGraph: {e}"),
+            )
+        }
+    };
+    let config = kr0ki_core::digital_thread_sync::SyncConfig {
+        project_id,
+        branch_id: params.get("branch_id").cloned(),
+    };
+    match kr0ki_core::flexo_reqif_sync::sync_requirement_baseline(&client, &graph, &config).await {
+        Ok(commit) => Json(serde_json::json!({ "commit": commit })).into_response(),
+        Err(e) => sync_error_response(e),
     }
 }
 

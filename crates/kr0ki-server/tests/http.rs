@@ -2491,3 +2491,77 @@ async fn requirements_export_rejects_a_body_that_is_not_a_requirement_graph() {
     assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
     assert_eq!(b["error"], "invalid_requirement_graph");
 }
+
+#[tokio::test]
+async fn requirements_sync_writes_an_imported_baseline_into_a_project() {
+    let state = test_state("requirements-sync-import");
+    let imported = test_app(state)
+        .oneshot(
+            Request::post("/requirements/import")
+                .body(Body::from(include_str!(
+                    "../../kr0ki-core/tests/fixtures/reqif/roundtrip.reqif"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (_, body) = body_string(imported).await;
+    let first: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let graph = serde_json::to_string(&first["documents"][0]["graph"]).unwrap();
+
+    let server = wiremock::MockServer::start().await;
+    mount_sync_project(&server, serde_json::json!([])).await;
+    wiremock::Mock::given(wiremock::matchers::method("POST"))
+        .and(wiremock::matchers::path("/projects/p1/commits"))
+        .and(wiremock::matchers::body_partial_json(serde_json::json!({
+            "previousCommit": {"@id": "c1"},
+            "change": [{"payload": {"@type": "RequirementUsage"}}, {"payload": {"@type": "RequirementUsage"}}]
+        })))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(serde_json::json!({"@id": "c2", "@type": "Commit"})))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let response = test_app(test_state_with_sysmlv2_client(
+        "requirements-sync",
+        server.uri(),
+    ))
+    .oneshot(
+        Request::post("/model/projects/p1/requirements")
+            .body(Body::from(graph))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body.contains("\"@id\":\"c2\""), "{body}");
+}
+
+#[tokio::test]
+async fn requirements_sync_rejects_bad_bodies_and_needs_a_configured_server() {
+    let server = wiremock::MockServer::start().await;
+    let response = test_app(test_state_with_sysmlv2_client(
+        "requirements-sync-bad",
+        server.uri(),
+    ))
+    .oneshot(
+        Request::post("/model/projects/p1/requirements")
+            .body(Body::from("{\"nodes\": 1}"))
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains("invalid_requirement_graph"));
+
+    let response = test_app(test_state("requirements-sync-unconfigured"))
+        .oneshot(
+            Request::post("/model/projects/p1/requirements")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+}
