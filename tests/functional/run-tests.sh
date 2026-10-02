@@ -76,10 +76,10 @@ test_core_001() {
         return 1
     fi
     
-    if echo "$response" | jq -e '.version == "0.1.0"' > /dev/null; then
-        log_pass "Version is 0.1.0"
+    if echo "$response" | jq -e '.version == "0.1.1"' > /dev/null; then
+        log_pass "Version is 0.1.1"
     else
-        log_fail "Version check" "Version is not 0.1.0"
+        log_fail "Version check" "Version is not 0.1.1"
         return 1
     fi
     
@@ -487,10 +487,10 @@ test_ui_001() {
 test_ui_002() {
     log_test "UI-002: Version in Built Files"
     
-    if grep -q "0.1.0" playbook/dist/assets/*.js 2>/dev/null; then
-        log_pass "Version 0.1.0 found in built files"
+    if grep -q "0.1.1" playbook/dist/assets/*.js 2>/dev/null; then
+        log_pass "Version 0.1.1 found in built files"
     else
-        log_fail "Version check" "Version 0.1.0 not found in built files"
+        log_fail "Version check" "Version 0.1.1 not found in built files"
         return 1
     fi
 }
