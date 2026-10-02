@@ -502,3 +502,18 @@ sysml-mcp-image:
 test-sysml-mcp:
     pnpm --dir containers/kr0ki-sysml-mcp install --frozen-lockfile
     pnpm --dir containers/kr0ki-sysml-mcp test
+
+# SysML v2 pilot API server + postgres (loopback :9000). Build it once with ~/.local/share/kr0ki/sysml-api/build.sh.
+sysml-api-up:
+    scripts/sysml-api-up.sh
+sysml-api-down:
+    -podman rm -f kr0ki-sysml-api-app kr0ki-sysml-pg
+
+# Live write-path tests against the OMG pilot server (`just sysml-api-up` first). Creates a throwaway project.
+test-live-sysml:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    base="${KR0KI_SYSMLV2_BASE_URL:-http://127.0.0.1:9000}"
+    id=$(curl -fsS -X POST "$base/projects" -H 'content-type: application/json' -d '{"@type":"Project","name":"kr0ki live '"$(date +%s)"'"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["@id"])')
+    KR0KI_SYSMLV2_BASE_URL="$base" KR0KI_SYSMLV2_TEST_PROJECT_ID="$id" CARGO_BUILD_JOBS=3 \
+      cargo test -p kr0ki-sysmlv2-client --test live -p kr0ki-core --test flexo_reqif_sync --test recompute_live -- --ignored --test-threads=1

@@ -29,9 +29,24 @@ async fn recompute_flags_a_real_violation_on_a_live_project() {
         .first()
         .expect("at least one project on the live server");
     let project_id = project.at_id.clone();
-    let commits = client.commits(&project_id).await.expect("list commits");
-    let previous_commit = commits.first().map(|c| kr0ki_sysmlv2_client::Ref {
-        at_id: c.at_id.clone(),
+    // previousCommit is the branch head: the server's commit list is in id order, not newest-first.
+    let branch_id = client
+        .project(&project_id)
+        .await
+        .expect("project")
+        .default_branch_id()
+        .map(str::to_owned);
+    let head = match branch_id {
+        Some(b) => client
+            .branch(&project_id, &b)
+            .await
+            .expect("branch")
+            .head_id()
+            .map(str::to_owned),
+        None => None,
+    };
+    let previous_commit = head.map(|id| kr0ki_sysmlv2_client::Ref {
+        at_id: id,
         extra: Default::default(),
     });
 
@@ -43,18 +58,20 @@ async fn recompute_flags_a_real_violation_on_a_live_project() {
         DataVersion {
             type_: "DataVersion",
             payload: Some(serde_json::json!({
-                "@type": "RuleDocument",
-                "name": "No untitled parts",
-                "rego": "package kr0ki\n\nviolations := [v |\n    some n\n    not input.nodes[n].label\n    v := {\"element_id\": input.nodes[n].id, \"reason\": \"element has no name\"}\n]\n"
+                "@type": "TextualRepresentation",
+                "declaredName": "No untitled parts",
+                "language": "rego",
+                "body": "package kr0ki\n\nviolations := [v |\n    some n\n    not input.nodes[n].label\n    v := {\"element_id\": input.nodes[n].id, \"reason\": \"element has no name\"}\n]\n"
             })),
             identity: None,
         },
         DataVersion {
             type_: "DataVersion",
             payload: Some(serde_json::json!({
-                "@type": "RuleDocument",
-                "name": "Always passes",
-                "rego": "package kr0ki\n\nviolations := []\n"
+                "@type": "TextualRepresentation",
+                "declaredName": "Always passes",
+                "language": "rego",
+                "body": "package kr0ki\n\nviolations := []\n"
             })),
             identity: None,
         },

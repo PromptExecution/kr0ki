@@ -46,11 +46,24 @@ pub enum SyncError {
     Conflict { attempts: usize },
 }
 
-/// An element's `identifier` field, if present. `identifier` lives in `Element`'s
-/// flattened `fields` map (not a dedicated struct field) -- it's an OMG-API-defined
-/// field the client crate doesn't otherwise model.
+/// The sync identifier of an element: its `identifier` field, else the first `aliasIds` entry.
+///
+/// Both live in `Element`'s flattened `fields` map. Writes put the identifier in both places because the two kinds of
+/// server disagree: the OMG pilot implementation is strictly typed and *silently drops unknown fields* (found live
+/// against it, 2026-10-02: `identifier` and every custom field vanished, so the next sync could not recognise its own
+/// elements and committed again), while `aliasIds` is a standard SysML v2 field it persists.
 pub(crate) fn element_identifier(element: &Element) -> Option<&str> {
-    element.fields.get("identifier").and_then(Value::as_str)
+    element
+        .fields
+        .get("identifier")
+        .and_then(Value::as_str)
+        .or_else(|| {
+            element
+                .fields
+                .get("aliasIds")
+                .and_then(Value::as_array)
+                .and_then(|a| a.iter().find_map(Value::as_str))
+        })
 }
 
 /// An element a sync wants to exist, identified by `identifier`, together with the
@@ -115,13 +128,19 @@ pub(crate) fn diff_managed(
                 let mut payload = d.fields.clone();
                 payload.insert("@type".into(), d.type_.into());
                 payload.insert("identifier".into(), d.identifier.clone().into());
+                payload.insert("aliasIds".into(), serde_json::json!([d.identifier]));
                 changes.push(data_version(Some(Value::Object(payload)), None));
             }
             Some(&current) => {
-                let owned_field_differs = d
-                    .fields
-                    .iter()
-                    .any(|(k, v)| current.fields.get(k) != Some(v));
+                // A server that dropped `identifier` is strictly typed and drops every other unknown field too, so an
+                // owned field it does not return is unknowable, not changed. Compare only what came back; otherwise
+                // identical data would be re-committed on every run.
+                let strict_schema = !current.fields.contains_key("identifier");
+                let owned_field_differs =
+                    d.fields.iter().any(|(k, v)| match current.fields.get(k) {
+                        Some(have) => have != v,
+                        None => !strict_schema,
+                    });
                 if owned_field_differs {
                     let mut payload = current.fields.clone();
                     payload.insert("@type".into(), current.ty().into());
@@ -247,4 +266,76 @@ pub(crate) async fn sync_managed(
     Err(SyncError::Conflict {
         attempts: MAX_SYNC_ATTEMPTS,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn element(v: Value) -> Element {
+        serde_json::from_value(v).unwrap()
+    }
+    fn desired(identifier: &str, name: &str, extra: Value) -> DesiredElement {
+        let mut fields = Map::new();
+        fields.insert("name".into(), name.into());
+        fields.insert("custom".into(), extra);
+        DesiredElement {
+            identifier: identifier.into(),
+            type_: "PartUsage",
+            fields,
+        }
+    }
+
+    #[test]
+    fn a_new_element_is_marked_in_both_identifier_and_alias_ids() {
+        let changes = diff_managed(&[], &[desired("dbt:a", "A", json!(1))]).unwrap();
+        let payload = changes[0].payload.as_ref().unwrap();
+        assert_eq!(payload["identifier"], "dbt:a");
+        assert_eq!(payload["aliasIds"], json!(["dbt:a"]));
+    }
+
+    #[test]
+    fn identifier_falls_back_to_alias_ids_for_servers_that_drop_unknown_fields() {
+        let e =
+            element(json!({"@id": "1", "@type": "PartUsage", "aliasIds": ["dbt:a"], "name": "A"}));
+        assert_eq!(element_identifier(&e), Some("dbt:a"));
+        let both = element(
+            json!({"@id": "1", "@type": "PartUsage", "identifier": "dbt:x", "aliasIds": ["dbt:a"]}),
+        );
+        assert_eq!(element_identifier(&both), Some("dbt:x"));
+    }
+
+    /// The OMG pilot returns only the fields its schema knows. Re-syncing identical data must not commit.
+    #[test]
+    fn a_strictly_typed_server_that_drops_custom_fields_does_not_cause_a_commit_every_run() {
+        let stored =
+            element(json!({"@id": "1", "@type": "PartUsage", "aliasIds": ["dbt:a"], "name": "A"}));
+        let changes = diff_managed(
+            std::slice::from_ref(&stored),
+            &[desired("dbt:a", "A", json!(1))],
+        )
+        .unwrap();
+        assert!(changes.is_empty(), "{changes:?}");
+        // ...but a change to a field it *does* return still syncs.
+        let changes = diff_managed(
+            std::slice::from_ref(&stored),
+            &[desired("dbt:a", "Renamed", json!(1))],
+        )
+        .unwrap();
+        assert_eq!(changes.len(), 1);
+    }
+
+    /// A server that keeps `identifier` keeps custom fields too, so an absent owned field there is a real difference.
+    #[test]
+    fn a_server_that_keeps_identifier_treats_a_missing_owned_field_as_a_change() {
+        let stored =
+            element(json!({"@id": "1", "@type": "PartUsage", "identifier": "dbt:a", "name": "A"}));
+        let changes = diff_managed(
+            std::slice::from_ref(&stored),
+            &[desired("dbt:a", "A", json!(1))],
+        )
+        .unwrap();
+        assert_eq!(changes.len(), 1);
+    }
 }
