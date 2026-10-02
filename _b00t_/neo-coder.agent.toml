@@ -1,0 +1,46 @@
+# b00t:map v1
+# summary: NEO-CODER (local Qwen3.8 + vision, :8002) as a pi-driven errand agent; project-local override of the global datum
+# tags: agent, neo-coder, qwen38, pi, kr0ki, local-override
+# tier: worker
+# cmds: b00t agent invoke neo-coder "task"   (run from the kr0ki repo root)
+# complexity: 2
+#
+# 🤓 Why this file exists: ~/.b00t/_b00t_/neo-coder.agent.toml points at the retired Qwen3.6 endpoint (http://sm3lly:8001)
+#    and has no [b00t.agent.executor], so `b00t agent invoke neo-coder` could not run. `b00t agent invoke` resolves
+#    `./_b00t_/<agent>.agent.toml` from the CURRENT DIRECTORY and never consults the global datum, so this project-local
+#    datum overrides it whenever invoke runs from this repo's root. The global one is b00t's shared file and is untouched.
+# 🤓 Read-only by default (pi --no-tools): the model answers from the prompt. See docs/PATTERN-pi-subagents.md; for edits use
+#    scripts/delegate-qwen38.sh --tools in a throwaway worktree. The model is a first-pass worker: triage what it returns.
+# 🤓 The pi provider `neo-coder` (-> http://127.0.0.1:8002/v1) lives in ~/.pi/agent/models.json. Use 127.0.0.1, not localhost.
+
+[b00t]
+name = "neo-coder"
+type = "agent"
+hint = "Local Qwen3.8 NEO-CODER (vision) via pi, read-only errand agent for kr0ki"
+
+[b00t.agent]
+pid = "neo-coder-kr0ki"
+model = "neo-coder"
+model_endpoint = "http://127.0.0.1:8002/v1"
+skills = ["rust", "b00t-cli"]
+personality = "precise"
+humor = "none"
+role = "worker"
+context_budget = 32768
+
+[b00t.agent.executor]
+cli_path = "pi"
+# prompt arrives on stdin from `b00t agent invoke`; --no-tools keeps it read-only; one pass, no tool loop
+cli_args = ["-p", "--provider", "neo-coder", "--model", "neo-coder", "--no-session", "--no-tools"]
+supports_tools = []
+max_iterations = 1
+
+[b00t.agent.ipc]
+# transient, per-invocation: no socket, no pub/sub
+socket = ""
+pubsub = false
+protocol = "stdio"
+
+[b00t.agent.crew]
+role = "specialist"
+captain = false

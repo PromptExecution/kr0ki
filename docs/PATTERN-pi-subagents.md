@@ -38,8 +38,11 @@ Exit codes: 0 ok, 2 usage, 3 model not serving, 4 pi provider missing, 124 timeo
   JSON to add if it is missing. The old `llama-cpp/ch0nky` (:8001) entry is dead; pi only warns about it.
 - **`< /dev/null` is load-bearing.** Off a TTY, pi waits on stdin forever (a 7-minute hang; the model had answered in 3 s).
 - Boot default LLM: `b00t-hive-inference-heretic-neo-coder.service` (`deploy/systemd/`), Conflicts= every other GPU model.
-- `b00t agent invoke neo-coder` still reads `~/.b00t/_b00t_/neo-coder.agent.toml` whose endpoint is the dead :8001.
-  It is b00t's shared datum; repoint it there (to `http://127.0.0.1:8002/v1`) rather than around it.
+- `b00t agent invoke neo-coder "task"` works from the kr0ki repo root: `./_b00t_/neo-coder.agent.toml` (tracked here) is a
+  pi-driven, read-only executor against :8002. `invoke` resolves `./_b00t_/<agent>.agent.toml` from the CURRENT directory and
+  never consults `~/.b00t/_b00t_/neo-coder.agent.toml` (global, still names the retired `sm3lly:8001` and has no executor),
+  so the project-local datum overrides it with no change to b00t. A datum needs `[b00t.agent.ipc]` and `[b00t.agent.crew]`
+  even for a one-shot agent, or it fails to parse. Verified 2026-10-02.
 
 ## For b00t
 To make this a first-class b00t pattern: a `pi-subagent` datum whose `ExecStart` is `scripts/delegate-qwen38.sh`
