@@ -1,0 +1,11 @@
+# kr0ki sidecar: the sysml-v2-lsp MCP server behind a small HTTP bridge. Build: `just sysml-mcp-image`.
+FROM docker.io/library/node:22-slim
+ENV NODE_ENV=production BIND_HOST=0.0.0.0 PORT=8790
+WORKDIR /app
+COPY package.json pnpm-lock.yaml* package-lock.json* ./
+RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force
+COPY bridge.mjs ./
+USER node
+EXPOSE 8790
+# Run with: --init (node as PID 1 ignores SIGTERM) --memory 512m --read-only --cap-drop=ALL --security-opt no-new-privileges
+CMD ["node", "bridge.mjs"]

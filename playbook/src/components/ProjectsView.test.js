@@ -37,6 +37,24 @@ const REQS = `package V {
   satisfy mass by vehicle;
 }`
 
+const REQS_ATTR = `package V {
+  requirement <'REQ-1'> mass {
+    doc /* Mass <= 1000 kg */
+    @CostAttribution { code = 'CC-4410/WBS-2.3'; share = 0.6; }
+    @CostAttribution { code = 'CC-9000'; share = 0.4; }
+    @ComplianceTag { tag = 'au-ai6:P5'; basis = 'judgement'; }
+  }
+  requirement <'REQ-2'> range { doc /* Range >= 400 km */ @ComplianceTag { tag = 'au-ai6:P9'; } }
+  requirement <'REQ-3'> third {
+    @CostAttribution { code = 'CC-1'; share = 0.7; }
+    @CostAttribution { code = 'CC-2'; share = 0.7; }
+    @CostAttribution { code = 'bad code!'; share = 0.1; }
+    @ComplianceTag { tag = 'iso42001:A.6.2.6'; }
+  }
+  part vehicle;
+  satisfy mass by vehicle;
+}`
+
 beforeEach(() => { tick = 0; vi.stubGlobal('confirm', () => true); vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL() {} })) })
 
 describe('ProjectsView', () => {
@@ -71,17 +89,94 @@ describe('ProjectsView', () => {
     expect(w.find('[data-testid="notice"]').text()).toContain('commit needs a message')
   })
 
-  it('shows costs, derived roll-ups, coverage gaps and a scenario total that changes with the checkboxes', async () => {
+  it('shows who each requirement is charged to, flags gaps, and keeps the old numeric weight only as a legacy line', async () => {
+    const w = await mountView()
+    await createWith(w, 'V', 'v.sysml')
+    await edit(w, REQS_ATTR)
+    await w.find('[data-testid="tab-requirements"]').trigger('click')
+    expect(w.find('[data-testid="req-REQ-1"] [data-col="attribution"]').text()).toContain('CC-4410/WBS-2.3 · 60%')
+    expect(w.find('[data-testid="req-REQ-1"] [data-col="attribution"]').text()).toContain('CC-9000 · 40%')
+    expect(w.find('[data-testid="req-REQ-2"] [data-col="attribution"]').text()).toContain('not charged')
+    expect(w.find('[data-testid="req-REQ-1"] [data-col="tags"]').text()).toContain('au-ai6:P5')
+    expect(w.find('[data-testid="gaps"]').text()).toContain('not yet fully covered')
+    expect(w.find('[data-testid="scenario-total"]').exists()).toBe(false) // no numeric cost anywhere: no money-like total at all
+    await edit(w, REQS) // the older projects with `attribute cost` still work
+    expect(w.find('[data-testid="scenario-total"]').text()).toContain('30')
+    expect(w.find('[data-testid="scenario-total"]').text()).toContain('not an accounting amount')
+    await w.find('[data-testid="req-REQ-2"] input[type="checkbox"]').setValue(false)
+    expect(w.find('[data-testid="scenario-total"]').text()).toContain('10')
+  })
+
+  it('summarises attribution by code and every parent, and says what is not charged, over-charged or unknown', async () => {
+    const w = await mountView()
+    await createWith(w, 'V', 'v.sysml')
+    await edit(w, REQS_ATTR)
+    await w.find('[data-testid="tab-attribution"]').trigger('click')
+    const table = w.find('[data-testid="attribution-table"]').text()
+    expect(table).toContain('CC-4410')
+    expect(table).toContain('CC-4410/WBS-2.3')
+    expect(table).toContain('CC-9000')
+    const issues = w.find('[data-testid="attribution-issues"]').text()
+    expect(issues).toContain('Not charged to any code: REQ-2')
+    expect(issues).toContain('REQ-3: shares add up to 1.5')
+    expect(issues).toContain('Not a valid code: bad code!')
+    await w.find('[data-testid="codebook"]').trigger('click'); await flushPromises() // creates attribution/codebook.json
+    expect(w.find('.projects__files').text()).toContain('attribution/codebook.json')
+    await w.find('[data-testid="tab-attribution"]').trigger('click')
+    expect(w.find('[data-testid="attribution-issues"]').text()).toContain('Not in the code book: CC-4410/WBS-2.3')
+  })
+
+  it('adds an attribution code or compliance tag to a requirement by form, validates them, and saves a link-only change', async () => {
     const w = await mountView()
     await createWith(w, 'V', 'v.sysml')
     await edit(w, REQS)
+    await save(w, 'baseline')
     await w.find('[data-testid="tab-requirements"]').trigger('click')
-    expect(w.find('[data-testid="req-REQ-1"]').text()).toContain('30') // 10 + REQ-2 (20) derived from it
-    expect(w.find('[data-testid="scenario-total"]').text()).toContain('30')
-    expect(w.find('[data-testid="gaps"]').text()).toContain('not yet fully covered')
-    await w.find('[data-testid="req-REQ-2"] input[type="checkbox"]').setValue(false)
-    expect(w.find('[data-testid="scenario-total"]').text()).toContain('10')
-    expect(w.find('[data-testid="req-REQ-1"]').text()).not.toContain('30')
+    const add = async (kind, value, extra = {}) => {
+      await w.find('[data-testid="link-requirement"]').setValue('REQ-1')
+      await w.find('[data-testid="link-kind"]').setValue(kind)
+      await w.find('[data-testid="link-value"]').setValue(value)
+      if (extra.share !== undefined) await w.find('[data-testid="link-share"]').setValue(extra.share)
+      await w.find('[data-testid="add-link"]').trigger('submit'); await flushPromises()
+    }
+    await add('attribution', 'CC 4410')
+    expect(w.find('[data-testid="notice"]').text()).toContain('not a valid attribution code')
+    await add('attribution', 'CC-4410/WBS-2.3', { share: 2 })
+    expect(w.find('[data-testid="notice"]').text()).toContain('share must be above 0')
+    await add('attribution', 'CC-4410/WBS-2.3', { share: 0.75 })
+    expect(w.find('[data-testid="req-REQ-1"] [data-col="attribution"]').text()).toContain('CC-4410/WBS-2.3 · 75%')
+    await add('tag', 'not a tag')
+    expect(w.find('[data-testid="notice"]').text()).toContain('is not a tag')
+    await add('tag', 'au-ai6:P5')
+    expect(w.find('[data-testid="req-REQ-1"] [data-col="tags"]').text()).toContain('au-ai6:P5')
+    await save(w, 'charge REQ-1 and tag it')
+    expect(w.find('[data-testid="notice"]').text()).toContain('0 files changed, 1 requirement affected (REQ-1)') // no file changed: the links are versioned too
+    await w.find('[data-testid="tab-history"]').trigger('click')
+    expect(w.find('[data-testid="panel-history"]').text()).toContain('charge REQ-1 and tag it')
+  })
+
+  it('the share field accepts every fraction a user can sensibly type (the browser blocks the whole form otherwise)', async () => {
+    const w = await mountView()
+    await createWith(w, 'V', 'v.sysml'); await edit(w, REQS)
+    await w.find('[data-testid="tab-requirements"]').trigger('click')
+    const share = w.find('[data-testid="link-share"]')
+    for (const v of ['1', '0.75', '0.6', '0.05', '0.333', '0.5']) { await share.setValue(v); expect(share.element.checkValidity(), v).toBe(true) }
+  })
+
+  it('shows compliance coverage per framework with provenance, gaps, and malformed or unknown tags', async () => {
+    const w = await mountView()
+    await createWith(w, 'V', 'v.sysml')
+    await edit(w, REQS_ATTR)
+    await w.find('[data-testid="tab-compliance"]').trigger('click')
+    expect(w.find('[data-testid="panel-compliance"]').text()).toContain('Working aid, not legal advice')
+    const p5 = w.find('[data-testid="ctl-P5"]').text()
+    expect(p5).toContain('REQ-1'); expect(p5).toContain('judgement')
+    expect(w.find('[data-testid="ctl-P1"]').text()).toContain('no requirement yet')
+    expect(w.find('[data-testid="coverage-summary"]').text()).toMatch(/1 of 6 controls/)
+    expect(w.find('[data-testid="panel-compliance"]').text()).toContain('au-ai6:P9')
+    await w.find('[data-testid="framework-select"]').setValue('iso42001')
+    expect(w.find('[data-testid="ctl-A.6"]').text()).toContain('REQ-3') // iso42001:A.6.2.6 counts toward A.6
+    expect(w.find('[data-testid="panel-compliance"]').text()).toContain('recalled')
   })
 
   it('warns when the same requirement id is declared in two files', async () => {

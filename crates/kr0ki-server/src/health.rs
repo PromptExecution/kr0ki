@@ -39,6 +39,8 @@ pub struct Checks {
     pub kubediagram_worker: Option<Dependency>,
     /// AG-UI storyb00k sidecar (:8789), if configured.
     pub storyb00k_agent: Option<Dependency>,
+    /// SysML v2 MCP sidecar (`KR0KI_SYSML_MCP_URL`), if configured.
+    pub sysml_mcp: Option<Dependency>,
     /// OpenAI-compatible LLM endpoint — model COUNT only, never an inference
     /// request. `configured=false` when OPENAI_API_KEY/URL are unset.
     pub llm: LlmCheck,
@@ -230,11 +232,12 @@ pub async fn collect(state: &AppState) -> HealthReport {
         .to_string();
     let kubediagram_url = state.kubediagram_worker_url.clone();
     let storyb00k_url = state.storyb00k_agent_url.clone();
+    let sysml_mcp_url = state.sysml_mcp.as_ref().map(|c| c.base_url().to_owned());
     let llm_base = state.llm_api_url.clone();
     let llm_key = state.llm_api_key.clone();
 
     let kroki_url = format!("{backend_url}/health");
-    let (kroki, kubediagram, storyb00k, llm, cache_dir) = tokio::join!(
+    let (kroki, kubediagram, storyb00k, sysml_mcp, llm, cache_dir) = tokio::join!(
         probe_json(&http, &kroki_url, None),
         async {
             match kubediagram_url.as_deref() {
@@ -244,6 +247,12 @@ pub async fn collect(state: &AppState) -> HealthReport {
         },
         async {
             match storyb00k_url.as_deref() {
+                Some(url) => Some(probe_json(&http, &format!("{url}/health"), None).await),
+                None => None,
+            }
+        },
+        async {
+            match sysml_mcp_url.as_deref() {
                 Some(url) => Some(probe_json(&http, &format!("{url}/health"), None).await),
                 None => None,
             }
@@ -291,6 +300,9 @@ pub async fn collect(state: &AppState) -> HealthReport {
             storyb00k_agent: storyb00k_url
                 .as_deref()
                 .map(|url| to_dep(url, storyb00k.unwrap())),
+            sysml_mcp: sysml_mcp_url
+                .as_deref()
+                .map(|url| to_dep(url, sysml_mcp.unwrap())),
             llm,
             stores: StoresCheck {
                 cache_dir,

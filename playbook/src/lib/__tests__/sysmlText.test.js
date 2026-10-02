@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { declaredRequirements, requirementIds, scanRequirements, tracesOf } from '../sysmlText.js'
+import { CODE_RE, declaredRequirements, requirementIds, scanRequirements, tracesOf } from '../sysmlText.js'
 
 const model = `
 package Vehicle {
@@ -97,5 +97,49 @@ describe('numeric attributes (the cost model)', () => {
     expect(reversed.P.attributes).toEqual({ cost: 30 })
     const noOwn = Object.fromEntries(declaredRequirements("requirement <'P'> p { requirement <'C'> c { attribute cost = 7; } }").map((x) => [x.id, x]))
     expect(noOwn.P.attributes).toEqual({}) // the inner cost must not be attributed to the parent
+  })
+})
+
+describe('cost attribution metadata (accounting-style codes, not amounts)', () => {
+  const src = `package P {
+    requirement <'R1'> a {
+      doc /* A */
+      @CostAttribution { code = 'CC-4410/WBS-2.3'; share = 0.6; }
+      @CostAttribution { code = "CC-9000/ACT-1"; share = 0.4; }
+    }
+    requirement <'R2'> b { metadata CostAttribution { code = 'CC-4410/WBS-2.4'; } }
+    requirement <'R3'> outer {
+      @CostAttribution { code = 'CC-1'; share = 0.5; }
+      requirement <'R3.1'> inner { @CostAttribution { code = 'CC-2'; share = 1; } }
+    }
+    requirement <'R4'> none { doc /* no attribution */ }
+    requirement <'R5'> noCode { @CostAttribution { share = 0.5; } }
+    requirement <'R6'> other { @SomethingElse { code = 'CC-X'; } }
+  }`
+  const r = Object.fromEntries(declaredRequirements(src).map((x) => [x.id, x]))
+
+  it('reads one or more attribution lines per requirement, in both metadata spellings, with share defaulting to 1', () => {
+    expect(r.R1.attributions).toEqual([{ code: 'CC-4410/WBS-2.3', share: 0.6 }, { code: 'CC-9000/ACT-1', share: 0.4 }])
+    expect(r.R2.attributions).toEqual([{ code: 'CC-4410/WBS-2.4', share: 1 }])
+  })
+
+  it('keeps nested requirements\' attributions to themselves, in either direction', () => {
+    expect(r.R3.attributions).toEqual([{ code: 'CC-1', share: 0.5 }])
+    expect(r['R3.1'].attributions).toEqual([{ code: 'CC-2', share: 1 }])
+  })
+
+  it('ignores metadata that is not CostAttribution or has no code, and a requirement with none has none', () => {
+    expect(r.R4.attributions).toEqual([])
+    expect(r.R5.attributions).toEqual([])
+    expect(r.R6.attributions).toEqual([])
+  })
+
+  it('never turns an attribution into a number: the legacy numeric attribute is a separate, optional field', () => {
+    expect(r.R1.attributes).toEqual({})
+  })
+
+  it('CODE_RE accepts hierarchical accounting codes and rejects anything else', () => {
+    for (const ok of ['CC-4410', 'CC-4410/WBS-2.3', 'CC-4410/WBS-2.3/ACT-07', 'a/b/c', 'X_1.2-3']) expect(CODE_RE.test(ok), ok).toBe(true)
+    for (const bad of ['', '/CC', 'CC/', 'CC//X', 'CC 1', "CC'; DROP", 'CC/..', '$5']) expect(CODE_RE.test(bad), bad).toBe(false)
   })
 })

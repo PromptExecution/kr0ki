@@ -85,3 +85,59 @@ describe('duplicateIds', () => {
     expect(duplicateIds(g)).toEqual([])
   })
 })
+
+import { attributionSummary, rollUpAttribution } from '../requirementsGraph.js'
+
+describe('cost attribution summary (codes, never currency)', () => {
+  const D = (id, attributions, tags = []) => ({ id, doc: id, attributions, tags })
+  const ag = buildRequirementGraph(
+    [T('A', 'declares'), T('B', 'derive', 'A'), T('C', 'derive', 'B'), T('A', 'attributed', 'CC-1/WBS-1', 'a.sysml')].map((t) => (t.relation === 'attributed' ? { ...t, share: 0.1 } : t)),
+    [
+      D('A', [{ code: 'CC-1/WBS-1', share: 0.5 }, { code: 'CC-2', share: 0.5 }]),
+      D('B', [{ code: 'CC-1/WBS-1', share: 1 }]),
+      D('C', [{ code: 'CC-1/WBS-2', share: 0.25 }, { code: 'bad code!', share: 0.25 }]),
+      D('D', []),
+      D('E', [{ code: 'CC-3', share: 0.7 }, { code: 'CC-4', share: 0.7 }]),
+    ],
+  )
+  const s = attributionSummary(ag)
+
+  it('groups by code and by every prefix of the code, in shares of a requirement', () => {
+    const code = Object.fromEntries(s.byCode.map((r) => [r.code, r]))
+    expect(code['CC-1/WBS-1']).toMatchObject({ requirements: ['A', 'B'], share: 1.6 }) // A 0.5 + manual 0.1 + B 1
+    const pre = Object.fromEntries(s.byPrefix.map((r) => [r.prefix, r]))
+    expect(pre['CC-1'].requirements).toEqual(['A', 'B', 'C'])
+    expect(pre['CC-1'].share).toBe(1.85) // 1.6 + 0.25
+    expect(pre['CC-2'].share).toBe(0.5)
+  })
+
+  it('reports what is NOT attributed instead of hiding it: none at all, over-allocated, partly allocated, invalid codes', () => {
+    expect(s.unattributed).toEqual(['D'])
+    expect(s.overAllocated).toEqual([{ id: 'A', total: 1.1 }, { id: 'E', total: 1.4 }]) // A: 0.5 + 0.5 declared, plus the manual 0.1
+    expect(s.partlyAttributed).toEqual([{ id: 'C', total: 0.5 }])
+    expect(s.invalidCodes).toEqual(['bad code!'])
+  })
+
+  it('does not double count the same line arriving from SysML metadata and a manual link', () => {
+    const dup = buildRequirementGraph([{ requirement: 'A', relation: 'attributed', target: 'CC-1', share: 1, artifact: 'x' }], [D('A', [{ code: 'CC-1', share: 1 }])])
+    expect(dup.nodes[0].attributions).toEqual([{ code: 'CC-1', share: 1 }])
+  })
+
+  it('checks codes against a code book when one is given, and honours the scenario', () => {
+    const withBook = attributionSummary(ag, { codebook: new Set(['CC-1/WBS-1', 'CC-2']) })
+    expect(withBook.unknownCodes).toEqual([{ code: 'CC-1/WBS-2', requirements: ['C'] }, { code: 'CC-3', requirements: ['E'] }, { code: 'CC-4', requirements: ['E'] }])
+    const only = attributionSummary(ag, { include: new Set(['B']) })
+    expect(only.byCode.map((r) => r.code)).toEqual(['CC-1/WBS-1'])
+    expect(only.unattributed).toEqual([])
+  })
+
+  it('rolls attribution up the derivation tree, each requirement once, cycle-safe', () => {
+    const r = rollUpAttribution(ag)
+    expect(r.A['CC-1/WBS-1']).toBe(1.6) // A (0.5 + 0.1) + derived B (1)
+    expect(r.A['CC-1/WBS-2']).toBe(0.25) // from C, two levels down
+    expect(r.C).toEqual({ 'CC-1/WBS-2': 0.25, 'bad code!': 0.25 })
+    expect(rollUpAttribution(ag, new Set(['A'])).A).toEqual({ 'CC-1/WBS-1': 0.6, 'CC-2': 0.5 })
+    const cyc = buildRequirementGraph([T('X', 'derive', 'Y'), T('Y', 'derive', 'X')], [D('X', [{ code: 'C1', share: 1 }]), D('Y', [{ code: 'C1', share: 1 }])])
+    expect(rollUpAttribution(cyc).X).toEqual({ C1: 2 })
+  })
+})

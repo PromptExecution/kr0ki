@@ -57,6 +57,8 @@ pub struct AppState {
     pub ui_bus: Arc<kr0ki_core::ui_bus::UiBus>,
     /// Brand packages (`<dir>/<name>/brand.json`) applied by `?brand=<name>` on SysML renders.
     pub brand_dir: PathBuf,
+    /// SysML v2 MCP sidecar client (`KR0KI_SYSML_MCP_URL`); `None` makes `/sysml/*` return 503.
+    pub sysml_mcp: Option<Arc<kr0ki_core::sysml_mcp::SysmlMcpClient>>,
     /// AG-UI storyb00k sidecar base URL (deep /health probe). `None` skips it.
     pub storyb00k_agent_url: Option<String>,
     /// OpenAI-compatible LLM endpoint for the storyb00k agent. The /health LLM
@@ -91,6 +93,22 @@ pub fn router(
         .route("/api/catalog", get(catalog))
         .route("/api/catalog/suggest", post(suggest_diagram_type))
         .route("/brand", get(list_brands))
+        .route(
+            "/sysml/validate",
+            post(|s: State<AppState>, b: Bytes| sysml_tool(s, "validate", b)),
+        )
+        .route(
+            "/sysml/parse",
+            post(|s: State<AppState>, b: Bytes| sysml_tool(s, "parse", b)),
+        )
+        .route(
+            "/sysml/symbols",
+            post(|s: State<AppState>, b: Bytes| sysml_tool(s, "getSymbols", b)),
+        )
+        .route(
+            "/sysml/summary",
+            post(|s: State<AppState>, b: Bytes| sysml_tool(s, "getModelSummary", b)),
+        )
         .route("/ui/:session/events", get(ui_events))
         .route("/ui/:session/navigate", post(ui_navigate))
         .route("/playbook", get(playbook_index))
@@ -1575,6 +1593,44 @@ fn parse_multi_doc_yaml(text: &str) -> Result<Vec<serde_json::Value>, serde_yaml
         .map(serde_json::Value::deserialize)
         .collect::<Result<Vec<_>, _>>()
         .map(|docs| docs.into_iter().filter(|v| !v.is_null()).collect())
+}
+
+/// `POST /sysml/{validate,parse,symbols,summary}` — body is SysML v2 text; answered by the MCP sidecar. Read-only language
+/// service: it does not know `satisfy` relations or short names (use the model routes for requirement graphs).
+async fn sysml_tool(State(state): State<AppState>, tool: &'static str, body: Bytes) -> Response {
+    use kr0ki_core::sysml_mcp::SysmlMcpError;
+    let Some(client) = state.sysml_mcp.as_ref() else {
+        return error_json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "sysml_mcp_not_configured",
+            "set KR0KI_SYSML_MCP_URL to the SysML MCP sidecar (just sysml-mcp-up)",
+        );
+    };
+    let Ok(source) = std::str::from_utf8(&body) else {
+        return error_json(
+            StatusCode::BAD_REQUEST,
+            "invalid_utf8",
+            "SysML source must be UTF-8 text",
+        );
+    };
+    match client.call_tool(tool, source).await {
+        Ok(result) => Json(result).into_response(),
+        Err(SysmlMcpError::TooLarge) => error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "sysml_source_too_large",
+            "SysML source is limited to 256 KiB",
+        ),
+        Err(e @ (SysmlMcpError::Unavailable(_) | SysmlMcpError::Protocol(_))) => error_json(
+            StatusCode::BAD_GATEWAY,
+            "sysml_mcp_unavailable",
+            &e.to_string(),
+        ),
+        Err(e) => error_json(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "sysml_mcp_error",
+            &e.to_string(),
+        ),
+    }
 }
 
 const MAX_BRAND_BYTES: u64 = 256 * 1024;

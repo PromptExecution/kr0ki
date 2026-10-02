@@ -31,6 +31,9 @@ pub enum McpTool {
     ListDiagramTypes,
     SuggestDiagramType,
     NavigateUi,
+    ValidateSysml,
+    SysmlSymbols,
+    SysmlSummary,
 }
 
 impl McpTool {
@@ -54,6 +57,9 @@ impl McpTool {
         Self::ListDiagramTypes,
         Self::SuggestDiagramType,
         Self::NavigateUi,
+        Self::ValidateSysml,
+        Self::SysmlSymbols,
+        Self::SysmlSummary,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -77,6 +83,9 @@ impl McpTool {
             Self::ListDiagramTypes => "list_diagram_types",
             Self::SuggestDiagramType => "suggest_diagram_type",
             Self::NavigateUi => "navigate_ui",
+            Self::ValidateSysml => "validate_sysml",
+            Self::SysmlSymbols => "sysml_symbols",
+            Self::SysmlSummary => "sysml_summary",
         }
     }
 
@@ -141,11 +150,28 @@ impl McpTool {
                  use_case ('All' resets), highlight a shortlist (suggest) and/or select one diagram type. \
                  Reports how many UI sessions received it; 0 means the UI is not connected."
             }
+            Self::ValidateSysml => {
+                "Validate SysML v2 textual notation with the SysML MCP sidecar: syntax errors (line/column) and semantic \
+                 diagnostics such as unresolved types and unverified requirements. Read-only; it does not know `satisfy` \
+                 relations or short names and does not parse pure KerML."
+            }
+            Self::SysmlSymbols => {
+                "List the symbols (parts, requirements, packages, ...) declared in SysML v2 text, with kinds, qualified names \
+                 and types, via the SysML MCP sidecar."
+            }
+            Self::SysmlSummary => {
+                "Summarise SysML v2 text: counts of elements by kind (part def, requirement, ...), via the SysML MCP sidecar."
+            }
         }
     }
 
     pub fn input_schema(self) -> serde_json::Value {
         match self {
+            Self::ValidateSysml | Self::SysmlSymbols | Self::SysmlSummary => serde_json::json!({
+                "type": "object",
+                "required": ["code"],
+                "properties": {"code": {"type": "string", "description": "SysML v2 textual notation (max 256 KiB)."}}
+            }),
             Self::ListDiagramTypes => serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -277,6 +303,21 @@ impl McpTool {
 
     pub const fn http_binding(self) -> HttpBinding {
         match self {
+            Self::ValidateSysml => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/sysml/validate",
+                args: &[ArgBinding { name: "code", placement: ArgPlacement::Body }],
+            },
+            Self::SysmlSymbols => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/sysml/symbols",
+                args: &[ArgBinding { name: "code", placement: ArgPlacement::Body }],
+            },
+            Self::SysmlSummary => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/sysml/summary",
+                args: &[ArgBinding { name: "code", placement: ArgPlacement::Body }],
+            },
             Self::ListDiagramTypes => HttpBinding {
                 method: HttpMethod::Get,
                 path_template: "/api/catalog",
@@ -547,7 +588,7 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), before, "duplicate McpTool name in ALL");
-        assert_eq!(McpTool::ALL.len(), 19);
+        assert_eq!(McpTool::ALL.len(), 22);
     }
 
     #[test]

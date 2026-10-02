@@ -1,16 +1,31 @@
 # PLAN-KR0KI-008 — SysML v2 projects, requirements traceability and an MBSE "V" agent
 
-_2026-10-01. Evidence: [`evaluations/`](evaluations/) (Rivet, RDF stores, inventory). **FACT** = verified; **UNVERIFIED** = not run. Target release: **0.1.0** (first minor)._
+_2026-10-01 (decisions recorded the same day). Evidence: [`evaluations/`](evaluations/) (Rivet, RDF stores, inventory). **FACT** = verified; **UNVERIFIED** = not run. Target release: **0.1.0** (first minor)._
 
 ## 1. Goal
 A non-systems-engineer can keep a **SysML v2 project** (textual `.sysml`/`.kerml`, diagram sources, ReqIF) in the playbook, **save (commit) it with a message**,
 and see **which requirements each change affected**, the **graph of linked requirements**, and a **cost roll-up under different scenarios**. Local storage is one
 backend; the OMG-API server (Flexo) is the other; the same commit shape serves both. An MBSE agent (INCOSE "V": needs -> requirements -> design -> verification -> validation) helps.
 
+## 1a. Owner decisions (2026-10-01)
+| # | Decision | Consequence |
+|---|---|---|
+| D1 | **Oxigraph approved** for the server graph/SPARQL store | WP7 proceeds with `oxigraph` (`default-features=false`); SHACL as SPARQL shapes first |
+| D2 | **Compliance chain, not ASPICE/ISO 26262:** EU AI Act → Australian AI guardrails (and the Government *Guidance for AI Adoption*) → ISO/IEC 42001 → NIST AI RMF → AESCSF / CIRMP | The Rivet file-interop spike is dropped. New WP: **compliance tags + coverage** on requirements (`framework:control-id`), driven by a sourced crosswalk ([`evaluations/AI-GOVERNANCE-crosswalk-2026-10-01.md`](evaluations/AI-GOVERNANCE-crosswalk-2026-10-01.md)) |
+| D3 | **Cost is attribution, not a number.** A requirement carries *accounting-style attribution codes* (like cost-centre / WBS / activity tracking codes), not a dollar amount or a bare numeric. Mapping requirements to a solution and turning that into budget estimates is **TBD** | The 0.1.0 numeric `attribute cost` becomes a temporary weight; replaced by an **attribution ledger** (below). Money is a *later, separate* layer keyed by code |
+| D4 | **Priority: install and test a SysML v2 API server with an MCP interface as a kr0ki sidecar** | New WPs S1/S2 come first: they unblock live testing of everything that was fixture-only (WP6, WP9, WP10) |
+
+### Cost attribution model (D3) — design
+- **Attribution line** = `{ code, share, basis, status }`. `code` is a hierarchical accounting code such as `CC-4410/WBS-2.3/ACT-07` (cost centre / work breakdown / activity); `share` is the fraction (0–1) of the requirement attributed to it (a requirement's shares sum to ≤ 1; the rest is *unattributed*, which is reported, never hidden); `basis` = allocation | estimate | actual; `status` = planned | estimated | committed | actual.
+- **Code book**: a project-level list of valid codes (name, owner, parent) so codes are checked, like a chart of accounts. Unknown codes are flagged.
+- **SysML v2 native**: a user-defined `metadata def CostAttribution { attribute code : String; attribute share : Real; }` applied as `@CostAttribution { code = 'CC-4410/WBS-2.3'; share = 0.6; }` on a requirement (or on the `allocate` that maps it to a solution element). No bare dollar attribute.
+- **Roll-up** groups by code and by code prefix (hierarchy) across derived requirements, per scenario; it shows *attribution coverage* (requirements with no code, shares that do not sum), not a total. Cost *amounts* appear only when a budget model (code → estimate, TBD) is supplied.
+- **Scenarios** = sets of requirements and, later, alternative solution allocations; output is a code × scenario matrix.
+
 ## 2. What the evaluations decided
 | Question | Finding | Decision |
 |---|---|---|
-| **Rivet** (pulseengine) as the requirements surface? | Rust, YAML-in-git, ReqIF 1.2 in/out, 28 compliance schemas, CLI/dashboard/LSP/MCP; **no SysML v2, no requirement def/usage**; 7 months old, 1 maintainer, 2 stars, no LICENSE file, git-forked deps (not embeddable); CLI not run (build > 10 min) | **Do not embed or adopt.** Borrow patterns: coverage-gap rules, per-type "common mistakes + fix command", commit-trailer to requirement id, embedded docs. Optional ReqIF file-interop spike only if a compliance schema (ASPICE, EU AI Act) is required. Re-evaluate at v1.0 + licence |
+| **Rivet** (pulseengine) as the requirements surface? | Rust, YAML-in-git, ReqIF 1.2 in/out, 28 compliance schemas (ASPICE, ISO 26262, EU AI Act ...), CLI/dashboard/LSP/MCP; **no SysML v2, no requirement def/usage**; 7 months old, 1 maintainer, 2 stars, no LICENSE file, git-forked deps (not embeddable); CLI not run (build > 10 min) | **Do not embed or adopt.** Borrow patterns: coverage-gap rules, per-type "common mistakes + fix command", commit-trailer to requirement id, embedded docs. Interop spike **dropped** (D2: our frameworks are the AI-governance chain, not ASPICE/26262) |
 | **Graph store** | `graph_store.rs` is a `Vec<oxrdf::Triple>`, no SPARQL. **oxigraph 0.5.11** (`default-features=false`) was correct on every spike query: sub-select, `dependsOn+`, `SUM`, `GROUP BY`, `(a\|b)+`; keeps `xsd:integer`; 105 s build; wasm32 builds (`js` feature; browser run UNVERIFIED). grafeo 0.5.43: built-in SHACL, but SUM returned Float64, dropped a zero-length-path row, rejects `(a\|b)+`. **zu**: not RDF, "nothing is usable yet" | **Server store: oxigraph.** Reject zu; revisit grafeo later |
 | **SHACL** | none in oxigraph. rudof `shacl_validation` works only with pinned `0.2.9` companions; its SPARQL mode disagreed with native | **Phase 1: shapes as SPARQL `ASK`/`SELECT` in oxigraph** (no extra crate). Phase 2: rudof (pinned) over a Turtle export |
 | **ReqIF today** | import PARTIAL (parses via reqrs; attachments inventoried only), export PARTIAL (not 1.2-valid; drops attributes/hierarchy/attachments), **no HTTP route for export or baseline write/read** | WP4/WP8 |
@@ -43,6 +58,13 @@ backend; the OMG-API server (Flexo) is the other; the same commit shape serves b
 | Validation | — | needs-vs-acceptance trace |
 
 ## 5. Work packages (ordered; each has an acceptance test)
+**Priority block (D4): the SysML v2 sidecar.** Everything below it that touches a real model server depends on these.
+| WP | What | Release | Acceptance |
+|---|---|---|---|
+| S1 | **SysML v2 API server as a kr0ki sidecar** (OMG Systems Modeling API; pilot implementation in a rootless podman container, in the kr0ki pod); `just` recipes to build/start/stop; seeded demo project | 0.1.x | server healthy in the pod; `GET /projects`, create project/commit/elements through the API; **kr0ki's existing live client tests pass against it** |
+| S2 | **SysML v2 MCP sidecar** (parse/validate/diagnostics/symbols over MCP, exposed over localhost HTTP by a fixed-command bridge); registered in kr0ki's MCP manifest/agent | 0.1.x | MCP `initialize` + `tools/list` + `parse`/`validate` through the container; the agent can call it; the same package's LSP (if present) feeds the editor |
+| S3 | kr0ki **sync/ReqIF/rules tests run live** against S1 (replaces fixture-only claims) | 0.1.x | live tests in CI-optional `just test-live-sysml` |
+| | **Remaining work packages** | | |
 | WP | What | Release | Acceptance |
 |---|---|---|---|
 | 1 | **Projects store** on Quasar LocalStorage: commit/log/checkout/diff/export/import, drafts, quota-safe | 0.1.0 | **DONE** 16 store tests incl. tamper rejection, rollback, chain order; mutation-checked |
