@@ -13,6 +13,10 @@ const props = defineProps({
 })
 const emit = defineEmits(['select'])
 
+// QTree's default expand arrow is the Material Icons ligature `play_arrow`; with no icon font bundled (air-gapped) it rendered
+// as the literal text "play_arrow". An inline SVG needs no font and no network.
+const ARROW_ICON = `img:data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#9fb0d0" d="M8 5v14l11-7z"/></svg>')}`
+
 const OTHER = 'group:other'
 const groupKey = (name) => `group:${name}`
 
@@ -75,6 +79,7 @@ function onSelected(key) {
       v-model:expanded="expanded"
       :selected="selectedKey"
       :nodes="nodes"
+      :icon="ARROW_ICON"
       node-key="key"
       dense
       dark
