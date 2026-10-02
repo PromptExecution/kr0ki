@@ -1,0 +1,13 @@
+[Unit]
+Description=kr0ki: SysML v2 MCP sidecar (:8790, loopback only)
+After=network-online.target
+
+[Service]
+ExecStartPre=-/usr/bin/podman rm -f kr0ki-sysml-mcp
+ExecStart=/usr/bin/podman run --rm --name kr0ki-sysml-mcp --memory=512m --memory-swap=512m -p 127.0.0.1:8790:8790 -e PORT=8790 -e BIND_HOST=0.0.0.0 localhost/kr0ki-sysml-mcp:dev
+ExecStop=/usr/bin/podman stop -t 10 kr0ki-sysml-mcp
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

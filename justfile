@@ -472,3 +472,33 @@ status-agent port="8789":
     else
         echo "✗ Agent server is not running on port {{port}}"
     fi
+
+# Boot persistence: user-level systemd units (linger is enabled for this account, so they start at boot, not login).
+# Needs the images built (`just dev-kroki-up`, `just sysml-mcp-image`) and ./target/debug/kr0ki (`cargo build`).
+services_units := "kr0ki-kroki kr0ki-sysml-mcp kr0ki-server kr0ki-agent"
+services-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p ~/.config/systemd/user
+    for u in {{services_units}}; do install -m 644 deploy/systemd/$u.service ~/.config/systemd/user/$u.service; done
+    systemctl --user daemon-reload
+    systemctl --user enable {{services_units}}
+    echo "installed + enabled; start now with: just services-start (stop any hand-started copies first)"
+services-start:
+    systemctl --user start kr0ki-agent.service
+services-stop:
+    systemctl --user stop {{services_units}}
+services-status:
+    systemctl --user --no-pager status {{services_units}} | grep -E "^(●|○)|Active:" || true
+services-uninstall:
+    -systemctl --user disable --now {{services_units}}
+    rm -f $(for u in {{services_units}}; do echo ~/.config/systemd/user/$u.service; done)
+    systemctl --user daemon-reload
+
+sysml-mcp-image:
+    pnpm --dir containers/kr0ki-sysml-mcp install --frozen-lockfile
+    podman build --memory=4g --memory-swap=4g -t localhost/kr0ki-sysml-mcp:dev -f containers/kr0ki-sysml-mcp/Containerfile containers/kr0ki-sysml-mcp
+
+test-sysml-mcp:
+    pnpm --dir containers/kr0ki-sysml-mcp install --frozen-lockfile
+    pnpm --dir containers/kr0ki-sysml-mcp test

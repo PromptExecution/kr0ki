@@ -1,0 +1,16 @@
+[Unit]
+Description=kr0ki: StoryB00k planning agent (:8789)
+Wants=kr0ki-server.service
+After=kr0ki-server.service
+
+[Service]
+WorkingDirectory=%h/promptexecution/kr0ki/containers/kr0ki-storyb00k-agent
+EnvironmentFile=%h/promptexecution/kr0ki/.env
+Environment=KR0KI_STORYB00K_PORT=8789
+ExecStart=%h/promptexecution/kr0ki/containers/kr0ki-storyb00k-agent/.venv/bin/python server.py
+MemoryMax=512M
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
