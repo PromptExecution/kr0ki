@@ -83,5 +83,6 @@ backend; the OMG-API server (Flexo) is the other; the same commit shape serves b
 ## 6. Risks and open decisions
 - **Heuristic scanner vs real parser:** the browser scanner can misread exotic SysML v2 (it is labelled a heuristic). Mitigation: WP10 parser endpoint; the scanner never blocks a save.
 - **localStorage quota:** ~5 MB shared; big ReqIF/diagrams will not fit. Mitigation: quota meter, export, IndexedDB backend.
-- **No live SysML v2 server yet:** WP9/10 need a URL/token for acceptance (owner).
-- **Owner decisions:** (a) confirm oxigraph for the server store and SPARQL-ASK-first SHACL; (b) whether compliance schemas (ASPICE/ISO 26262/EU AI Act) are in scope (would justify the Rivet file-interop spike); (c) cost model: free-form numeric attribute (0.1.0) or typed quantities with units (SysML `MassValue`-style) later; (d) canonical brand/palette for the Projects UI.
+- **Live SysML v2 server:** built from source in `~/.local/share/kr0ki/sysml-api` (persistent, not `/tmp`; the first build was lost in the 2026-10-02 host out-of-memory/reboot). Builds run one at a time with a memory cap; never alongside cargo builds.
+- **Decisions answered (see 1a):** oxigraph approved (SPARQL-ASK-first SHACL); AI-governance crosswalk instead of ASPICE/ISO 26262 (Rivet file-interop spike not needed); cost is an attribution code, money a later layer. Still open: canonical brand/palette for the Projects UI; upstream approval of a `Skill` UFO type.
+- **Boot persistence:** `just services-install` (systemd user units, linger on). Not yet verified by an actual reboot.
