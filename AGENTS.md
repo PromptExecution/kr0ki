@@ -96,6 +96,7 @@ crates/
 | `KR0KI_BRAND_DIR` | `./brand` | Brand packages: `<dir>/<name>/brand.json` (see `brand/example`, a placeholder) |
 | `KR0KI_TEST_BACKEND` | unset | Live render test backend; use the local/private kroki-compatible service |
 | `KR0KI_SYSMLV2_BASE_URL` | unset | Live SysML-v2 client test target (`just sysml-api-up` serves one on `127.0.0.1:9000`; `just test-live-sysml`) |
+| `OPENAI_API_URL` | (in `.env`) | The agent's / `/health`'s LLM. Boot default is Qwen3.8 NEO-CODER + mmproj (vision) on `127.0.0.1:8002/v1` via `deploy/systemd/b00t-hive-inference-heretic-neo-coder.service`; Qwen3.6 units are disabled |
 | `KR0KI_SYSML_MCP_URL` | unset | SysML v2 MCP sidecar (`containers/kr0ki-sysml-mcp`, `127.0.0.1:8790`); enables `/sysml/{validate,parse,symbols,summary}` and the `sysml_mcp` health check |
 
 ---

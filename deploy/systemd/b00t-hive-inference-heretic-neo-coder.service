@@ -1,0 +1,28 @@
+# Qwen3.8-27B NEO-CODER (MTP IQ4_NL) + mmproj: the vision LLM kr0ki needs, on :8002. Boot default since 2026-10-02
+# (owner decision: replaces the Qwen3.6-27B units, which are disabled). Mirrors ~/.b00t/_b00t_/inference-heretic-neo-coder.hive.toml.
+# One 24GB GPU, ~20.6GB resident: Conflicts= makes starting this stop any other GPU model unit instead of OOMing.
+# Cold start is 1.5-2.5 minutes; the unit is "active" immediately, so wait for /health before relying on it.
+[Unit]
+Description=b00t hive stack: Qwen3.8-27B NEO-CODER + mmproj llama.cpp container (vision, port 8002)
+After=network.target
+Conflicts=b00t-hive-inference-qwen36-27b-mtp-podman.service b00t-hive-inference-qwen36-27b.service b00t-hive-inference-qwen36-35b-a3b-llamacpp.service b00t-hive-inference-qwen38-27b.service
+
+[Service]
+Type=simple
+Environment="PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStartPre=-/usr/bin/podman rm -f b00t-heretic
+# --annotation b00t.unlimited=ack is the node's explicit opt-out of the OCI memory-cap hook (the model is VRAM-bound, not RAM-bound).
+ExecStart=/usr/bin/podman run --rm --name b00t-heretic --device nvidia.com/gpu=0 --annotation b00t.unlimited=ack \
+  -v %h/.cache/huggingface/hub/models--DavidAU--Qwen3.8-27B-TURBO-Fable-Cold-Fusion-735-882-Heretic-Uncensored-NEO-CODER-MAX-MTP-GGUF:/models:ro \
+  -p 8002:8080 ghcr.io/ggml-org/llama.cpp:server-cuda --host 0.0.0.0 --port 8080 \
+  -m /models/snapshots/0b4bc07a8c549be631ed8f5fd78b68fb0e80eced/Qwen3.8-27B-TurboFCFusion-735-882-Here-Uncen-NEO-CODER-MAX-MTP-IQ4_NL.gguf \
+  -c 131072 -b 4096 -ub 1024 -ngl 99 -fa on --cache-type-k q4_0 --cache-type-v q4_0 -np 1 --jinja --reasoning off \
+  --temp 0.6 --top-p 0.95 --top-k 20 --repeat-penalty 1.0 \
+  --mmproj /models/snapshots/0b4bc07a8c549be631ed8f5fd78b68fb0e80eced/mmproj-F16.gguf
+ExecStop=/usr/bin/podman stop -t 30 b00t-heretic
+Restart=on-failure
+RestartSec=15s
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target
