@@ -10,6 +10,7 @@
 /playbook/dist
 /playbook/.vite
 /.kr0ki-cache
+/.kr0ki-generated/
 /.env
 /.sysml-v2-release
 /.worktrees
