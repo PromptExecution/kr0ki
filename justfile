@@ -517,3 +517,7 @@ test-live-sysml:
     id=$(curl -fsS -X POST "$base/projects" -H 'content-type: application/json' -d '{"@type":"Project","name":"kr0ki live '"$(date +%s)"'"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["@id"])')
     KR0KI_SYSMLV2_BASE_URL="$base" KR0KI_SYSMLV2_TEST_PROJECT_ID="$id" CARGO_BUILD_JOBS=3 \
       cargo test -p kr0ki-sysmlv2-client --test live -p kr0ki-core --test flexo_reqif_sync --test recompute_live -- --ignored --test-threads=1
+
+# Delegate an errand to the local Qwen3.8 via pi (read-only by default). See docs/PATTERN-pi-subagents.md.
+delegate +prompt:
+    scripts/delegate-qwen38.sh {{prompt}}

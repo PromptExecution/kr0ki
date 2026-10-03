@@ -115,7 +115,7 @@ class PlannerRunTest(unittest.TestCase):
         self.run_thread("planner-mine", {"view": "gallery"})
         messages, tools = self.client.chat_completion.call_args_list[0].args
         self.assertTrue(messages[0]["content"].startswith(server.PLANNER_PREAMBLE))
-        self.assertEqual({t["function"]["name"] for t in tools} - {"ask_user"}, {"list_diagram_types", "suggest_diagram_type", "navigate_ui"})
+        self.assertEqual({t["function"]["name"] for t in tools} - {"ask_user"}, {"list_diagram_types", "suggest_diagram_type", "navigate_ui", "load_mbse_skill"})
 
     def test_a_regular_thread_cannot_call_navigate_ui(self):
         self.run_thread("regular-1", {"view": "gallery"})
@@ -329,3 +329,31 @@ class TextOnlyModelRunTest(DuplicateRenderTest):
     def test_a_vision_model_still_gets_the_image(self):
         images, _ = self.run_png_render(vision=True)
         self.assertEqual(len(images), 1)
+
+
+class LoadMbseSkillRunTest(PlannerRunTest):
+    def run_load(self, thread_id, name):
+        call = {"id": "m1", "function": {"name": "load_mbse_skill", "arguments": json.dumps({"name": name})}}
+        self.client.chat_completion.side_effect = [
+            {"model": "m", "choices": [{"message": {"content": "", "tool_calls": [call]}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+            {"model": "m", "choices": [{"message": {"content": "Done."}}], "usage": {"prompt_tokens": 1, "completion_tokens": 1}},
+        ]
+        body = json.dumps({"threadId": thread_id, "runId": "rm", "messages": [{"role": "user", "content": "are my requirements traced?"}]}).encode()
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/run", data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            stream = resp.read().decode()
+        sent = self.client.chat_completion.call_args_list[1].args[0]
+        return stream, [m for m in sent if m.get("role") == "tool"]
+
+    def test_the_planner_can_load_an_mbse_skill_and_the_model_is_told_it_is_recalled_not_verified(self):
+        stream, tool_msgs = self.run_load("planner-mbse", "v-model-traceability")
+        self.assertEqual(len(tool_msgs), 1)
+        self.assertTrue(tool_msgs[0]["content"].startswith("[confidence: recalled"), tool_msgs[0]["content"][:80])
+        self.assertIn("The V, as questions to ask of the model", tool_msgs[0]["content"])
+        self.assertIn("TOOL_CALL_RESULT", stream)
+        self.assertFalse(self.calls, "a local skill load must not call the kr0ki server")
+
+    def test_a_regular_drawing_thread_can_load_it_too_and_an_unknown_name_lists_what_exists(self):
+        _, tool_msgs = self.run_load("regular-mbse", "no-such-skill")
+        self.assertIn("unknown MBSE skill 'no-such-skill'", tool_msgs[0]["content"])
+        self.assertIn("requirement-writing", tool_msgs[0]["content"])

@@ -103,7 +103,7 @@ SYSTEM_PREAMBLE = (
 # Planner mode (gallery side panel): a thread whose id starts with this prefix is a *planning* conversation.
 # The playbook uses the same id as the UI session id, so a tool call can steer exactly that browser tab.
 PLANNER_THREAD_PREFIX = "planner-"
-PLANNER_TOOLS = {"list_diagram_types", "suggest_diagram_type", "navigate_ui", "ask_user"}
+PLANNER_TOOLS = {"list_diagram_types", "suggest_diagram_type", "navigate_ui", "ask_user", "load_mbse_skill"}
 
 PLANNER_PREAMBLE = (
     "You are the diagram planner inside kr0ki's gallery. The user is browsing a catalog of diagram types and "
@@ -124,6 +124,9 @@ PLANNER_PREAMBLE = (
     "the user they can press Edit on a pick to start drawing, Agent to work on it with the drawing assistant, or "
     "Show in gallery to see it among the others. If navigate_ui reports that no UI is connected, say so and "
     "describe the pick in words.\n\n"
+    "If the user is really asking about requirements, traceability, SysML v2 modelling, cost attribution or "
+    "compliance rather than a diagram, call load_mbse_skill first and follow it; skills labelled 'recalled' are "
+    "guidance, not verified standards text, so say so.\n\n"
     "Only use type ids and use cases returned by the tools. Keep answers short."
 )
 
@@ -197,6 +200,41 @@ def list_mbse_skills():
         field = lambda key: next((line[len(key) + 1:].strip() for line in head if line.startswith(key + ":")), "")
         out.append({"name": f.stem, "description": field("description"), "confidence": field("confidence")})
     return out
+
+
+def mbse_skill(name):
+    """Body of skills/mbse/<name>.md for a model: frontmatter stripped, but its confidence label kept on top so the model
+    cannot present recalled standards content as verified."""
+    text = mbse_skill_file(name)
+    if text is None:
+        return None
+    confidence = ""
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        if len(parts) == 3:
+            confidence = next((l[len("confidence:"):].strip() for l in parts[1].splitlines() if l.startswith("confidence:")), "")
+            text = parts[2]
+    head = f"[confidence: {confidence}]\n\n" if confidence else ""
+    return (head + text.strip())[:MAX_SKILL_CHARS]
+
+
+load_mbse_skill_tool = {
+    "type": "function",
+    "function": {
+        "name": "load_mbse_skill",
+        "description": (
+            "Load a model-based systems engineering skill BEFORE advising on requirements, V-model traceability, "
+            "SysML v2 modelling, cost attribution codes or AI-governance compliance tags. Names: "
+            "v-model-traceability, requirement-writing, sysml-v2-modeling, cost-attribution-and-compliance. "
+            "Skills marked 'recalled' are guidance from memory, not verified standards text: say so when you rely on one."
+        ),
+        "parameters": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {"name": {"type": "string", "description": "The skill name."}},
+        },
+    },
+}
 
 
 class SkillRequiredError(Exception):
@@ -836,6 +874,7 @@ class Handler(BaseHTTPRequestHandler):
         manifest = fetch_manifest(KR0KI_URL)
         tools = [{"type": "function", "function": {"name": tool["name"], "description": tool["description"], "parameters": tool["inputSchema"]}} for tool in manifest]
         tools.append(local_draft_tool())
+        tools.append(load_mbse_skill_tool)
         project = project_store.get_project(thread_id) or {}
         questions_asked = int(project.get("questionsAsked", len(project.get("qa", []))))
         questions_remaining = max(0, MAX_CLARIFYING_QUESTIONS - questions_asked)
@@ -1202,6 +1241,19 @@ class Handler(BaseHTTPRequestHandler):
                         }],
                     }))
                     return
+                if name == "load_mbse_skill" and name in offered_tool_names:
+                    skill_name = str(arguments.get("name") or "")
+                    body = mbse_skill(skill_name)
+                    if body is None:
+                        known = ", ".join(sorted(s["name"] for s in list_mbse_skills()))
+                        body = f"unknown MBSE skill {skill_name!r}; available: {known}"
+                    stream.try_write({"type": "TOOL_CALL_START", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "toolCallName": name, "parentMessageId": parent_message_id})
+                    stream.try_write({"type": "TOOL_CALL_ARGS", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id, "delta": call["function"].get("arguments") or "{}"})
+                    stream.try_write({"type": "TOOL_CALL_END", "threadId": thread_id, "runId": stream.run_id, "toolCallId": tool_call_id})
+                    stream.try_write({"type": "TOOL_CALL_RESULT", "threadId": thread_id, "runId": stream.run_id, "messageId": parent_message_id, "toolCallId": tool_call_id, "content": body, "role": "tool"})
+                    messages.append({"role": "tool", "tool_call_id": tool_call_id, "content": body})
+                    run_log.event("skill.mbse", {"name": skill_name, "found": not body.startswith("unknown MBSE skill")})
+                    continue
                 tool = find_tool(manifest, name)
                 # Only tools this thread was offered may run: a model can name a tool it was never given.
                 if tool is not None and name not in offered_tool_names:
