@@ -24,17 +24,25 @@
 //! `ufo_types::iso_ir::{Node, Edge}`, a sibling of `docgen::harvest`'s
 //! `SymbolVisitor` producing relationships instead of doc symbols.
 
+pub mod assurance_baseline;
+pub mod assurance_service;
+pub mod assurance_trace;
+pub mod assurance_view;
+pub mod audit_log;
 pub mod b00t_graph;
 pub mod cache;
 pub mod catalog;
+pub mod change_service;
 pub mod digital_thread_sync;
 pub mod docgen;
+pub mod evidence_store;
 pub mod examples;
 pub mod flatten;
 pub mod flexo_reqif_sync;
 pub mod format;
 pub mod graph_store;
 pub mod k8s_recognizer;
+pub mod mcp_surface;
 pub mod mcp_tool;
 pub mod probe;
 pub mod rdf_store;
@@ -43,9 +51,11 @@ pub mod render;
 pub mod reqif_export;
 pub mod reqif_fetch;
 pub mod reqif_import;
+pub mod reqif_roundtrip;
 pub mod sync_engine;
 pub mod sysml_mcp;
 pub mod ui_bus;
+pub mod verification_runner;
 /// Canonical home is `ufo_types::mbse::requirements` (kr0ki M1,
 /// 2026-09-19) — re-exported here so existing `kr0ki_core::requirements::*`
 /// call sites keep working without a local copy of the types.

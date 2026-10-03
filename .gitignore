@@ -18,3 +18,5 @@ __pycache__/
 .venv/
 /.kr0ki-run/
 containers/kr0ki-sysml-mcp/node_modules/
+/.kr0ki-evidence/
+/.kr0ki-audit/

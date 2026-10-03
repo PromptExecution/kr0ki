@@ -1,0 +1,365 @@
+# kr0ki assurance baseline — the first working example of the assurance thread:
+#
+#   source obligation -> requirement -> system element -> enforcing control
+#                                    \-> verification case -> evidence
+#
+# This file is the AUTHORING source. `kr0ki_core::assurance_baseline` lowers it to a
+# `RequirementGraph` (ufo-types `mbse::assurance` profile); ReqIF, the requirements view,
+# MCP and Playb00k all consume that graph. Evidence is NOT stored here: it is revision-bound
+# and produced by running a case (see the evidence store).
+#
+# Conventions
+#   * A requirement states one observable obligation: responsible component + "shall" +
+#     behaviour + condition. Rationale and implementation choices live in their own fields.
+#   * `satisfies` (element -> requirement) is an ARCHITECTURAL ASSERTION about the design.
+#     A passing result is revision-specific EVIDENCE. Never infer one from the other.
+#   * A control's `implementation` is empty until the code (or deployment manifest) exists.
+#     An empty value is reported as an implementation gap, deliberately.
+#   * Enforcement of identity and sandboxing belongs to the deployment components
+#     (`component = "deployment"`); kr0ki displays their relationships and evidence only.
+#
+# The model the `element` locators resolve against is `kr0ki-assurance.sysml`.
+
+[baseline]
+id = "KR0KI-ASSURANCE"
+title = "kr0ki requirements agent (reqiffy) — assurance baseline"
+model = "kr0ki-assurance.sysml"
+
+# ── Source obligations ──────────────────────────────────────────────────────────
+# kind: binding_obligation | organisational_policy | guidance
+#
+# The two OMG specifications are marked binding because kr0ki claims interchange with them
+# (ReqIF import/export; the Systems Modeling API client and sync path). The MCP text is
+# guidance (RFC 2119 SHOULD). The repository's own rules are organisational policy.
+
+[[obligation]]
+id = "OBL-OWNER-BRIEF"
+title = "Owner brief: versioned assurance thread (2026-10-02)"
+source = "docs/assurance/BRIEF-assurance-thread.md"
+version = "2026-10-02"
+kind = "organisational_policy"
+summary = "The product owner's brief defining requirements KR-A01 to KR-A08, the application profile, and the progressive acceptance checks."
+
+[[obligation]]
+id = "OBL-OMG-REQIF-1.2"
+title = "OMG Requirements Interchange Format (ReqIF) 1.2"
+source = "https://www.omg.org/spec/ReqIF/1.2"
+version = "formal/16-07-01"
+kind = "binding_obligation"
+summary = "Requirements exchanged as ReqIF keep SpecObject identifiers, attribute values and SpecRelations (reqif.xsd, namespace 20110401). Known gap: kr0ki's export is round-trip-grade, not yet shown to be XSD-valid (see the reqif_export module doc)."
+
+[[obligation]]
+id = "OBL-OMG-SYSML-API-1.0"
+title = "OMG Systems Modeling API and Services 1.0"
+source = "https://www.omg.org/spec/SystemsModelingAPI/1.0"
+version = "formal/26-03-04"
+kind = "binding_obligation"
+summary = "Model access and commits go through the standard project, commit, branch and element resources, with commits as immutable revisions."
+
+[[obligation]]
+id = "OBL-MCP-SECURITY"
+title = "Model Context Protocol: security and trust (spec 2026-07-28)"
+source = "https://modelcontextprotocol.io/specification/2026-07-28"
+version = "2026-07-28"
+kind = "guidance"
+summary = "Tool descriptions and annotations are untrusted unless the server is trusted; implementors SHOULD build authorization flows and access controls, because the protocol cannot enforce them."
+
+[[obligation]]
+id = "OBL-REPO-AGENTS-8A"
+title = "AGENTS.md section 8a: agent registration, read-only fallback, infrastructure audit"
+source = "AGENTS.md#8a-agent-communications-and-infrastructure-squawks"
+version = "2026-10-02"
+kind = "organisational_policy"
+summary = "An agent that cannot register remains read-only; every infrastructure change is recorded with caller, action, scope, decision, repository and git SHA, a correlation identifier and a redacted result."
+
+[[obligation]]
+id = "OBL-REPO-AGENTS-8B"
+title = "AGENTS.md section 8b: delegated work is read-only by default"
+source = "AGENTS.md#8b-delegation-always-use-qwen38-via-pi"
+version = "2026-10-02"
+kind = "organisational_policy"
+summary = "Delegated agent work is read-only by default; tools that write run only in a throwaway worktree."
+
+[[obligation]]
+id = "OBL-REPO-AGENTS-6"
+title = "AGENTS.md section 6: test discipline"
+source = "AGENTS.md#6-test-discipline"
+version = "2026-10-02"
+kind = "organisational_policy"
+summary = "Unit and in-process HTTP tests must pass; live tests require their environment, and a live integration is recorded as verified only after its live check has run."
+
+# ── System elements (qualified names in kr0ki-assurance.sysml) ──────────────────
+
+[[element]]
+id = "KrOKiAssurance::ModelService"
+title = "ModelService"
+description = "Serves revision-qualified model and requirement content, exposes the requirements view, and accepts commits."
+
+[[element]]
+id = "KrOKiAssurance::VerificationRunner"
+title = "VerificationRunner"
+description = "Runs declared verification cases and returns evidence references."
+
+[[element]]
+id = "KrOKiAssurance::ToolGateway"
+title = "ToolGateway"
+description = "The single path from agent to tools; enforces the capability grant on every transport."
+
+[[element]]
+id = "KrOKiAssurance::AuditRecorder"
+title = "ToolGateway::AuditRecorder"
+description = "Appends one audit record per tool invocation, permitted or denied."
+
+[[element]]
+id = "KrOKiAssurance::ExecutionSandbox"
+title = "ExecutionSandbox"
+description = "Confines the workload's filesystem writes to declared mounts."
+
+# ── Enforcing controls ──────────────────────────────────────────────────────────
+# component: "kr0ki" (implemented in this repository) | "deployment" (implemented by the
+# deployment component; kr0ki displays its relationships and evidence).
+
+[[control]]
+id = "CTL-A01"
+title = "Semantic round-trip comparison with explicit unsupported-content report"
+component = "kr0ki"
+implementation = "crates/kr0ki-core/src/reqif_export.rs; crates/kr0ki-core/src/reqif_roundtrip.rs"
+
+[[control]]
+id = "CTL-A02"
+title = "Link resolution against a revision-qualified element index"
+component = "kr0ki"
+implementation = "crates/kr0ki-core/src/assurance_trace.rs"
+
+[[control]]
+id = "CTL-A03"
+title = "Assurance state keeps satisfaction and verification as separate axes"
+component = "kr0ki"
+implementation = "crates/kr0ki-core/src/assurance_view.rs"
+
+[[control]]
+id = "CTL-A04"
+title = "Evidence record bound to the model, implementation and configuration revisions"
+component = "kr0ki"
+implementation = "crates/kr0ki-core/src/verification_runner.rs; crates/kr0ki-core/src/evidence_store.rs"
+
+[[control]]
+id = "CTL-A05"
+title = "Expected-base-revision precondition on commit"
+component = "kr0ki"
+implementation = "crates/kr0ki-core/src/change_service.rs"
+
+[[control]]
+id = "CTL-A06"
+title = "Capability-grant check in the gateway, deny by default, on every transport"
+component = "kr0ki"
+implementation = ""
+
+[[control]]
+id = "CTL-A07"
+title = "Read-only mount of the requirement baseline; writes only to declared mounts"
+component = "deployment"
+implementation = ""
+
+[[control]]
+id = "CTL-A08"
+title = "Audit record appended before the response, for permit and deny alike"
+component = "kr0ki"
+implementation = ""
+
+# ── Verification cases ──────────────────────────────────────────────────────────
+# `command` is an argv, never a shell string. The runner only executes commands that match
+# its allowlist (cargo test of a named package and test target).
+
+[[case]]
+id = "VC-A01"
+title = "Round-trip this baseline through ReqIF and compare semantic content"
+command = ["cargo", "test", "-p", "kr0ki-core", "--test", "assurance_a01"]
+acceptance = "Round-trip this baseline; compare semantic content. Report unsupported content explicitly."
+
+[[case]]
+id = "VC-A02"
+title = "Resolve KR-A01 links at a model revision; report a deliberately dangling reference"
+command = ["cargo", "test", "-p", "kr0ki-core", "--test", "assurance_a02"]
+acceptance = "Link KR-A01 to its adapter and test; report a deliberately dangling reference."
+
+[[case]]
+id = "VC-A03"
+title = "Requirements view shows one satisfied-but-untested and one verified requirement"
+command = ["cargo", "test", "-p", "kr0ki-core", "--test", "assurance_a03"]
+acceptance = "Show one satisfied but untested requirement and one verified requirement."
+
+[[case]]
+id = "VC-A04"
+title = "Run VC-A01, retrieve its evidence, change a revision, see the result stale"
+command = ["cargo", "test", "-p", "kr0ki-core", "--test", "assurance_a04"]
+acceptance = "Run KR-A01's case; retrieve its evidence. Change a revision and display the previous result as stale."
+
+[[case]]
+id = "VC-A05"
+title = "Two edits from one baseline: the second is rejected, the first is kept"
+command = ["cargo", "test", "-p", "kr0ki-core", "--test", "assurance_a05"]
+acceptance = "Submit two edits from one baseline; reject the second stale edit without losing the first."
+
+[[case]]
+id = "VC-A06"
+title = "Read-only identity: model reads permitted, commit denied over MCP and over direct HTTP"
+command = ["cargo", "test", "-p", "kr0ki-server", "--test", "assurance_a06"]
+acceptance = "Permit model reads; deny a commit from the same read-only identity through MCP and direct HTTP."
+
+[[case]]
+id = "VC-A07"
+title = "Sandbox permits temporary output and denies a write to the mounted requirement baseline"
+command = ["cargo", "test", "-p", "kr0ki-server", "--test", "assurance_a07"]
+acceptance = "Permit temporary output; deny a write to the mounted requirement baseline."
+
+[[case]]
+id = "VC-A08"
+title = "Audit records exist for both the permitted and the denied VC-A06 calls"
+command = ["cargo", "test", "-p", "kr0ki-server", "--test", "assurance_a08"]
+acceptance = "Retrieve records for both the permitted and denied KR-A06 calls."
+
+# ── Requirements ────────────────────────────────────────────────────────────────
+# derives: obligations the requirement derives from; `locator` points into the source.
+
+[[requirement]]
+id = "KR-A01"
+title = "ReqIF round trip preserves identifiers, typed attributes and asserted relations"
+statement = "The requirement adapter shall preserve supported requirement identifiers, typed attributes and asserted relations across ReqIF export and reimport."
+source = "docs/assurance/BRIEF-assurance-thread.md#KR-A01"
+source_kind = "organisational_policy"
+owner = "kr0ki-maintainers"
+rationale = "Requirements are exchanged with other tools as ReqIF; silent loss of an attribute or relation breaks traceability downstream."
+element = "KrOKiAssurance::ModelService"
+control = "CTL-A01"
+verification_id = "VC-A01"
+acceptance = "Round-trip this baseline; compare semantic content. Report unsupported content explicitly."
+status = "gated"
+derives = [
+  { obligation = "OBL-OWNER-BRIEF", locator = "#KR-A01" },
+  { obligation = "OBL-OMG-REQIF-1.2", locator = "SpecObject, AttributeValue, SpecRelation" },
+]
+
+[[requirement]]
+id = "KR-A02"
+title = "Links resolve against a specified model revision"
+statement = "The traceability adapter shall resolve requirement links against a specified model revision."
+source = "docs/assurance/BRIEF-assurance-thread.md#KR-A02"
+source_kind = "organisational_policy"
+owner = "kr0ki-maintainers"
+rationale = "A link that resolves at one revision and dangles at another must be visible, not assumed."
+element = "KrOKiAssurance::ModelService"
+control = "CTL-A02"
+verification_id = "VC-A02"
+acceptance = "Link KR-A01 to its adapter and test; report a deliberately dangling reference."
+status = "gated"
+derives = [
+  { obligation = "OBL-OWNER-BRIEF", locator = "#KR-A02" },
+  { obligation = "OBL-OMG-SYSML-API-1.0", locator = "Commit, Element" },
+]
+
+[[requirement]]
+id = "KR-A03"
+title = "The requirements view separates satisfaction from verification"
+statement = "The requirements view shall distinguish satisfaction assertions from verification results."
+source = "docs/assurance/BRIEF-assurance-thread.md#KR-A03"
+source_kind = "organisational_policy"
+owner = "kr0ki-maintainers"
+rationale = "A design assertion says nothing about whether any case ran; showing them as one status hides untested requirements."
+element = "KrOKiAssurance::ModelService"
+control = "CTL-A03"
+verification_id = "VC-A03"
+acceptance = "Show one satisfied but untested requirement and one verified requirement."
+status = "gated"
+derives = [{ obligation = "OBL-OWNER-BRIEF", locator = "#KR-A03" }]
+
+[[requirement]]
+id = "KR-A04"
+title = "Verification results are bound to the revisions that produced them"
+statement = "The verification runner shall bind each result to the model, implementation and configuration revisions used."
+source = "docs/assurance/BRIEF-assurance-thread.md#KR-A04"
+source_kind = "organisational_policy"
+owner = "kr0ki-maintainers"
+rationale = "A result is only evidence for the revisions it ran against; without them a stale pass is indistinguishable from a current one."
+element = "KrOKiAssurance::VerificationRunner"
+control = "CTL-A04"
+verification_id = "VC-A04"
+acceptance = "Run KR-A01's case; retrieve its evidence. Change a revision and display the previous result as stale."
+status = "gated"
+derives = [
+  { obligation = "OBL-OWNER-BRIEF", locator = "#KR-A04" },
+  { obligation = "OBL-REPO-AGENTS-6", locator = "live checks before recording a live integration as verified" },
+]
+
+[[requirement]]
+id = "KR-A05"
+title = "A stale commit is rejected without losing the first"
+statement = "The model commit service shall reject a proposed mutation whose expected base revision differs from the current revision."
+source = "docs/assurance/BRIEF-assurance-thread.md#KR-A05"
+source_kind = "organisational_policy"
+owner = "kr0ki-maintainers"
+rationale = "Two writers starting from one baseline must not overwrite each other; the second must re-read and re-propose. Known limit: the OMG pilot server does not itself enforce previousCommit (observed live), so the guard holds for writers going through this service, not for a writer that bypasses it."
+element = "KrOKiAssurance::ModelService"
+control = "CTL-A05"
+verification_id = "VC-A05"
+acceptance = "Submit two edits from one baseline; reject the second stale edit without losing the first."
+status = "gated"
+derives = [
+  { obligation = "OBL-OWNER-BRIEF", locator = "#KR-A05" },
+  { obligation = "OBL-OMG-SYSML-API-1.0", locator = "Commit (previousCommit)" },
+]
+
+[[requirement]]
+id = "KR-A06"
+title = "Operations outside the caller's capability grant are denied on every transport"
+statement = "The tool gateway shall deny operations outside the caller identity's capability grant."
+source = "docs/assurance/BRIEF-assurance-thread.md#KR-A06"
+source_kind = "organisational_policy"
+owner = "kr0ki-maintainers"
+rationale = "Tool visibility, descriptions and read-only annotations are not enforcement; the service must check the grant itself, whichever transport the call arrives on."
+element = "KrOKiAssurance::ToolGateway"
+control = "CTL-A06"
+verification_id = "VC-A06"
+acceptance = "Permit model reads; deny a commit from the same read-only identity through MCP and direct HTTP."
+status = "gated"
+derives = [
+  { obligation = "OBL-OWNER-BRIEF", locator = "#KR-A06" },
+  { obligation = "OBL-MCP-SECURITY", locator = "Security and Trust & Safety > Implementation Guidelines" },
+  { obligation = "OBL-REPO-AGENTS-8A", locator = "an agent that cannot register MUST remain read-only" },
+]
+
+[[requirement]]
+id = "KR-A07"
+title = "Writes outside the declared mounts are denied"
+statement = "The workload sandbox shall deny writes outside its declared writable mounts."
+source = "docs/assurance/BRIEF-assurance-thread.md#KR-A07"
+source_kind = "organisational_policy"
+owner = "kr0ki-maintainers"
+rationale = "An agent workload is untrusted; the requirement baseline it reads must stay immutable to it."
+element = "KrOKiAssurance::ExecutionSandbox"
+control = "CTL-A07"
+verification_id = "VC-A07"
+acceptance = "Permit temporary output; deny a write to the mounted requirement baseline."
+status = "gated"
+derives = [
+  { obligation = "OBL-OWNER-BRIEF", locator = "#KR-A07" },
+  { obligation = "OBL-REPO-AGENTS-8B", locator = "read-only by default" },
+]
+
+[[requirement]]
+id = "KR-A08"
+title = "Every tool invocation is audited, permitted or denied"
+statement = "The audit service shall record each tool invocation with caller, operation, decision, model revision and correlation identifier."
+source = "docs/assurance/BRIEF-assurance-thread.md#KR-A08"
+source_kind = "organisational_policy"
+owner = "kr0ki-maintainers"
+rationale = "Reviewing what an agent did, and what it was refused, needs a record that does not depend on the agent's own account."
+element = "KrOKiAssurance::AuditRecorder"
+control = "CTL-A08"
+verification_id = "VC-A08"
+acceptance = "Retrieve records for both the permitted and denied KR-A06 calls."
+status = "gated"
+derives = [
+  { obligation = "OBL-OWNER-BRIEF", locator = "#KR-A08" },
+  { obligation = "OBL-REPO-AGENTS-8A", locator = "each event carries caller, action, scope, decision, git SHA, correlation id" },
+]

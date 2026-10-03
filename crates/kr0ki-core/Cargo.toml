@@ -32,7 +32,7 @@ kr0ki-sysmlv2-client = { path = "../kr0ki-sysmlv2-client" }
 # exists after ufo-types#29's squash-merge into main (2026-09-20). Re-pinned
 # to that merge commit on main -- bump to a `tag =` pin once ufo-types cuts
 # a release past v0.15.0 including it.
-ufo-types = { git = "https://github.com/PromptExecution/ufo-types", rev = "ee873488f31a390073d5f8ab38d91654a3504bfa", features = ["reqif"] }
+ufo-types = { git = "https://github.com/PromptExecution/ufo-types", rev = "db8e22fc2c09ff1b58cc4effce6096d17a89f3e4", features = ["reqif"] }
 # kr0ki#13 — box 5 (b00t-graph Turtle -> D2 route): the typed TypeRelationshipGraph /
 # CytoscapeGraph the D2 emitter targets. No tagged release exists yet (checked
 # 2026-09-16); pinned by git rev per this issue's own operator decision, to be
