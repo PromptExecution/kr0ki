@@ -115,6 +115,21 @@ pub fn build_graph(model: &RustBehaviorIr) -> Result<SysGraph, BehaviorError> {
     model
         .ensure_valid()
         .map_err(|e| BehaviorError::Invalid(e.to_string()))?;
+    let prefix = model
+        .provenance
+        .config
+        .get("source_prefix")
+        .map(String::as_str)
+        .unwrap_or("");
+    if !prefix.is_empty()
+        && prefix.split('/').any(|component| {
+            component.is_empty() || matches!(component, "." | "..") || component.contains('\\')
+        })
+    {
+        return Err(BehaviorError::Invalid(
+            "invalid repository source prefix".into(),
+        ));
+    }
     let mut graph = SysGraph::new();
     for n in &model.nodes {
         // Classify source-language constructs; never infer a business stereotype
@@ -148,15 +163,31 @@ pub fn build_graph(model: &RustBehaviorIr) -> Result<SysGraph, BehaviorError> {
                 line,
                 col: Some(col),
             },
-            SourceAnchor::Vcs {
-                repo: None,
-                commit: model.provenance.revision.clone(),
-                path: Some(e.anchor.file.clone()),
-            },
             SourceAnchor::Other(
                 serde_json::to_string(e).map_err(|e| BehaviorError::Invalid(e.to_string()))?,
             ),
         ];
+        if model
+            .provenance
+            .config
+            .get(&format!("source_origin:{}", e.anchor.file))
+            .is_some_and(|origin| origin == "declared-state-machine")
+        {
+            edge.provenance.push(SourceAnchor::Other(format!(
+                "declared-state-machine source sha256:{}",
+                file.sha256
+            )));
+        } else {
+            edge.provenance.push(SourceAnchor::Vcs {
+                repo: None,
+                commit: model.provenance.revision.clone(),
+                path: Some(if prefix.is_empty() {
+                    e.anchor.file.clone()
+                } else {
+                    format!("{prefix}/{}", e.anchor.file)
+                }),
+            });
+        }
         graph.push_edge(edge);
     }
     if !graph.dangling_edges().is_empty() {

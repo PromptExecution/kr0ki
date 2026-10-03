@@ -11,6 +11,9 @@
 /playbook/.vite
 /.kr0ki-cache
 /.kr0ki-generated/
+/tools/rust-behavior-extractor/target/
+/tools/rust-behavior-extractor/tests/fixtures/workspace/target/
+/crates/kr0ki-behavior/tests/fixtures/state_machine/target/
 /.env
 /.sysml-v2-release
 /.worktrees

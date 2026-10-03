@@ -1,0 +1,61 @@
+# The wrapper requires an immutable @sha256 base reference.
+ARG BUILDER_IMAGE=docker.io/library/rust@sha256:4e4a7e7939c17991ab35f2b8c2e67593980f771d28f6b1254b1850f860fd0c7f
+FROM ${BUILDER_IMAGE} AS builder
+ARG DEBIAN_SNAPSHOT=20260901T000000Z
+ARG EXTRACTOR_TOOLCHAIN=nightly-2026-06-16
+ARG SOURCE_MANIFEST=tools/rust-behavior-extractor/tests/fixtures/workspace/Cargo.toml
+ENV CARGO_BUILD_JOBS=1 SOURCE_DATE_EPOCH=0 TZ=UTC LC_ALL=C
+RUN printf 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/%s bookworm main\n' "$DEBIAN_SNAPSHOT" > /etc/apt/sources.list \
+    && rm -f /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install --no-install-recommends -y python3 zstd pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && rustup toolchain install "$EXTRACTOR_TOOLCHAIN" --no-self-update --profile minimal --component rustc-dev,rust-src,llvm-tools-preview
+WORKDIR /src
+COPY source/ /src/
+COPY build-inputs.json /opt/docgen/build-inputs.json
+RUN cargo build --locked --release -p kr0ki-core --bin kr0ki-docgen \
+    && cargo +nightly-2026-06-16 build --locked --release --manifest-path tools/rust-behavior-extractor/Cargo.toml \
+    && install -m755 target/release/kr0ki-docgen /usr/local/bin/kr0ki-docgen \
+    && install -m755 tools/rust-behavior-extractor/target/release/rust-behavior-extractor /usr/local/bin/rust-behavior-extractor \
+    && cargo +nightly-2026-06-16 fetch --locked --manifest-path "$SOURCE_MANIFEST"
+RUN cargo fetch --locked \
+    && cargo fetch --locked --manifest-path crates/kr0ki-behavior/tests/fixtures/state_machine/Cargo.toml
+RUN install -m755 scripts/docgen-build.sh scripts/docgen-self-test.sh scripts/docgen-render.sh /opt/docgen/ \
+    && install -m644 scripts/docgen-bundle.py scripts/docgen-bundle-test.py /opt/docgen/
+
+FROM builder AS self-test
+ARG SOURCE_REVISION
+ARG SOURCE_TREE
+ARG SOURCE_MANIFEST=tools/rust-behavior-extractor/tests/fixtures/workspace/Cargo.toml
+ENV KR0KI_SOURCE_REVISION=$SOURCE_REVISION KR0KI_SOURCE_TREE=$SOURCE_TREE \
+    KR0KI_DOCGEN_MANIFEST=$SOURCE_MANIFEST CARGO_NET_OFFLINE=true
+USER 10001:10001
+ENTRYPOINT ["/opt/docgen/docgen-self-test.sh"]
+
+FROM self-test AS generated
+USER root
+RUN --network=none /opt/docgen/docgen-build.sh /artifacts
+
+FROM generated AS renderer
+USER 10001:10001
+ENTRYPOINT ["/opt/docgen/docgen-render.sh"]
+
+FROM scratch AS artifact-labels
+ARG SOURCE_REVISION
+ARG SOURCE_TREE
+ARG SCHEMA_DIGEST
+ARG RULE_DIGEST
+ARG CONFIG_DIGEST
+LABEL org.opencontainers.image.source="https://github.com/PromptExecution/kr0ki" \
+    org.opencontainers.image.revision=$SOURCE_REVISION \
+    org.kr0ki.docgen.source-tree=$SOURCE_TREE \
+    org.kr0ki.docgen.schema=$SCHEMA_DIGEST \
+    org.kr0ki.docgen.rules=$RULE_DIGEST \
+    org.kr0ki.docgen.configuration=$CONFIG_DIGEST \
+    org.kr0ki.docgen.toolchains="stable-1.98.0,nightly-2026-06-16"
+FROM artifact-labels AS artifact
+COPY --from=generated /artifacts/ /artifacts/
+
+FROM artifact-labels AS rendered-artifact
+COPY rendered/ /artifacts/

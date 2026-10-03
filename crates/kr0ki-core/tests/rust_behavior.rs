@@ -95,6 +95,40 @@ fn every_rendered_edge_retains_full_source_evidence_and_revision() {
 }
 
 #[test]
+fn source_prefix_and_declared_tables_keep_repository_links_truthful() {
+    let mut ir = fixture();
+    ir.provenance
+        .config
+        .insert("source_prefix".into(), "tools/fixture".into());
+    let graph = build_graph(&ir).unwrap();
+    for edge in &graph.edges {
+        let original = ir
+            .edges
+            .iter()
+            .find(|original| original.id == edge.id)
+            .unwrap();
+        assert!(edge.provenance.iter().any(|anchor| matches!(anchor,
+            SourceAnchor::Vcs { path: Some(path), .. } if path == &format!("tools/fixture/{}", original.anchor.file))));
+    }
+    for source in &ir.sources {
+        ir.provenance.config.insert(
+            format!("source_origin:{}", source.path),
+            "declared-state-machine".into(),
+        );
+    }
+    let graph = build_graph(&ir).unwrap();
+    assert!(graph.edges.iter().all(|edge| !edge
+        .provenance
+        .iter()
+        .any(|anchor| matches!(anchor, SourceAnchor::Vcs { .. }))));
+    assert!(graph.edges.iter().all(|edge| edge.provenance.iter().any(|anchor| matches!(anchor, SourceAnchor::Other(value) if value.starts_with("declared-state-machine source sha256:")))));
+    ir.provenance
+        .config
+        .insert("source_prefix".into(), "../outside".into());
+    assert!(build_graph(&ir).is_err());
+}
+
+#[test]
 fn authored_recursive_expose_and_upstream_kind_filter_select_the_model() {
     let mut ir = fixture();
     let anchor = ir.nodes[0].anchor.clone().unwrap();

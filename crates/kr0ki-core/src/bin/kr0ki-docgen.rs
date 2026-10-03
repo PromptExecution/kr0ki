@@ -194,6 +194,10 @@ fn add_machine(model: &mut RustBehaviorIr, path: &Path) -> Result<()> {
         start: 0,
         end: content.len().try_into()?,
     };
+    model.provenance.config.insert(
+        format!("source_origin:{file}"),
+        "declared-state-machine".into(),
+    );
     model.sources.push(SourceFile {
         path: file,
         sha256: kr0ki_behavior::digest(&content),

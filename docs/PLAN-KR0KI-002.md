@@ -19,6 +19,17 @@ edges are lifted to `Relation`s (`sysml_lift.rs`) and rendered (`sysml_render.rs
 `kr0ki-server`. The client also *writes* now (`create_commit`, `sync_engine`). The FR table in §5 is updated;
 the live per-box status is in [`../AGENTS.md`](../AGENTS.md) §1. Sections below keep their original design intent.
 
+**Update 2026-10-03 — behavioral Rust arm.** [PLAN-KR0KI-009](PLAN-KR0KI-009-rust-behavioral-docgen.md)
+adds an isolated, pinned compiler adapter producing validated `RustBehaviorIR` evidence.
+`kr0ki-core::rust_behavior` lifts that evidence into upstream `SysGraph` and executes
+request-authored `ViewDefinition`/`Expose` selection with bounded expansion.
+`POST /render/rust-behavior` consumes JSON evidence; compilation is confined to the
+local/Podman workflow. The existing `/render/rust-source` AST endpoint remains the
+structural source-text interface. The new workflow also emits grammar-checked SysML
+text and deterministic bundles; usage and gate limits are in
+[behavioral-docgen.md](behavioral-docgen.md). Container/live-render acceptance remains
+a separate delivery gate; this status does not claim those gates passed.
+
 ---
 
 ## 0. One paragraph
@@ -167,7 +178,7 @@ topology-recall regression signal. See [`EVAL-kubediagrams.md`](EVAL-kubediagram
 |---|---|---|
 | **FR1** | `iso_ir` graph JSON → Mermaid + D2 | ✅ for the arms built: `ModelSnapshot` → `ufo_graph` → `sysml_lift` → `sysml_render` (D2/Mermaid) behind `POST /render/sysmlv2/projects/{p}/commits/{c}`, the Kubernetes arm behind `/render/k8s-topology`, the Rust arm behind `/render/rust-source`. Still no direct `iso_ir`→diagram lowering, by design. |
 | **FR3** | `systhread-core` isometric layout JSON → its `render.rs` | unchanged — separate renderer (box 5), not on the UFO-graph critical path |
-| **FR4** | typed SysML-v2/KerML view model → per-`ViewDefinition` rendering | ◑ views by `SysmlViewKind` work (`?view=` on the render routes, `sysml_lift::group_by_view_kind`). **Not built:** `ViewDefinition` / `ViewpointDefinition` instances as data, and `ViewUsage.exposedElement` scoping (see `TODO.md`). |
+| **FR4** | typed SysML-v2/KerML view model → per-`ViewDefinition` rendering | ◑ existing model routes filter by `SysmlViewKind`. The behavioral JSON route executes upstream `ViewDefinition`/`Expose` data with bounded expansion. Model-server retrieval of authored view/viewpoint instances and `ViewUsage.exposedElement` remains open (see `TODO.md`). |
 | **FR5** (model) | content-address the model render | ◑ done locally: `RenderService::render_model` keys on the snapshot hash plus the recognizer rule-set version (`cache::model_cache_key`); CDN tier = **D5** |
 | **FR6** | intra-ecosystem reference resolver | unchanged — needs `ledgrrr` |
 | **FR7** | caller auth on the service | ✅ minimal: one shared bearer token (`KR0KI_AUTH_TOKEN`) on every route except `/health`; no OAuth/JWT/per-key limits (PRD §6.4) |
