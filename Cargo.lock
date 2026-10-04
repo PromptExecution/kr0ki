@@ -1399,12 +1399,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "kr0ki-behavior"
+version = "0.1.1"
+dependencies = [
+ "quick-xml 0.37.5",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "kr0ki-core"
 version = "0.1.1"
 dependencies = [
  "anyhow",
  "futures-util",
  "holon-viz",
+ "kr0ki-behavior",
  "kr0ki-sysmlv2-client",
  "oxigraph",
  "oxrdf",
@@ -1414,6 +1426,7 @@ dependencies = [
  "reqrs",
  "reqwest",
  "resvg",
+ "roxmltree 0.20.0",
  "serde",
  "serde_json",
  "serde_yaml",

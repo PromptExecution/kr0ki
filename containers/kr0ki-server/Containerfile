@@ -17,6 +17,7 @@ RUN cargo build --release -p kr0ki-server
 
 FROM docker.io/library/alpine:3.22
 
+RUN apk add --no-cache font-dejavu=2.37-r6
 RUN addgroup -S kr0ki && adduser -S -G kr0ki kr0ki
 COPY --from=build /src/target/release/kr0ki /usr/local/bin/kr0ki
 COPY --from=playbook /playbook/dist /usr/share/kr0ki-playbook

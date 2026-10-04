@@ -1,0 +1,21 @@
+{
+  "id": "ooda",
+  "name": "Observe, Orient, Decide & Act",
+  "initial": "idle",
+  "states": [
+    {"id": "idle", "terminal": false, "anchor": null},
+    {"id": "observe", "terminal": false, "anchor": null},
+    {"id": "orient", "terminal": false, "anchor": null},
+    {"id": "decide", "terminal": false, "anchor": null},
+    {"id": "act", "terminal": false, "anchor": null},
+    {"id": "done", "terminal": true, "anchor": null}
+  ],
+  "transitions": [
+    {"id": "observe", "from": "idle", "to": "observe", "event": "observe", "guard": null, "effect": "read_observation", "anchor": null},
+    {"id": "orient", "from": "observe", "to": "orient", "event": "orient", "guard": "observation_available", "effect": "update_context", "anchor": null},
+    {"id": "decide", "from": "orient", "to": "decide", "event": "decide", "guard": null, "effect": "choose_action", "anchor": null},
+    {"id": "act", "from": "decide", "to": "act", "event": "act", "guard": null, "effect": "apply_action", "anchor": null},
+    {"id": "finish", "from": "act", "to": "done", "event": "finish", "guard": "goal_met", "effect": null, "anchor": null},
+    {"id": "repeat", "from": "act", "to": "observe", "event": "repeat", "guard": "goal_pending", "effect": "read_observation", "anchor": null}
+  ]
+}

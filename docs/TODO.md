@@ -6,8 +6,24 @@ in [`PLAN-KR0KI-002.md`](PLAN-KR0KI-002.md); the typed-layer shape in
 [`DESIGN-NOTE-typed-model-layer.md`](DESIGN-NOTE-typed-model-layer.md). This file just
 tracks *what is left to do*, ordered by the five-box pipeline.
 
-_Last updated: 2026-09-19; corrected 2026-09-17 — boxes 2/3 and the ledgrrr
-cross-cutting item were already shipped (kr0ki#12/#13) but left unchecked._
+_Behavioral Rust status reconciled: 2026-10-04. Historical entries retain their
+own dates; see [PLAN-KR0KI-009](PLAN-KR0KI-009-rust-behavioral-docgen.md) and
+[behavioral-docgen.md](behavioral-docgen.md) for the compiler/artifact workflow._
+
+## Behavioral Rust delivery — PLAN-KR0KI-009
+
+- [x] Versioned compiler-evidence IR, provenance, schema and validation; shared
+  executable state-machine table/runtime/export contract.
+- [x] Separate `/render/rust-behavior` JSON route and local `kr0ki-docgen` CLI;
+  upstream `SysGraph` lift, request-authored `ViewDefinition`/`Expose`, bounded
+  expansion, and grammar-checked SysML plus diagram notation.
+- [x] Pinned standalone compiler adapter and conformance fixtures; compiler,
+  annotations, namespace identities and inherited configuration gates passed.
+- [x] Deterministic Podman packaging and `just docgen-*` wrappers; actual offline
+  and private SVG/PNG builds/self-tests, repeated artifact digests and visual
+  inspection passed. See [delivery evidence](behavioral-docgen-delivery.md) for
+  exact revisions, digests and supported limits, including structural Mermaid
+  validation while its parser backend is unavailable.
 
 ## ReqIF / Flexo requirements viewpoints — new tracked stream
 
@@ -164,23 +180,20 @@ starting this stream. kr0ki's stateless view slice is on
     table for this arm, mirroring `PATTERNS-kubernetes.md`.
   - [x] `crates/kr0ki-core/src/rust_recognizer.rs` — all five relationship kinds
     `PATTERNS-rust-source.md` §2 names: module containment + struct/enum field
-    types (first slice); non-generic/non-blanket trait `impl`s → `satisfies`;
-    direct same-module calls → `flows_to` (deliberately *not* a whole-tree name
+    types (first slice); trait `impl`s → `satisfies`, including generic/blanket
+    bounds; same-module and path-qualified inline-module calls → `flows_to`
+    (deliberately *not* a whole-tree name
     lookup — see the module's own scope note on why global function-name
     resolution would assert wrong edges, unlike types/traits); and cross-crate
     `requires` via `workspace_member_crate_names`/`cross_crate_requires`
     (dogfooded against kr0ki's own real workspace). Every relation this arm
     needs is already covered by `sysml_lift.rs`, so no box-3→4 lift work was
     needed for any of it.
-  - [ ] Still deferred, each with a stated reason in `PATTERNS-rust-source.md` §5:
-    cross-module/method/trait-dispatch calls (needs real name resolution, not
-    AST pattern-matching) and blanket/generic trait `impl`s (no decided edge
-    shape).
-  - [ ] No route/MCP wiring yet — `walk_and_recognize`/`cross_crate_requires` have
-    no caller, matching `sysml_lift`/`sysml_render`'s own "pure library first"
-    pattern (which *did* get wired, `/render/k8s-topology` — this arm is next
-    once it's worth a route: needs either the deferred call-graph coverage or a
-    caller that's fine with today's scope).
+  - [ ] The AST endpoint still defers method/trait-dispatch calls and calls across
+    `mod foo;` file boundaries. PLAN-009 supplies a separate compiler-aware
+    evidence path with explicit unresolved targets; see the delivery stream above.
+  - [x] `POST /render/rust-source` wires the structural recognizer through
+    `rust_lift`, shared semantic lifting, and the cached renderer.
 - [ ] _(later)_ **k8s-source front-end** — manifests / kustomize / Helm → UFO graph via
   the Kubernetes recognizer (box 3).
 
@@ -231,9 +244,10 @@ starting this stream. kr0ki's stateless view slice is on
 ## Box 4 — SysML v2 model constructs (`ufo-types`, mostly done)
 
 - [x] `ElementKind` / `Relation` / `SysmlViewKind` — merged (`#20`).
-- [ ] **`ViewDefinition` / `ViewpointDefinition` instances as data** — authored in
-  `.sysml` / a datum, resolved at runtime; the data-driven view mechanism, **not** a
-  sealed Rust trait (DESIGN-NOTE §2.5).
+- [~] **`ViewDefinition` / `ViewpointDefinition` instances as data** — the behavioral
+  JSON route executes upstream `ViewDefinition`/`Expose` supplied in a request,
+  including kind/semantic filters and bounded expansion. Retrieving authored
+  `.sysml`/datum/model-server view and viewpoint instances remains open.
 - [ ] **`ViewUsage.exposedElement` consumption** — take view scoping from the model
   where present rather than re-inventing heuristics (`EVAL-syson.md`).
 
@@ -254,11 +268,10 @@ starting this stream. kr0ki's stateless view slice is on
   full pipeline, through the same content-addressed cache every other `/render/*`
   route uses (unlike `/render/kubediagram`, which proxies to the vendored tool and is
   deliberately uncached). `GET /mcp/tools` and `bridge.py` pick it up automatically
-  (no bridge.py change needed — manifest-driven dispatch, mcp-http-parity). The Rust
-  arm (`rust_recognizer.rs`) has no route yet — it only covers module
-  containment/field types so far, not enough of a real codebase's structure to be
-  worth wiring until the call-graph/trait-impl slices land (see Box 1 above).
-- [x] **per-`ViewDefinition` rendering (FR4)** — `sysml_lift::group_by_view_kind`
+  (no bridge.py change needed — manifest-driven dispatch, mcp-http-parity).
+  The Rust structural arm is also wired at `/render/rust-source`; the behavioral
+  JSON arm is `/render/rust-behavior` (see Box 1 and PLAN-009).
+- [x] **per-view-kind rendering (FR4 subset)** — `sysml_lift::group_by_view_kind`
   (order-preserving `Vec<(SysmlViewKind, Vec<Relation>)>`, since `SysmlViewKind` has
   no `Ord`) plus `sysml_lift::parse_view_kind_slug`, wired into both
   `render_sysmlv2_snapshot` and `render_k8s_topology` (`crates/kr0ki-server/src/app.rs`)
