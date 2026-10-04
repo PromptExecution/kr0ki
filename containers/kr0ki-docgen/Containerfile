@@ -50,17 +50,10 @@ USER 10001:10001
 ENTRYPOINT ["/opt/docgen/docgen-render.sh"]
 
 FROM scratch AS artifact-labels
-ARG SOURCE_REVISION
-ARG SOURCE_TREE
-ARG SCHEMA_DIGEST
-ARG RULE_DIGEST
-ARG CONFIG_DIGEST
+# Dynamic labels are supplied by the wrapper's --label arguments. Some Buildah
+# versions cache LABEL expressions across changed ARG values, producing stale
+# revision/configuration metadata despite correct bundle contents.
 LABEL org.opencontainers.image.source="https://github.com/PromptExecution/kr0ki" \
-    org.opencontainers.image.revision=$SOURCE_REVISION \
-    org.kr0ki.docgen.source-tree=$SOURCE_TREE \
-    org.kr0ki.docgen.schema=$SCHEMA_DIGEST \
-    org.kr0ki.docgen.rules=$RULE_DIGEST \
-    org.kr0ki.docgen.configuration=$CONFIG_DIGEST \
     org.kr0ki.docgen.toolchains="stable-1.98.0,nightly-2026-06-16"
 FROM artifact-labels AS artifact
 COPY --from=generated /artifacts/ /artifacts/

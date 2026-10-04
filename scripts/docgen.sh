@@ -82,19 +82,39 @@ build=(podman build --jobs=1 --http-proxy=false --platform=linux/amd64 --memory=
     --cpu-period=100000 --cpu-quota="$quota" --timestamp=0 \
     --build-arg "BUILDER_IMAGE=$base" --build-arg "SOURCE_REVISION=$commit" \
     --build-arg "SOURCE_TREE=$tree" --build-arg "SOURCE_MANIFEST=$manifest" \
-    --build-arg "SCHEMA_DIGEST=$schema_digest" --build-arg "RULE_DIGEST=$rule_digest" \
-    --build-arg "CONFIG_DIGEST=$config" \
+    --label "org.opencontainers.image.revision=$commit" \
+    --label "org.kr0ki.docgen.source-tree=$tree" \
+    --label "org.kr0ki.docgen.schema=$schema_digest" \
+    --label "org.kr0ki.docgen.rules=$rule_digest" \
+    --label "org.kr0ki.docgen.configuration=$config" \
     -f "$context/source/containers/kr0ki-docgen/Containerfile")
 run=(podman run --rm --read-only --cap-drop=ALL --security-opt=no-new-privileges \
     --memory="$memory" --memory-swap="$memory" --cpus="$cpus" --pids-limit=512 \
     --tmpfs "/tmp:rw,nosuid,nodev,exec,mode=1777,size=${KR0KI_DOCGEN_TMP_SIZE:-6g}")
+verify_image() {
+    podman image inspect "$1" > "$context/image-inspect.json"
+    python3 - "$context/image-inspect.json" "$commit" "$tree" "$schema_digest" "$rule_digest" "$config" <<'PY'
+import json, pathlib, sys
+images = json.loads(pathlib.Path(sys.argv[1]).read_text())
+if len(images) != 1:
+    raise SystemExit('Expected exactly one inspected docgen image')
+labels = images[0].get('Labels') or images[0].get('Config', {}).get('Labels') or {}
+keys = ['org.opencontainers.image.revision', 'org.kr0ki.docgen.source-tree',
+        'org.kr0ki.docgen.schema', 'org.kr0ki.docgen.rules', 'org.kr0ki.docgen.configuration']
+for key, expected in zip(keys, sys.argv[2:]):
+    if labels.get(key) != expected:
+        raise SystemExit(f'OCI metadata mismatch: {key}: expected {expected}, got {labels.get(key)!r}')
+PY
+}
 if [[ "$operation" == self-test ]]; then
     "${build[@]}" --target self-test -t "$runner" "$context"
+    verify_image "$runner"
     "${run[@]}" --network=none "$runner"
 fi
 if [[ -n "$backend" ]]; then
     # The networked process can only render evidence already extracted offline.
     "${build[@]}" --target renderer -t "$renderer" "$context"
+    verify_image "$renderer"
     mkdir "$context/rendered"
     # The fresh context parent is 0700. Only its output mount is writable to the
     # image's unprivileged user; avoid shifting the entire compiler image to a
@@ -112,6 +132,7 @@ else
     "${build[@]}" --target artifact -t "$image" "$context"
 fi
 if [[ "$operation" != self-test ]]; then
+    verify_image "$image"
     podman image inspect "$image" --format '{{.Id}}' > "$root/image-id.txt"
     printf 'Artifact image: %s\n' "$image"
     cat "$root/image-id.txt"
@@ -122,6 +143,38 @@ if [[ "$operation" != self-test ]]; then
         mkdir -p "$export_dir"
         podman cp "$container:/artifacts/." "$export_dir/"
         (cd "$export_dir" && sha256sum -c bundle.sha256)
+        python3 - "$export_dir" "$context/build-inputs.json" <<'PY'
+import hashlib, json, pathlib, subprocess, sys, tarfile, io
+output = pathlib.Path(sys.argv[1])
+manifest = json.loads((output / 'manifest.json').read_text())
+expected = json.loads(pathlib.Path(sys.argv[2]).read_text())
+if manifest.get('inputs') != expected:
+    raise SystemExit('Exported manifest inputs do not match the selected build inputs')
+archive = subprocess.run(['zstd', '-q', '-d', '--stdout', str(output / 'bundle.tar.zst')],
+                         check=True, stdout=subprocess.PIPE).stdout
+with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
+    members = bundle.getmembers()
+    names = [member.name for member in members]
+    if names != sorted(names) or len(names) != len(set(names)):
+        raise SystemExit('Bundle members must be sorted and unique')
+    files = {}
+    for member in members:
+        if not member.isfile() or (member.uid, member.gid, member.mtime, member.mode) != (0, 0, 0, 0o644):
+            raise SystemExit(f'Unexpected normalized metadata for {member.name}')
+        files[member.name] = bundle.extractfile(member).read()
+if json.loads(files.pop('bundle-manifest.json')) != manifest:
+    raise SystemExit('Embedded packaging manifest differs from exported manifest')
+hashes = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
+if hashes != manifest.get('files'):
+    raise SystemExit('One or more bundled artifact digests do not match the manifest')
+semantic = {name: value for name, value in hashes.items()
+            if name in {'ir.json', 'schema.json', 'graph.json', 'view.json', 'lint.json'}
+            or pathlib.PurePosixPath(name).suffix in {'.sysml', '.d2', '.mmd', '.scxml'}}
+semantic_bytes = (json.dumps(semantic, sort_keys=True, separators=(',', ':'), ensure_ascii=False) + '\n').encode()
+if semantic != manifest.get('semantic_files') or hashlib.sha256(semantic_bytes).hexdigest() != manifest.get('semantic_sha256'):
+    raise SystemExit('Bundle semantic digest does not match the independently computed digest')
+print('Verified image metadata, source inputs, artifact hashes, normalized archive and semantic digest.')
+PY
         printf 'Bundle location: %s\n' "$export_dir"
         cat "$export_dir/bundle.sha256"
     fi

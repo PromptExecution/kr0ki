@@ -41,7 +41,7 @@ class WorkflowTests(unittest.TestCase):
         (self.repo / "crates/kr0ki-behavior/src/lib.rs").write_text("uncommitted host edit\n")
         mock = self.bin / "podman"
         mock.write_text("""#!/usr/bin/env python3
-import hashlib, json, os, pathlib, sys
+import hashlib, io, json, os, pathlib, subprocess, sys, tarfile
 args = sys.argv[1:]
 record = {'args': args}
 if args and args[0] == 'build':
@@ -53,7 +53,15 @@ if args and args[0] == 'build':
 with open(os.environ['DOCGEN_TEST_LOG'], 'a') as log:
     log.write(json.dumps(record) + '\\n')
 if args[:2] == ['image', 'inspect']:
-    print('sha256:fixture-image-id')
+    if '--format' in args:
+        print('sha256:fixture-image-id')
+    else:
+        records = [json.loads(line) for line in pathlib.Path(os.environ['DOCGEN_TEST_LOG']).read_text().splitlines()]
+        build = next(record['args'] for record in reversed(records) if record['args'][0] == 'build' and args[2] in record['args'])
+        labels = dict(build[i + 1].split('=', 1) for i, arg in enumerate(build) if arg == '--label')
+        if os.environ.get('DOCGEN_TEST_STALE_LABEL'):
+            labels[os.environ['DOCGEN_TEST_STALE_LABEL']] = 'stale-cached-value'
+        print(json.dumps([{'Id': 'sha256:fixture-image-id', 'Labels': labels}]))
 if args and args[0] == 'run' and 'kr0ki-docgen-renderer:' in args[-1]:
     mount = args[args.index('-v') + 1].split(':/export:')[0]
     output = pathlib.Path(mount)
@@ -61,6 +69,32 @@ if args and args[0] == 'run' and 'kr0ki-docgen-renderer:' in args[-1]:
     (output / 'bundle.tar.zst').write_bytes(payload)
     (output / 'bundle.sha256').write_text(hashlib.sha256(payload).hexdigest() + '  bundle.tar.zst\\n')
     (output / 'manifest.json').write_text('{}')
+if args and args[0] == 'create':
+    print('fixture-container')
+if args and args[0] == 'cp':
+    output = pathlib.Path(args[-1])
+    records = [json.loads(line) for line in pathlib.Path(os.environ['DOCGEN_TEST_LOG']).read_text().splitlines()]
+    inputs = next(record['inputs'] for record in reversed(records) if record['args'][0] == 'build')
+    canonical = lambda value: (json.dumps(value, sort_keys=True, separators=(',', ':')) + '\\n').encode()
+    files = {'ir.json': b'{}\\n'}
+    hashes = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
+    manifest = {'schema_version': 1, 'inputs': inputs, 'files': hashes, 'semantic_files': hashes,
+                'semantic_sha256': hashlib.sha256(canonical(hashes)).hexdigest()}
+    manifest_bytes = canonical(manifest)
+    files['bundle-manifest.json'] = manifest_bytes
+    if os.environ.get('DOCGEN_TEST_BAD_ARTIFACT'):
+        files['ir.json'] = b'corrupt fixture'
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode='w') as archive:
+        for name, data in sorted(files.items()):
+            member = tarfile.TarInfo(name)
+            member.size, member.mode = len(data), 0o644
+            archive.addfile(member, io.BytesIO(data))
+    payload = subprocess.run(['zstd', '-q', '--stdout'], input=stream.getvalue(),
+                             check=True, stdout=subprocess.PIPE).stdout
+    (output / 'bundle.tar.zst').write_bytes(payload)
+    (output / 'bundle.sha256').write_text(hashlib.sha256(payload).hexdigest() + '  bundle.tar.zst\\n')
+    (output / 'manifest.json').write_bytes(manifest_bytes)
 """)
         mock.chmod(0o755)
         self.env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
@@ -91,11 +125,14 @@ if args and args[0] == 'run' and 'kr0ki-docgen-renderer:' in args[-1]:
         self.assertEqual(len(record["inputs"]["source_tree"]), 64)
         self.assertEqual(len(record["inputs"]["git_tree_id"]), 40)
         self.assertIn("--timestamp=0", record["args"])
+        labels = [record["args"][i + 1] for i, arg in enumerate(record["args"]) if arg == "--label"]
+        self.assertIn("org.opencontainers.image.revision=" + record["inputs"]["revision"], labels)
+        self.assertIn("org.kr0ki.docgen.source-tree=" + record["inputs"]["source_tree"], labels)
 
     def test_self_test_has_explicit_container_isolation(self):
         result = self.run_workflow("self-test")
         self.assertEqual(result.returncode, 0, result.stderr)
-        args = self.records()[-1]["args"]
+        args = next(record["args"] for record in self.records() if record["args"][0] == "run")
         for required in ["--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
                          "--network=none", "--memory=8g", "--cpus=1", "--pids-limit=512"]:
             self.assertIn(required, args)
@@ -106,6 +143,23 @@ if args and args[0] == 'run' and 'kr0ki-docgen-renderer:' in args[-1]:
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("relative", result.stderr)
         self.assertFalse(self.log.exists())
+
+    def test_rejects_stale_cached_image_labels_before_use(self):
+        for key in ["org.opencontainers.image.revision", "org.kr0ki.docgen.source-tree",
+                    "org.kr0ki.docgen.schema", "org.kr0ki.docgen.rules", "org.kr0ki.docgen.configuration"]:
+            with self.subTest(label=key):
+                result = self.run_workflow("self-test", DOCGEN_TEST_STALE_LABEL=key)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("OCI metadata mismatch: " + key, result.stderr)
+                self.assertFalse(any(record["args"][0] in {"run", "create", "cp"} for record in self.records()))
+
+    def test_export_independently_verifies_artifact_digests(self):
+        result = self.run_workflow("artifacts")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Verified image metadata", result.stdout)
+        result = self.run_workflow("artifacts", DOCGEN_TEST_BAD_ARTIFACT="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("artifact digests do not match", result.stderr)
 
     def test_backend_requires_explicit_network(self):
         result = self.run_workflow("self-test", KR0KI_DOCGEN_BACKEND="http://private.invalid:8010")
