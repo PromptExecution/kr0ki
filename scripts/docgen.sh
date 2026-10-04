@@ -65,8 +65,11 @@ if sys.argv[7]:
 paths = ['Cargo.lock', 'tools/rust-behavior-extractor/Cargo.lock', sys.argv[5],
          'crates/kr0ki-behavior/src/lib.rs', 'crates/kr0ki-behavior/src/schema.rs',
          'crates/kr0ki-core/src/rust_behavior.rs', 'scripts/docgen-bundle.py',
-         'scripts/docgen-verify-toolchain.sh',
          'containers/kr0ki-docgen/Containerfile']
+# Historical archives predate the verifier; their Containerfile does not use it.
+verifier = 'scripts/docgen-verify-toolchain.sh'
+if (source / verifier).is_file():
+    paths.append(verifier)
 inputs['generator_inputs'] = {p: hashlib.sha256((source / p).read_bytes()).hexdigest() for p in paths}
 (context / 'build-inputs.json').write_text(json.dumps(inputs, sort_keys=True, separators=(',', ':')) + '\n')
 PY

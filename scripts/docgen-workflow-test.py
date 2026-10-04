@@ -144,12 +144,20 @@ if args and args[0] == 'cp':
         self.assertNotIn(".env", record["files"])
         self.assertEqual(record["lib"], "tracked fixture\n")
         self.assertIn("@sha256:", record["inputs"]["builder_image"])
+        self.assertIn("scripts/docgen-verify-toolchain.sh", record["inputs"]["generator_inputs"])
         self.assertEqual(len(record["inputs"]["source_tree"]), 64)
         self.assertEqual(len(record["inputs"]["git_tree_id"]), 40)
         self.assertIn("--timestamp=0", record["args"])
         labels = [record["args"][i + 1] for i, arg in enumerate(record["args"]) if arg == "--label"]
         self.assertIn("org.opencontainers.image.revision=" + record["inputs"]["revision"], labels)
         self.assertIn("org.kr0ki.docgen.source-tree=" + record["inputs"]["source_tree"], labels)
+
+    def test_historical_archive_without_toolchain_verifier_still_builds(self):
+        self.git("rm", "scripts/docgen-verify-toolchain.sh")
+        self.git("commit", "-q", "--no-gpg-sign", "-m", "historical fixture")
+        result = self.run_workflow("image")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("scripts/docgen-verify-toolchain.sh", self.records()[0]["inputs"]["generator_inputs"])
 
     def test_self_test_has_explicit_container_isolation(self):
         result = self.run_workflow("self-test")
