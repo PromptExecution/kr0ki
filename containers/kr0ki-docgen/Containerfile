@@ -12,15 +12,23 @@ RUN printf 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debia
     && rm -rf /var/lib/apt/lists/* \
     && rustup toolchain install "$EXTRACTOR_TOOLCHAIN" --no-self-update --profile minimal --component rustc-dev,rust-src,llvm-tools-preview
 WORKDIR /src
-COPY source/ /src/
-COPY build-inputs.json /opt/docgen/build-inputs.json
+COPY source/Cargo.toml source/Cargo.lock /src/
+COPY source/crates/ /src/crates/
+COPY source/templates/ /src/templates/
+COPY source/tools/rust-behavior-extractor/ /src/tools/rust-behavior-extractor/
 RUN cargo build --locked --release -p kr0ki-core --bin kr0ki-docgen \
     && cargo +nightly-2026-06-16 build --locked --release --manifest-path tools/rust-behavior-extractor/Cargo.toml \
     && install -m755 target/release/kr0ki-docgen /usr/local/bin/kr0ki-docgen \
-    && install -m755 tools/rust-behavior-extractor/target/release/rust-behavior-extractor /usr/local/bin/rust-behavior-extractor \
-    && cargo +nightly-2026-06-16 fetch --locked --manifest-path "$SOURCE_MANIFEST"
+    && install -m755 tools/rust-behavior-extractor/target/release/rust-behavior-extractor /usr/local/bin/rust-behavior-extractor
 RUN cargo fetch --locked \
-    && cargo fetch --locked --manifest-path crates/kr0ki-behavior/tests/fixtures/state_machine/Cargo.toml
+    && cargo fetch --locked --manifest-path crates/kr0ki-behavior/tests/fixtures/state_machine/Cargo.toml \
+    && chmod -R a+rX /usr/local/cargo
+# Source history, docs, helper scripts and renderer configuration do not invalidate
+# the expensive locked binary build; extraction still sees the complete archive.
+COPY source/ /src/
+RUN cargo +nightly-2026-06-16 fetch --locked --manifest-path "$SOURCE_MANIFEST" \
+    && chmod -R a+rX /usr/local/cargo
+COPY build-inputs.json /opt/docgen/build-inputs.json
 RUN install -m755 scripts/docgen-build.sh scripts/docgen-self-test.sh scripts/docgen-render.sh /opt/docgen/ \
     && install -m644 scripts/docgen-bundle.py scripts/docgen-bundle-test.py /opt/docgen/
 

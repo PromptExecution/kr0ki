@@ -123,6 +123,7 @@ if args and args[0] == 'run' and 'kr0ki-docgen-renderer:' in args[-1]:
         self.assertFalse(any("KR0KI_DOCGEN_BACKEND=" in arg for arg in runs[0]))
         self.assertIn("--network=private-test", runs[1])
         self.assertIn("kr0ki-docgen-renderer:", runs[1][-1])
+        self.assertFalse(any(arg.startswith("--userns=keep-id") for arg in runs[1]))
 
     def test_rendered_artifact_is_assembled_offline(self):
         result = self.run_workflow("image", KR0KI_DOCGEN_BACKEND="http://user:secret@private.invalid:8010",

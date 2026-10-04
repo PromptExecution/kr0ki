@@ -96,7 +96,11 @@ if [[ -n "$backend" ]]; then
     # The networked process can only render evidence already extracted offline.
     "${build[@]}" --target renderer -t "$renderer" "$context"
     mkdir "$context/rendered"
-    "${run[@]}" --network="$network" --userns=keep-id --user="$(id -u):$(id -g)" \
+    # The fresh context parent is 0700. Only its output mount is writable to the
+    # image's unprivileged user; avoid shifting the entire compiler image to a
+    # different user namespace just to write three derived files.
+    chmod 0777 "$context/rendered"
+    "${run[@]}" --network="$network" \
         -v "$context/rendered:/export:Z" -e "KR0KI_DOCGEN_BACKEND=$backend" "$renderer"
     (cd "$context/rendered" && sha256sum -c bundle.sha256)
     if [[ "$operation" != self-test ]]; then
