@@ -1,5 +1,133 @@
 # PLAN-KR0KI-009 delivery evidence
 
+## Current revision: PR #90 review fixes
+
+Tested generator commit: `8315fe24a635ff0a2618d860b16babda15b7a2ae`. The later documentation
+commit records this exact revision; artifact labels and bundles identify the
+generator commit. The historical `f0ab1ba` results below are retained separately.
+
+### Reviewed changes
+
+- Compiler-only shard metadata distinguishes declarations from references.
+  Compatible shared trait references merge deterministically, declarations supply
+  their canonical anchors and annotations, and every reference retains its edge
+  evidence. Conflicting declarations remain errors. The public IR schema is unchanged.
+- Cargo metadata's workspace root is the default source root. Explicit roots
+  must include every workspace member manifest and target source before compilation.
+  Source paths, configuration capture and provenance use the resolved root.
+- An iterative graph-wide strongly connected component traversal replaces
+  repeated descendant scans. Diagnostics still identify every cyclic node,
+  including disconnected cycles and self-loops; ownership rules are preserved.
+- A separate `compiler-extractor` CI job installs the pinned compiler development
+  components and runs standalone formatting, Clippy and tests serially.
+
+### Source verification
+
+| Gate | Result at the tested generator commit |
+|---|---|
+| Workspace Rust tests | 710 passed, 19 ignored (including the manual benchmark) |
+| Python portion of `just test` | 7 bridge, 8 HTTP worker, 81 agent tests completed; 2 agent tests skipped |
+| `just check` | Workspace formatting and all-target Clippy with warnings denied passed |
+| Standalone pinned extractor | 3 unit and 6 integration tests passed; formatting and all-target Clippy passed |
+| Packaging and OCI workflow tests | 8 packaging and 8 workflow tests passed |
+| CI workflow syntax | `wrkflw validate .github/workflows/ci.yml` passed |
+| Playbook CI configuration / LSP bridge | 135 / 9 tests passed |
+| GitHub CI | `check`, `conformance`, and `compiler-extractor` passed in [run 241](https://github.com/PromptExecution/kr0ki/actions/runs/37190430346) |
+
+Compiler regressions cover shared implicit `Sized` and explicit `Debug`/workspace
+trait bounds, cross-crate declaration/reference reconciliation, all six merge
+orders, repeated and relocated extraction, duplicate declaration rejection,
+sibling extraction through a member manifest, and incomplete-root rejection
+before a build-script marker can run. Rejection preserves existing IR bytes.
+Containment tests cover 30,000-node chains, branching graphs, disconnected cycles,
+multiple owners and repeated edges from the same owner.
+
+The manual chain-versus-star benchmark used five validations per measurement:
+
+| Nodes | Chain (ms per validation) | Star (ms per validation) |
+|---|---:|---:|
+| 1,000 | 6.027 | 4.574 |
+| 4,000 | 27.628 | 19.993 |
+| 16,000 | 125.311 | 89.989 |
+| 32,000 | 268.814 | 194.341 |
+
+Both shapes have comparable near-linear scaling with indexed traversal. These are
+local diagnostic measurements, not timing assertions in CI. Repeat with
+`cargo test -p kr0ki-behavior --test containment chain_versus_star_benchmark -- --ignored --nocapture`.
+
+The full fresh Vue build in `just test` is unavailable: the unmodified vendored
+package requests pnpm 12.4.2, which the registry cannot supply. Disabling automatic
+version management with `npm_config_manage_package_manager_versions=false`
+reveals an upstream lockfile with multiple YAML documents. The workspace
+Rust/Python portions passed and the existing playbook CI configuration passed;
+no successful full `just test` or fresh Vue build is claimed for this revision.
+An initial sandboxed test attempt could not bind HTTP mock sockets; the required
+Rust/Python suite then passed outside that restriction. No vendored source or
+package pins were changed.
+
+### Revised OCI evidence
+
+All commands ran serially with the existing one-CPU, 8 GiB, read-only nonroot
+runner and offline compiler phase:
+
+```sh
+just docgen-artifacts 8315fe24a635ff0a2618d860b16babda15b7a2ae
+just docgen-self-test 8315fe24a635ff0a2618d860b16babda15b7a2ae
+KR0KI_DOCGEN_BACKEND=http://sm3lly.lan:8010 KR0KI_DOCGEN_NETWORK=host \
+  just docgen-artifacts 8315fe24a635ff0a2618d860b16babda15b7a2ae
+KR0KI_DOCGEN_BACKEND=http://sm3lly.lan:8010 KR0KI_DOCGEN_NETWORK=host \
+  just docgen-self-test 8315fe24a635ff0a2618d860b16babda15b7a2ae
+```
+
+Both self-tests passed packaging, 15 behavior/containment tests, the shared
+runtime trace and two fresh byte-identical compiler extractions and compressed
+bundles. The configured self-test passed private SVG/PNG rendering. A further
+fresh private render/export matched every exported file (`bundle.tar.zst`,
+`manifest.json`, `bundle.sha256`) and the inspected OCI image ID byte-for-byte.
+
+| Artifact | Image ID | Compressed bundle SHA-256 |
+|---|---|---|
+| Offline | `c6f7013947e631c711789f96d8c8feeb275f413ea8d7d8aa4ffee9ed84b4235b` | `0bebe776a46d2063618e77f824720ce8bc2aaeae3c4f3bd95027cbf0bd6fc47e` |
+| Private SVG/PNG | `1481709d397ac863398fa19ab04fd2d58aa1876d2896a9780fce9253393ee797` | `6de5a983d121c5ae3c411df31e1720621aa1c31b9bf126fe52d37b2b5f2a3ea0` |
+
+Shared semantic SHA-256: `30c4759825b147c08a35f1a66bcc7e9c462c32a97319f0f835e146111b7dcea3`.
+
+Tracked source archive SHA-256: `96aa91e3345f8a8ac324a6f8ac2d0e3f29ae735c059a48ab909b98bc363d0904`.
+
+Local artifact tags: `localhost/kr0ki-docgen:87cc7e577cca7127` and `localhost/kr0ki-docgen:ddb1ad65a0cdb9ca`.
+Exports are under `.kr0ki-generated/docgen/8315fe24a635ff0a2618d860b16babda15b7a2ae/`, keyed by
+configuration digests `87cc7e577cca712744284d7f147730a910cb42d3818bc434dc2cfd7b9e6722e4` (offline) and
+`ddb1ad65a0cdb9ca848b7f278eea847b9383cbe7d497fbae13866e3bea32ff69` (private rendering).
+
+Independent verification checked the exact Git archive, every recorded generator
+input and output hash, normalized tar entries, all five dynamic image labels,
+Draft 2020-12 IR schema, three embedded sources (including exact authored
+state-machine JSON), 635 anchor occurrences across nodes, edges, diagnostics,
+annotations and machine entries, and eight annotations. The model retains
+212 nodes and 393 edges. Offline and private exports share the same independently
+computed semantic digest. Historical image/PNG/Mermaid results below are not
+new measurements for this revision.
+
+### Handoff and unavailable gates
+
+Logs, independent verification reports, repeat comparison and the consolidated
+subsystem review are under ignored `.kr0ki-generated/pr90-review/`.
+The existing isolated feature worktree was used; builds were serial. Source,
+compiler, root/publication and containment review passes found no remaining
+implementation finding after executable verification.
+
+`b00t whoami` is unavailable in this worktree because `_b00t_/AGENT.md` is absent.
+The Qwen/pi review preflight was attempted inside and outside the sandbox; its
+local endpoint was unavailable. Reviews and verification were completed directly.
+The recorded NATS-registration waiver remains in effect. No b00t/Rhai or
+infrastructure repair was attempted. No merge, deployment or registry
+publication was performed; PR #90 remains a draft.
+
+## Historical record: f0ab1ba
+
+Everything below describes the earlier tested generator revision
+`f0ab1ba1473ef72520a9e142fa4600c58d5e2594`, not the current review fixes.
+
 ## Tested source
 
 Generator commit: `f0ab1ba1473ef72520a9e142fa4600c58d5e2594`.
