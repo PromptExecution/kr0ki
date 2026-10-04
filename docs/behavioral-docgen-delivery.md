@@ -1,6 +1,86 @@
 # PLAN-KR0KI-009 delivery evidence
 
-## Current revision: PR #90 review fixes
+## Current revision: Copilot follow-up fixes
+
+Tested generator commit: `68cc508e26459c142ea9a66c6488fcebe7ec3925`.
+The Rust changes were locally tested at
+`32f0b20af7577e1b2ad0b90dadd9778828438993`; the later source commit adds the
+historical-archive wrapper regression without changing Rust sources.
+The later documentation commit records this exact source revision. All results
+under the historical headings below belong to their named revisions.
+
+### Findings and regression coverage
+
+- `Transition` edges require two `State` endpoints. Regressions reject invalid
+  source, target and paired endpoint kinds, and accept valid transitions and
+  state self-transitions.
+- SCXML selection checks the selected edge's kind and exact machine-qualified
+  endpoints in addition to its stable ID. Regressions retain mismatched graph
+  evidence while withholding SCXML for wrong kinds, either wrong endpoint and
+  transitions belonging to another machine. Complete matching tables still export.
+- The OCI builder verifies its default `rustc` and Cargo releases are both
+  `1.98.0`, before installing dependencies and again immediately before compiling
+  the stable generator. The verification script's digest is recorded among the
+  generator inputs. Tests reject older compiler/Cargo releases and nightly
+  releases. Historical archives without this script retain their original
+  generator-input list.
+  A real artifact build with immutable Rust 1.91.1 base
+  `docker.io/library/rust@sha256:8322627e69ba7780b54f39e9f4d3758c006a3ae0123ea01d63b91f0626169891`
+  failed at the first version check and exported no bundle or manifest.
+
+### Verification of this revision
+
+| Gate | Result |
+|---|---|
+| Workspace Rust tests | 712 passed, 19 ignored |
+| Workspace formatting / all-target Clippy | `just check` passed with warnings denied |
+| Pinned standalone extractor | 3 unit / 6 integration tests; formatting and Clippy passed |
+| Packaging / OCI workflow tests | 8 / 10 passed |
+| Rust-fix GitHub CI | `check`, `conformance`, `compiler-extractor` passed in [run 243](https://github.com/PromptExecution/kr0ki/actions/runs/37204710289) |
+| Final source GitHub CI | All three jobs passed in [run 244](https://github.com/PromptExecution/kr0ki/actions/runs/37205618211) |
+
+The Rust regressions failed before the fixes and passed afterward. Local builds
+ran serially in the existing isolated worktree. The local Qwen/pi endpoint was
+unavailable on the read-only review preflight; narrow review and verification
+were completed directly. The earlier b00t identity and vendored Vue limitations
+remain unchanged; no b00t/Rhai, infrastructure or vendored-package repair was attempted.
+The NATS-registration waiver remains in effect. No deployment or registry publication.
+
+### OCI evidence for this revision
+
+Both offline and configured-private artifact builds and self-tests passed.
+A fresh private-render repeat produced identical `bundle.tar.zst`, `bundle.sha256`,
+`manifest.json` and artifact image ID. Private SVG/PNG rendering used the explicitly
+configured `http://sm3lly.lan:8010` backend with host networking; compilation and
+extraction remained offline. Builds and tests used the existing one-CPU / 8 GiB
+limits and nonroot, read-only test runners.
+
+| Evidence | Offline | Private rendering |
+|---|---|---|
+| Image | `localhost/kr0ki-docgen:d34d63cf018cd503` | `localhost/kr0ki-docgen:8d58cc1450c807b1` |
+| Image ID | `8bfc8cc8a97ef18f4316177a11b3eac87d8173642ad5c669734cef871b21e884` | `6e83198e462305d5615bbe5b6ca91d0afb43290f10674066ed3afd0f7cc27351` |
+| Configuration SHA-256 | `d34d63cf018cd503fb5cfd8685e92037ebcb5b64d78d6ae97ef45bfa1918e79e` | `8d58cc1450c807b10691f9ee4745cb9856c3d70c18b5769dbb9db444ce819a78` |
+| Compressed bundle SHA-256 | `8778a8467b184d99ea7b95c1013f3e435b67badb348b9c19abbd60d6a04735ad` | `54c1b8c1699def7370fdc194b8f6da90ef499c6afd6da8074362787138829122` |
+
+Source archive SHA-256: `fae7b7dcceef04e29fb953722602c8dd1a1f3197e4305558f241981257ac2ec4`.
+Shared semantic SHA-256: `0c3cb7dbde9ecce7cf830bf941b8d4b71e9c1bc1660a997bb0328677ab67a857`.
+
+Independent verification checked the exact Git archive and all generator input
+hashes, Draft 2020-12 IR schema, embedded source bytes, all 635 anchor occurrences,
+8 annotations, normalized tar metadata, all artifact hashes and all five dynamic
+OCI labels. Each IR contains 3 sources, 212 nodes and 393 edges. The private
+repeat was independently verified again and matched the original report.
+
+Commands: `scripts/docgen.sh artifacts 68cc508e26459c142ea9a66c6488fcebe7ec3925`
+and `scripts/docgen.sh self-test 68cc508e26459c142ea9a66c6488fcebe7ec3925`; private
+runs also set `KR0KI_DOCGEN_BACKEND=http://sm3lly.lan:8010` and
+`KR0KI_DOCGEN_NETWORK=host`. Logs, independent verification reports and the
+consolidated narrow review are under ignored `.kr0ki-generated/pr90-review/copilot-*`.
+
+All three Copilot findings were resolved after executable source verification,
+and PR #90 was marked ready for review. No deployment or registry publication.
+
+## Historical record: 8315fe2 review fixes
 
 Tested generator commit: `8315fe24a635ff0a2618d860b16babda15b7a2ae`. The later documentation
 commit records this exact revision; artifact labels and bundles identify the
