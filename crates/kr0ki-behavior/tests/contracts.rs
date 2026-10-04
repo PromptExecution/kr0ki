@@ -10,6 +10,138 @@ fn machine() -> StateMachine {
     serde_json::from_str(include_str!("fixtures/ooda.json")).unwrap()
 }
 
+fn annotated_fixture() -> RustBehaviorIr {
+    let content = include_str!("fixtures/annotations.rs");
+    let annotation = |path: &str, text: &str| {
+        let start = content.find(text).unwrap() as u32;
+        SourceAnnotation {
+            path: path.into(),
+            text: text.into(),
+            anchor: Anchor {
+                file: "src/annotations.rs".into(),
+                symbol: "Worker".into(),
+                start,
+                end: start + text.len() as u32,
+            },
+        }
+    };
+    let mut ir = fixture();
+    ir.sources = vec![SourceFile {
+        path: "src/annotations.rs".into(),
+        sha256: digest(content),
+        content: content.into(),
+    }];
+    ir.nodes = vec![Node {
+        id: "Worker".into(),
+        name: "Worker".into(),
+        kind: NodeKind::Type,
+        anchor: Some(Anchor {
+            file: "src/annotations.rs".into(),
+            symbol: "Worker".into(),
+            start: content.find("pub struct").unwrap() as u32,
+            end: content.len() as u32,
+        }),
+        annotations: vec![
+            annotation("allow", "#![allow(dead_code)]"),
+            annotation("doc", "#[doc = \"café worker\"]"),
+            annotation("derive", "#[derive(Debug, Clone)]"),
+        ],
+    }];
+    ir.edges.clear();
+    ir.diagnostics.clear();
+    ir.machines.clear();
+    ir
+}
+
+#[test]
+fn annotation_bytes_are_proven_and_normalized_without_ontology_inference() {
+    let first = annotated_fixture();
+    first.ensure_valid().unwrap();
+    for annotation in &first.nodes[0].annotations {
+        assert_eq!(
+            first.sources[0]
+                .content
+                .get(annotation.anchor.start as usize..annotation.anchor.end as usize),
+            Some(annotation.text.as_str())
+        );
+    }
+    let mut reordered = first.clone();
+    reordered.nodes[0].annotations.reverse();
+    let duplicate = reordered.nodes[0].annotations[0].clone();
+    reordered.nodes[0].annotations.push(duplicate);
+    assert_eq!(
+        first.canonical_json().unwrap(),
+        reordered.canonical_json().unwrap()
+    );
+    let reparsed = RustBehaviorIr::from_json(&first.canonical_json().unwrap()).unwrap();
+    assert_eq!(reparsed.nodes[0].annotations.len(), 3);
+    // Older documents omit this optional field and keep their serialized shape.
+    assert!(fixture()
+        .nodes
+        .iter()
+        .all(|node| node.annotations.is_empty()));
+    assert!(!fixture()
+        .canonical_json()
+        .unwrap()
+        .contains("\"annotations\""));
+}
+
+#[test]
+fn fabricated_annotation_paths_text_and_spans_fail_closed() {
+    type Corruption = (&'static str, fn(&mut SourceAnnotation));
+    let cases: &[Corruption] = &[
+        ("annotation_path", |annotation| annotation.path.clear()),
+        ("annotation_path", |annotation| {
+            annotation.path = " \t".into()
+        }),
+        ("annotation_source", |annotation| {
+            annotation.text = "#[doc = \"invented semantics\"]".into()
+        }),
+        ("annotation_source", |annotation| {
+            annotation.text = "doc = \"café worker\"".into()
+        }),
+        ("anchor_source", |annotation| {
+            annotation.anchor.file = "src/absent.rs".into()
+        }),
+        ("anchor_span", |annotation| annotation.anchor.end = u32::MAX),
+        ("anchor_span", |annotation| {
+            annotation.anchor.start = annotation.anchor.end + 1
+        }),
+    ];
+    for (code, mutate) in cases {
+        let mut ir = annotated_fixture();
+        mutate(&mut ir.nodes[0].annotations[0]);
+        assert!(ir
+            .validate()
+            .iter()
+            .any(|finding| finding.code == *code && finding.severity == Severity::Error));
+        assert!(ir.canonical_json().is_err(), "allowed {code}");
+    }
+    let mut ir = annotated_fixture();
+    let accent = ir.sources[0].content.find('é').unwrap() as u32;
+    ir.nodes[0].annotations[0].anchor.start = accent + 1;
+    assert!(ir
+        .validate()
+        .iter()
+        .any(|finding| finding.code == "anchor_span"));
+}
+
+#[test]
+fn annotation_wire_shape_rejects_unknown_fields_and_missing_evidence() {
+    let mut value = serde_json::to_value(annotated_fixture()).unwrap();
+    value["nodes"][0]["annotations"][0]["ontology_guess"] = serde_json::json!("role");
+    assert!(RustBehaviorIr::from_json(&value.to_string()).is_err());
+    value["nodes"][0]["annotations"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("ontology_guess");
+    value["nodes"][0]["annotations"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("anchor");
+    assert!(RustBehaviorIr::from_json(&value.to_string()).is_err());
+}
+
 #[test]
 fn reviewed_facts_keep_resolution_and_utf8_provenance() {
     let ir = fixture();
@@ -366,9 +498,18 @@ fn schema_defines_strict_versioned_wire_vocabulary() {
         "State",
         "Transition",
         "Anchor",
+        "SourceAnnotation",
     ] {
         assert_eq!(schema["$defs"][definition]["additionalProperties"], false);
     }
+    assert!(!schema["$defs"]["Node"]["required"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("annotations")));
+    assert_eq!(
+        schema["$defs"]["Node"]["properties"]["annotations"]["items"]["$ref"],
+        "#/$defs/SourceAnnotation"
+    );
     for kind in [
         NodeKind::Module,
         NodeKind::Type,

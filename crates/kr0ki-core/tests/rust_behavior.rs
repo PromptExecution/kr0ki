@@ -27,6 +27,7 @@ fn request(model: RustBehaviorIr) -> BehaviorRequest {
         expand_depth: 0,
         strict: false,
         stereotypes: BTreeMap::new(),
+        annotation_stereotypes: BTreeMap::new(),
     }
 }
 
@@ -136,6 +137,7 @@ fn authored_recursive_expose_and_upstream_kind_filter_select_the_model() {
         id: "namespace".into(),
         name: "Namespace".into(),
         kind: NodeKind::Module,
+        annotations: vec![],
         anchor: Some(anchor.clone()),
     });
     for (idx, member) in ["job", "worker", "run", "dynamic"].into_iter().enumerate() {
@@ -235,6 +237,73 @@ fn only_explicit_reviewed_stereotypes_change_semantic_classification() {
 }
 
 #[test]
+fn reviewed_source_annotation_mappings_require_exact_evidence_and_reject_conflicts() {
+    let mut model = fixture();
+    let text = "#[derive(Debug)]";
+    let source = SourceFile {
+        path: "annotations.rs".into(),
+        sha256: kr0ki_behavior::digest(text),
+        content: text.into(),
+    };
+    let annotation = kr0ki_behavior::SourceAnnotation {
+        path: "derive".into(),
+        text: text.into(),
+        anchor: Anchor {
+            file: source.path.clone(),
+            symbol: "job".into(),
+            start: 0,
+            end: text.len() as u32,
+        },
+    };
+    model.sources.push(source);
+    model
+        .nodes
+        .iter_mut()
+        .find(|n| n.id == "job")
+        .unwrap()
+        .annotations
+        .push(annotation);
+    let unmapped = prepare(request(model.clone())).unwrap();
+    let reviewed = UfoStereotype::Abstract("ReviewedAnnotatedType".into());
+    let mut req = request(model.clone());
+    req.annotation_stereotypes
+        .insert(text.into(), reviewed.clone());
+    let mapped = prepare(req.clone()).unwrap();
+    assert_eq!(
+        mapped
+            .graph
+            .nodes
+            .iter()
+            .find(|n| n.id.as_str() == "job")
+            .unwrap()
+            .stereotype,
+        reviewed
+    );
+    assert_ne!(mapped.content_hash, unmapped.content_hash);
+    req.stereotypes
+        .insert("job".into(), UfoStereotype::Abstract("Conflict".into()));
+    assert!(prepare(req)
+        .unwrap_err()
+        .to_string()
+        .contains("conflicting"));
+    let mut req = request(model.clone());
+    req.annotation_stereotypes
+        .insert("#[derive(Unknown)]".into(), reviewed);
+    assert!(prepare(req)
+        .unwrap_err()
+        .to_string()
+        .contains("unknown source annotation"));
+    model
+        .nodes
+        .iter_mut()
+        .find(|n| n.id == "job")
+        .unwrap()
+        .annotations[0]
+        .text = "#[derive(Forged)]".into();
+    assert!(prepare(request(model)).is_err());
+}
+
+#[test]
 fn unknown_exposes_empty_filters_custom_renderers_and_depth_overflow_are_rejected() {
     let mut req = request(fixture());
     req.view = Some(authored(
@@ -277,6 +346,7 @@ fn nested_fixture() -> RustBehaviorIr {
             id: id.into(),
             name: id.into(),
             kind,
+            annotations: vec![],
             anchor: Some(anchor.clone()),
         });
     }
@@ -433,6 +503,7 @@ fn machine_fixture() -> RustBehaviorIr {
         id: machine.id.clone(),
         name: machine.name.clone(),
         kind: NodeKind::Module,
+        annotations: vec![],
         anchor: Some(anchor.clone()),
     });
     for state in &mut machine.states {
@@ -442,6 +513,7 @@ fn machine_fixture() -> RustBehaviorIr {
             id: id.clone(),
             name: state.id.clone(),
             kind: NodeKind::State,
+            annotations: vec![],
             anchor: Some(anchor.clone()),
         });
         model.edges.push(Edge {

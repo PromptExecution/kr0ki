@@ -68,6 +68,66 @@ fn compiler_facts_preserve_dispatch_control_and_provenance_deterministically() {
     let relocated = Fixture::new();
     assert_eq!(ir, relocated.ir("relocated.json"));
     assert!(!ir.validate().iter().any(|d| d.severity == Severity::Error));
+    let counter = ir
+        .nodes
+        .iter()
+        .find(|n| n.name == "behavior_fixture::Counter")
+        .unwrap();
+    let definition = counter.anchor.as_ref().unwrap();
+    let original = &ir
+        .sources
+        .iter()
+        .find(|s| s.path == definition.file)
+        .unwrap()
+        .content;
+    assert!(
+        original[definition.start as usize..definition.end as usize]
+            .starts_with("pub struct Counter"),
+        "a type declaration must not retain an earlier impl/reference placeholder anchor"
+    );
+    assert!(counter
+        .annotations
+        .iter()
+        .any(|a| a.path == "derive" && a.text == "#[derive(Debug)]"));
+    assert!(counter
+        .annotations
+        .iter()
+        .any(|a| a.path == "doc" && a.text.contains("π")));
+    assert!(!ir.nodes.iter().any(|n| n.name.contains("ExcludedCounter")));
+    let root = ir
+        .nodes
+        .iter()
+        .find(|n| n.name == "behavior_fixture")
+        .unwrap();
+    assert_eq!(
+        root.annotations
+            .iter()
+            .map(|a| a.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["#![allow(dead_code)]"]
+    );
+    let inline = ir
+        .nodes
+        .iter()
+        .find(|n| n.name == "behavior_fixture::inline")
+        .unwrap();
+    assert_eq!(
+        inline
+            .annotations
+            .iter()
+            .map(|a| a.text.as_str())
+            .collect::<Vec<_>>(),
+        vec!["#[allow(dead_code)]"]
+    );
+    let inner = ir
+        .nodes
+        .iter()
+        .find(|n| n.name == "behavior_fixture::inline::Inner")
+        .unwrap();
+    assert!(inner
+        .annotations
+        .iter()
+        .any(|a| a.text == "#[derive(Debug)]"));
     for kind in [
         NodeKind::Field,
         NodeKind::AssociatedType,
@@ -108,6 +168,8 @@ fn compiler_facts_preserve_dispatch_control_and_provenance_deterministically() {
         "control_break",
         "control_continue",
         "control_return",
+        "recursive_call",
+        "macro_expansion",
     ] {
         assert!(
             ir.diagnostics.iter().any(|d| d.code == code),
@@ -120,6 +182,14 @@ fn compiler_facts_preserve_dispatch_control_and_provenance_deterministically() {
             .unwrap()
             .symbol
             .contains("literal_question")));
+    assert!(ir.diagnostics.iter().any(|d| d.code == "recursive_call"
+        && d.anchor
+            .as_ref()
+            .is_some_and(|a| a.symbol == "behavior_fixture::recursive")));
+    assert!(ir.diagnostics.iter().any(|d| d.code == "macro_expansion"
+        && d.anchor
+            .as_ref()
+            .is_some_and(|a| a.symbol == "behavior_fixture::generated")));
     assert!(ir.sources.iter().any(|s| s.path == "src/worker.rs"));
     let bounded = ir
         .nodes
@@ -132,6 +202,51 @@ fn compiler_facts_preserve_dispatch_control_and_provenance_deterministically() {
         .any(|e| e.from == bounded.id && e.kind == EdgeKind::Exit));
     assert!(ir.validate().iter().any(|d| d.code == "unknown_loop_exit"
         && d.anchor.as_ref().unwrap().symbol == "behavior_fixture::infinite"));
+}
+
+#[test]
+fn ancestor_cargo_configuration_changes_real_compiler_cfg_and_provenance() {
+    let parent = Fixture::new();
+    let nested = parent.0.join("nested");
+    fs::create_dir_all(nested.join("src")).unwrap();
+    for path in ["Cargo.toml", "Cargo.lock", "src/lib.rs", "src/worker.rs"] {
+        fs::copy(parent.0.join(path), nested.join(path)).unwrap();
+    }
+    let fixture = Fixture(nested);
+    let before = fixture.ir("without-config.json");
+    assert!(!before
+        .nodes
+        .iter()
+        .any(|n| n.name == "behavior_fixture::ConfigSelected"));
+    fs::create_dir_all(parent.0.join(".cargo")).unwrap();
+    fs::write(parent.0.join(".cargo/config.toml"), "[build]\nrustflags = ['--cfg=annotation_fixture', '--check-cfg=cfg(annotation_fixture)']\n").unwrap();
+    let after = fixture.ir("with-config.json");
+    let selected = after
+        .nodes
+        .iter()
+        .find(|n| n.name == "behavior_fixture::ConfigSelected")
+        .unwrap();
+    assert!(selected
+        .annotations
+        .iter()
+        .any(|a| a.path == "derive" && a.text == "#[derive(Debug)]"));
+    assert_ne!(before.provenance.config, after.provenance.config);
+    assert!(after
+        .provenance
+        .config
+        .values()
+        .all(|value| !value.contains(parent.0.to_str().unwrap())));
+    fs::write(
+        parent.0.join(".cargo/config.toml"),
+        "[build]\nrustflags = ['--check-cfg=cfg(annotation_fixture)']\n",
+    )
+    .unwrap();
+    let changed = fixture.ir("changed-config.json");
+    assert!(!changed
+        .nodes
+        .iter()
+        .any(|n| n.name == "behavior_fixture::ConfigSelected"));
+    assert_ne!(after.provenance.config, changed.provenance.config);
 }
 
 #[test]
@@ -159,6 +274,17 @@ fn original_bom_crlf_unicode_bytes_are_preserved_and_type_errors_publish_nothing
         .unwrap();
     let anchor = function.anchor.as_ref().unwrap();
     assert!(content[anchor.start as usize..anchor.end as usize].contains("literal_question"));
+    let counter = ir
+        .nodes
+        .iter()
+        .find(|n| n.name == "behavior_fixture::Counter")
+        .unwrap();
+    for annotation in &counter.annotations {
+        assert_eq!(
+            &content[annotation.anchor.start as usize..annotation.anchor.end as usize],
+            annotation.text
+        );
+    }
     fs::write(
         &path,
         format!("{content}\npub fn invalid() {{ missing_compiler_symbol(); }}\n"),

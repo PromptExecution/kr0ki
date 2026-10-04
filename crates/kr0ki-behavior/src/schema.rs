@@ -51,8 +51,16 @@ pub fn json_schema() -> Value {
         json!({"path": text(), "sha256": hash(), "content": text()}),
         &["path", "sha256", "content"],
     );
+    let annotation = object(
+        json!({
+            "path": {"type": "string", "minLength": 1, "pattern": "\\S"},
+            "text": {"type": "string", "pattern": "^#!?\\["},
+            "anchor": reference("Anchor")
+        }),
+        &["path", "text", "anchor"],
+    );
     let node = object(
-        json!({"id": text(), "name": text(), "kind": reference("NodeKind"), "anchor": nullable(reference("Anchor"))}),
+        json!({"id": text(), "name": text(), "kind": reference("NodeKind"), "anchor": nullable(reference("Anchor")), "annotations": array(reference("SourceAnnotation"))}),
         &["id", "name", "kind"],
     );
     let edge = object(
@@ -107,7 +115,7 @@ pub fn json_schema() -> Value {
     schema["$id"] = json!("urn:kr0ki:rust-behavior-ir:v1");
     schema["title"] = json!("RustBehaviorIR v1");
     schema["$defs"] = json!({
-        "Anchor": anchor, "Provenance": provenance, "SourceFile": source,
+        "Anchor": anchor, "Provenance": provenance, "SourceFile": source, "SourceAnnotation": annotation,
         "Node": node, "Edge": edge, "Diagnostic": diagnostic,
         "StateMachine": machine, "State": state, "Transition": transition,
         "NodeKind": enumeration(&["module", "type", "field", "associated_type", "trait", "function", "action", "decision", "merge", "loop", "exit", "dispatch", "state", "external"]),

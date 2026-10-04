@@ -19,7 +19,7 @@ use kr0ki_core::{
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    let command = args.next().context("usage: kr0ki-docgen validate|bundle --input IR.json [--output DIRECTORY] [--view VIEW.json] [--ontology MAPPINGS.json] [--expand-depth 0..8] [--strict] [--state-machine TABLE.json] [--backend URL]")?;
+    let command = args.next().context("usage: kr0ki-docgen validate|bundle --input IR.json [--output DIRECTORY] [--view VIEW.json] [--ontology MAPPINGS.json] [--annotation-ontology MAPPINGS.json] [--expand-depth 0..8] [--strict] [--state-machine TABLE.json] [--backend URL]")?;
     let mut options = BTreeMap::new();
     let mut strict = false;
     while let Some(flag) = args.next() {
@@ -37,6 +37,7 @@ async fn main() -> Result<()> {
             "--expand-depth",
             "--state-machine",
             "--ontology",
+            "--annotation-ontology",
             "--backend",
         ]
         .contains(&flag.as_str())
@@ -68,6 +69,11 @@ async fn main() -> Result<()> {
         model: model.clone(),
         stereotypes: options
             .get("--ontology")
+            .map(|p| -> Result<_> { Ok(serde_json::from_str(&std::fs::read_to_string(p)?)?) })
+            .transpose()?
+            .unwrap_or_default(),
+        annotation_stereotypes: options
+            .get("--annotation-ontology")
             .map(|p| -> Result<_> { Ok(serde_json::from_str(&std::fs::read_to_string(p)?)?) })
             .transpose()?
             .unwrap_or_default(),
@@ -207,6 +213,7 @@ fn add_machine(model: &mut RustBehaviorIr, path: &Path) -> Result<()> {
         id: machine.id.clone(),
         name: machine.name.clone(),
         kind: NodeKind::Module,
+        annotations: vec![],
         anchor: Some(anchor.clone()),
     });
     for state in &mut machine.states {
@@ -216,6 +223,7 @@ fn add_machine(model: &mut RustBehaviorIr, path: &Path) -> Result<()> {
             id: id.clone(),
             name: state.id.clone(),
             kind: NodeKind::State,
+            annotations: vec![],
             anchor: state.anchor.clone(),
         });
         model.edges.push(Edge {

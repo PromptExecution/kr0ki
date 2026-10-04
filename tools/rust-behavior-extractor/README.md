@@ -43,6 +43,28 @@ predicate constraints. A generic or blanket implementation retains its compiler
 predicates on the `satisfies` edge. Implemented traits establish structural
 satisfaction; they do not prove all runtime behavior.
 
+Explicit bracketed attributes are parsed from original source and attached only
+to compiler-confirmed item nodes. The syntax parser does not resolve calls or
+types. Each annotation preserves its exact text, path and byte anchor, including
+inner crate/module attributes and BOM/CRLF/Unicode evidence. Disabled cfg items
+are not synthesized, while the embedded source file retains its original bytes.
+Doc comments are not converted into attribute text. Source syntax unsupported by
+the annotation parser produces a finding; it never becomes a guessed annotation.
+Reviewed caller rules can map exact attribute text to stereotypes. No UFO helper
+attribute macros are defined by the pinned `ufo-types` dependency. Compiler-proven
+direct recursion and macro-generated bodies produce explicit warning findings.
+
+Provenance hashes the Cargo invocation directory's configuration hierarchy,
+Cargo-home configuration, recursive includes and compilation-affecting Cargo
+environment overrides. Raw configuration values and host paths are not exported.
+The invocation uses the supplied workspace root, following
+[Cargo's configuration lookup rules](https://doc.rust-lang.org/cargo/reference/config.html#hierarchical-structure).
+Compiler/wrapper overrides are rejected to preserve the pinned driver. The
+extractor overrides `CARGO_TARGET_DIR`; its temporary path is excluded from
+provenance so repeated runs remain identical. Arbitrary build-script environment
+inputs require a controlled caller environment; these hashes do not make a host
+execution hermetic.
+
 Limitations: this first adapter exports whole compiler CFGs rather than recovering
 high-level structured source expressions. MIR contains compiler-generated drop and
 unwind paths. Guards describe typed MIR discriminants, not reconstructed source

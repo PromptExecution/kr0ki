@@ -7,6 +7,7 @@ extern crate rustc_middle;
 extern crate rustc_span;
 
 mod compiler;
+mod config;
 
 struct RunDirectory(PathBuf);
 impl Drop for RunDirectory {
@@ -105,7 +106,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if !matches!(revision.len(), 40 | 64) || !revision.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("--revision must be a full git commit hash".into());
     }
-    for key in ["RUSTC", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"] {
+    for key in [
+        "RUSTC",
+        "RUSTC_WRAPPER",
+        "RUSTC_WORKSPACE_WRAPPER",
+        "CARGO_BUILD_RUSTC",
+        "CARGO_BUILD_RUSTC_WRAPPER",
+        "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
+    ] {
         if env::var_os(key).is_some() {
             return Err(
                 format!("unset {key}: the extractor requires its pinned compiler wrapper").into(),
@@ -245,20 +253,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             Sha256::digest(fs::read(cargo_root.join("Cargo.lock"))?)
         ),
     );
-    for filename in ["config", "config.toml"] {
-        let path = cargo_root.join(".cargo").join(filename);
-        if path.exists() {
-            config.insert(
-                format!("cargo_{filename}_sha256"),
-                format!("{:x}", Sha256::digest(fs::read(path)?)),
-            );
-        }
-    }
-    for key in ["RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_TARGET"] {
-        if let Ok(value) = env::var(key) {
-            config.insert(key.to_owned(), value);
-        }
-    }
+    let cargo_home = env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".cargo")));
+    config.extend(config::capture(
+        &root,
+        cargo_home.as_deref(),
+        &env::vars().collect(),
+    )?);
     config.insert(
         "mir_phase".into(),
         "typed_mir_built_before_transforms_published_after_analysis".into(),

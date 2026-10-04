@@ -57,6 +57,16 @@ pub struct Anchor {
     pub end: u32,
 }
 
+/// An extractor-observed attribute, retaining its exact original source bytes.
+/// Its path describes the attribute syntax, not an ontology interpretation.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(deny_unknown_fields)]
+pub struct SourceAnnotation {
+    pub path: String,
+    pub text: String,
+    pub anchor: Anchor,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Node {
@@ -64,6 +74,8 @@ pub struct Node {
     pub name: String,
     pub kind: NodeKind,
     pub anchor: Option<Anchor>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub annotations: Vec<SourceAnnotation>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -204,6 +216,10 @@ impl RustBehaviorIr {
     pub fn normalize(&mut self) {
         self.sources.sort_by(|a, b| a.path.cmp(&b.path));
         self.nodes.sort_by(|a, b| a.id.cmp(&b.id));
+        for node in &mut self.nodes {
+            node.annotations.sort();
+            node.annotations.dedup();
+        }
         self.edges.sort_by(|a, b| a.id.cmp(&b.id));
         self.diagnostics.sort();
         self.diagnostics.dedup();

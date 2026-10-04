@@ -207,6 +207,36 @@ impl RustBehaviorIr {
                 ),
                 None => (),
             }
+            for annotation in &node.annotations {
+                check_anchor(&annotation.anchor, &sources, &mut findings);
+                if !nonempty(&annotation.path) {
+                    finding(
+                        &mut findings,
+                        "annotation_path",
+                        Severity::Error,
+                        "source annotation path must be nonempty",
+                        Some(&annotation.anchor),
+                    );
+                }
+                let source_text = sources
+                    .get(annotation.anchor.file.as_str())
+                    .and_then(|source| {
+                        source
+                            .content
+                            .get(annotation.anchor.start as usize..annotation.anchor.end as usize)
+                    });
+                if !(annotation.text.starts_with("#[") || annotation.text.starts_with("#!["))
+                    || source_text != Some(annotation.text.as_str())
+                {
+                    finding(
+                        &mut findings,
+                        "annotation_source",
+                        Severity::Error,
+                        "source annotation text must begin with #[ or #![ and exactly match its source span",
+                        Some(&annotation.anchor),
+                    );
+                }
+            }
         }
         let mut edges = BTreeSet::new();
         let mut contains: BTreeMap<&str, Vec<&str>> = BTreeMap::new();

@@ -30,6 +30,17 @@ an optional upstream `ViewDefinition` in `view`, `expand_depth` from 0 to 8,
 unknown exposed elements, and unsupported custom rendering are rejected before
 the renderer runs. The HTTP route never invokes Cargo or rustc.
 
+Compiler-confirmed source items retain explicit bracketed Rust attributes in
+`nodes[].annotations`: their path, exact source text and original byte anchor.
+Inner `#![...]` attributes are included; doc comments are not synthesized into
+attributes. Reviewed `annotation_stereotypes` rules are keyed by that exact raw
+attribute text. The CLI accepts the same mapping JSON through
+`--annotation-ontology MAPPINGS.json`. Unknown rules and conflicting node/attribute
+classifications fail validation. Attribute names never classify a type by
+themselves. This supports existing source attributes such as
+`#[derive(SysmlBlock)]` without inventing UFO helper macros or executing a runtime
+`Stereotyped` implementation.
+
 The default view summarizes function bodies; expansion follows bounded source
 ownership. Selection and semantic filters apply before summarization. A rendered
 edge keeps its original IR edge in `evidence`, including its byte span, guard,

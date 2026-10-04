@@ -46,6 +46,10 @@ pub struct BehaviorRequest {
     /// Explicit, reviewed ontology classifications; never inferred by a model.
     #[serde(default)]
     pub stereotypes: BTreeMap<String, UfoStereotype>,
+    /// Reviewed exact source-attribute text → stereotype rules. Attribute names
+    /// alone never establish an ontology classification.
+    #[serde(default)]
+    pub annotation_stereotypes: BTreeMap<String, UfoStereotype>,
     #[serde(default)]
     pub view: Option<ViewDefinition>,
     #[serde(default)]
@@ -281,7 +285,33 @@ pub fn prepare(mut request: BehaviorRequest) -> Result<BehaviorView, BehaviorErr
         ));
     }
     let mut graph = build_graph(&request.model)?;
-    for (id, stereotype) in &request.stereotypes {
+    let mut classifications = request.stereotypes.clone();
+    let mut annotations: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    for source_node in &request.model.nodes {
+        for annotation in &source_node.annotations {
+            annotations
+                .entry(annotation.text.as_str())
+                .or_default()
+                .insert(source_node.id.as_str());
+        }
+    }
+    for (text, stereotype) in &request.annotation_stereotypes {
+        let nodes = annotations.get(text.as_str()).ok_or_else(|| {
+            BehaviorError::Invalid(format!(
+                "ontology mapping names unknown source annotation {text}"
+            ))
+        })?;
+        for id in nodes {
+            if let Some(existing) = classifications.insert((*id).to_owned(), stereotype.clone()) {
+                if existing != *stereotype {
+                    return Err(BehaviorError::Invalid(format!(
+                        "conflicting reviewed ontology mappings for {id}"
+                    )));
+                }
+            }
+        }
+    }
+    for (id, stereotype) in &classifications {
         let node = graph
             .nodes
             .iter_mut()

@@ -1,4 +1,6 @@
 use kr0ki_behavior::*;
+#[path = "annotations.rs"]
+mod annotations;
 use rustc_driver::{Callbacks, Compilation};
 use rustc_hir::def::DefKind;
 use rustc_interface::interface::{Compiler, Config};
@@ -172,6 +174,7 @@ impl Extractor {
                 name: name.to_owned(),
                 kind,
                 anchor,
+                annotations: vec![],
             });
         }
         id
@@ -230,6 +233,15 @@ impl Extractor {
                 continue;
             };
             let id = self.node(&name, kind, Some(anchor.clone()));
+            // Parent/trait-reference discovery can create a placeholder first.
+            // A compiler definition always supplies its canonical declaration
+            // span, rather than retaining an earlier impl/reference span.
+            self.ir
+                .nodes
+                .iter_mut()
+                .find(|node| node.id == id)
+                .expect("node inserted")
+                .anchor = Some(anchor.clone());
             let Some(parent) = tcx.opt_parent(def) else {
                 continue;
             };
@@ -391,6 +403,13 @@ impl Extractor {
             return;
         };
         let function = self.node(&name, NodeKind::Function, Some(function_anchor.clone()));
+        if tcx.def_span(def).from_expansion() {
+            self.ir.diagnostics.push(Diagnostic {
+                code: "macro_expansion".into(), severity: Severity::Warning,
+                message: "compiler-generated macro body is represented with source callsite evidence; it is not handwritten source behavior".into(),
+                anchor: Some(function_anchor.clone()),
+            });
+        }
         // Captured from the mir_built provider before borrowck/optimization can
         // steal the body. Publication occurs only after compiler analysis succeeds.
         let dominators = body.basic_blocks.dominators();
@@ -575,6 +594,15 @@ impl Extractor {
                     },
                     &anchor,
                 );
+                if resolved && target_name == name {
+                    self.ir.diagnostics.push(Diagnostic {
+                        code: "recursive_call".into(),
+                        severity: Severity::Warning,
+                        message: "compiler-resolved direct recursion; termination is unproven"
+                            .into(),
+                        anchor: Some(anchor.clone()),
+                    });
+                }
                 if !resolved {
                     self.ir.diagnostics.push(Diagnostic {
                         code: "unresolved_dispatch".into(),
@@ -629,6 +657,7 @@ impl Callbacks for Extractor {
             self.ir.edges.extend(snapshot.edges);
             self.ir.diagnostics.extend(snapshot.diagnostics);
         }
+        annotations::attach(&mut self.ir);
         self.ir.normalize();
         let file = self.shards.join(format!(
             "{}.json",
