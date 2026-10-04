@@ -1,6 +1,6 @@
 # PLAN-KR0KI-009 — validated Rust behavioral models and generated views
 
-**Status:** proposed implementation plan. This document records scope and acceptance gates; it does not claim that arbitrary Rust behavior is already recoverable as SysML.
+**Status (2026-10-04):** implemented and validated for the supported compiler contracts. [Delivery evidence](behavioral-docgen-delivery.md) records the exact tested generator revision, source/container gates and full artifact digests. Static compiler evidence, unresolved dispatch and notation validation levels remain explicit; arbitrary runtime equivalence is not claimed.
 
 **Parent plans:** [PLAN-KR0KI-002](PLAN-KR0KI-002.md) (five-box model/render pipeline), [PLAN-KR0KI-003](PLAN-KR0KI-003-rust-source-frontend.md) (Rust source front end), and [PLAN-KR0KI-004](PLAN-KR0KI-004-revisioned-procedural-workspace.md) (procedural workspace).
 

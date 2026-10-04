@@ -27,8 +27,9 @@ request-authored `ViewDefinition`/`Expose` selection with bounded expansion.
 local/Podman workflow. The existing `/render/rust-source` AST endpoint remains the
 structural source-text interface. The new workflow also emits grammar-checked SysML
 text and deterministic bundles; usage and gate limits are in
-[behavioral-docgen.md](behavioral-docgen.md). Container/live-render acceptance remains
-a separate delivery gate; this status does not claim those gates passed.
+[behavioral-docgen.md](behavioral-docgen.md). **Delivery update 2026-10-04:** the
+exact source, container and private SVG/PNG gates passed; full digests and honest
+notation validation levels are recorded in [delivery evidence](behavioral-docgen-delivery.md).
 
 ---
 

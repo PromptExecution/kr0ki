@@ -20,8 +20,9 @@ versioned `RustBehaviorIR`. Unresolved dynamic targets remain explicit findings.
 build upstream `SysGraph`, execute authored view selection, and emit notation;
 the HTTP interface never compiles submitted source. Shared executable transition
 tables produce state-machine exports. [behavioral-docgen.md](behavioral-docgen.md)
-records the pinned compiler and OCI workflow. Container and live-render gates must
-be recorded separately before final delivery is claimed.
+records the pinned compiler and OCI workflow. **Delivery update 2026-10-04:**
+[delivery evidence](behavioral-docgen-delivery.md) records passing source/container
+and private SVG/PNG gates, full digests and supported analysis/notation limits.
 
 The text below is the original plan. Originally: proposed, unimplemented. Written to correct a false assumption made while
 landing the docgen/playbook work (`#14`, `#15`, `#16`) — see §1 — before any further

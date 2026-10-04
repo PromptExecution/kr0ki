@@ -6,7 +6,7 @@ in [`PLAN-KR0KI-002.md`](PLAN-KR0KI-002.md); the typed-layer shape in
 [`DESIGN-NOTE-typed-model-layer.md`](DESIGN-NOTE-typed-model-layer.md). This file just
 tracks *what is left to do*, ordered by the five-box pipeline.
 
-_Behavioral Rust status reconciled: 2026-10-03. Historical entries retain their
+_Behavioral Rust status reconciled: 2026-10-04. Historical entries retain their
 own dates; see [PLAN-KR0KI-009](PLAN-KR0KI-009-rust-behavioral-docgen.md) and
 [behavioral-docgen.md](behavioral-docgen.md) for the compiler/artifact workflow._
 
@@ -17,11 +17,13 @@ own dates; see [PLAN-KR0KI-009](PLAN-KR0KI-009-rust-behavioral-docgen.md) and
 - [x] Separate `/render/rust-behavior` JSON route and local `kr0ki-docgen` CLI;
   upstream `SysGraph` lift, request-authored `ViewDefinition`/`Expose`, bounded
   expansion, and grammar-checked SysML plus diagram notation.
-- [~] Pinned standalone compiler adapter and conformance fixtures; record final
-  fixture results and supported-feature limits in the delivery evidence.
-- [~] Deterministic Podman packaging and `just docgen-*` wrappers implemented;
-  complete real image/self-test, private SVG/PNG render, and repeated clean-build
-  digest gates before marking artifact delivery complete.
+- [x] Pinned standalone compiler adapter and conformance fixtures; compiler,
+  annotations, namespace identities and inherited configuration gates passed.
+- [x] Deterministic Podman packaging and `just docgen-*` wrappers; actual offline
+  and private SVG/PNG builds/self-tests, repeated artifact digests and visual
+  inspection passed. See [delivery evidence](behavioral-docgen-delivery.md) for
+  exact revisions, digests and supported limits, including structural Mermaid
+  validation while its parser backend is unavailable.
 
 ## ReqIF / Flexo requirements viewpoints — new tracked stream
 
