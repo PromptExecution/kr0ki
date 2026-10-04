@@ -27,9 +27,12 @@ impl Fixture {
         Self(root)
     }
     fn extract(&self, output: &str) -> std::process::Output {
+        self.extract_with(output, "Cargo.toml", &[])
+    }
+    fn extract_with(&self, output: &str, manifest: &str, extra: &[&str]) -> std::process::Output {
         Command::new(env!("CARGO_BIN_EXE_rust-behavior-extractor"))
             .arg("--manifest-path")
-            .arg(self.0.join("Cargo.toml"))
+            .arg(self.0.join(manifest))
             .arg("--output")
             .arg(self.0.join(output))
             .args([
@@ -39,6 +42,7 @@ impl Fixture {
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 "--offline",
             ])
+            .args(extra)
             .output()
             .unwrap()
     }
@@ -372,4 +376,128 @@ fn original_bom_crlf_unicode_bytes_are_preserved_and_type_errors_publish_nothing
     let result = fixture.extract("invalid.json");
     assert!(!result.status.success());
     assert!(!fixture.0.join("invalid.json").exists());
+}
+
+fn shared_workspace() -> Fixture {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture.0.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"a\", \"b\"]\nresolver = \"2\"\n",
+    )
+    .unwrap();
+    fs::write(fixture.0.join("Cargo.lock"), "version = 4\n\n[[package]]\nname = \"a\"\nversion = \"0.1.0\"\n\n[[package]]\nname = \"b\"\nversion = \"0.1.0\"\ndependencies = [\"a\"]\n").unwrap();
+    for package in ["a", "b"] {
+        let directory = fixture.0.join(package);
+        fs::create_dir_all(directory.join("src")).unwrap();
+        let dependency = if package == "b" {
+            "[dependencies]\na = { path = \"../a\" }\n"
+        } else {
+            ""
+        };
+        fs::write(directory.join("Cargo.toml"), format!("[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n{dependency}")).unwrap();
+    }
+    fs::write(fixture.0.join("a/src/lib.rs"), "#[doc = \"Reviewed shared trait\"]\npub trait Shared {}\npub fn first<T: Shared + core::fmt::Debug>() {}\n").unwrap();
+    fs::write(
+        fixture.0.join("b/src/lib.rs"),
+        "pub fn second<T: a::Shared + core::fmt::Debug>() {}\n",
+    )
+    .unwrap();
+    fixture
+}
+
+#[test]
+fn shared_traits_merge_declarations_and_keep_all_reference_evidence() {
+    let fixture = shared_workspace();
+    let ir = fixture.ir("first.json");
+    assert_eq!(ir, fixture.ir("second.json"));
+    assert_eq!(ir, shared_workspace().ir("relocated.json"));
+    for name in [
+        "core::std::marker::Sized",
+        "core::std::fmt::Debug",
+        "a::Shared",
+    ] {
+        let traits: Vec<_> = ir
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Trait && n.name == name)
+            .collect();
+        assert_eq!(
+            traits.len(),
+            1,
+            "{name}: {:?}",
+            ir.nodes
+                .iter()
+                .filter(|n| n.kind == NodeKind::Trait)
+                .map(|n| &n.name)
+                .collect::<Vec<_>>()
+        );
+        let trait_node = traits[0];
+        let evidence: Vec<_> = ir
+            .edges
+            .iter()
+            .filter(|e| e.kind == EdgeKind::GovernedBy && e.to == trait_node.id)
+            .collect();
+        for file in ["a/src/lib.rs", "b/src/lib.rs"] {
+            assert!(
+                evidence.iter().any(|e| e.anchor.file == file),
+                "lost {name} reference in {file}"
+            );
+        }
+        if name == "a::Shared" {
+            let anchor = trait_node.anchor.as_ref().unwrap();
+            assert_eq!(anchor.file, "a/src/lib.rs");
+            let source = ir.sources.iter().find(|s| s.path == anchor.file).unwrap();
+            assert!(source.content[anchor.start as usize..anchor.end as usize]
+                .starts_with("pub trait Shared"));
+            assert!(trait_node
+                .annotations
+                .iter()
+                .any(|a| a.text == "#[doc = \"Reviewed shared trait\"]"));
+        } else {
+            assert!(trait_node.annotations.is_empty());
+        }
+    }
+    let wire = ir.canonical_json().unwrap();
+    assert!(!wire.contains("confirmed_definitions"));
+}
+
+#[test]
+fn member_manifest_extracts_siblings_and_incomplete_root_preserves_output() {
+    let fixture = shared_workspace();
+    let result = fixture.extract_with("member.json", "a/Cargo.toml", &[]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let bytes = fs::read(fixture.0.join("member.json")).unwrap();
+    let ir = RustBehaviorIr::from_json(std::str::from_utf8(&bytes).unwrap()).unwrap();
+    for file in ["a/src/lib.rs", "b/src/lib.rs"] {
+        assert!(ir.sources.iter().any(|s| s.path == file));
+    }
+    assert_eq!(ir.provenance.config["manifest"], "a/Cargo.toml");
+    // A build script makes the before-compilation rejection observable.
+    fs::write(fixture.0.join("a/build.rs"), "fn main() { std::fs::write(std::env::var(\"CARGO_MANIFEST_DIR\").unwrap() + \"/compiled\", \"ran\").unwrap(); }\n").unwrap();
+    let root = fixture.0.join("a");
+    let result = fixture.extract_with(
+        "member.json",
+        "a/Cargo.toml",
+        &["--workspace-root", root.to_str().unwrap()],
+    );
+    assert!(!result.status.success());
+    assert!(
+        String::from_utf8_lossy(&result.stderr).contains("excludes workspace member"),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert_eq!(bytes, fs::read(fixture.0.join("member.json")).unwrap());
+    assert!(
+        !root.join("compiled").exists(),
+        "incomplete root must fail before compilation"
+    );
+    assert!(!fs::read_dir(&fixture.0).unwrap().any(|e| e
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".extract-")));
 }

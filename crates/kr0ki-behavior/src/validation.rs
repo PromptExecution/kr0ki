@@ -42,6 +42,71 @@ fn nonempty(value: &str) -> bool {
     !value.trim().is_empty()
 }
 
+/// Iterative Kosaraju traversal: each vertex and containment edge is visited
+/// a bounded number of times, including in disconnected or invalid graphs.
+fn containment_cycles<'a>(contains: &BTreeMap<&'a str, Vec<&'a str>>) -> Vec<&'a str> {
+    let ids: BTreeSet<_> = contains
+        .iter()
+        .flat_map(|(from, targets)| std::iter::once(*from).chain(targets.iter().copied()))
+        .collect();
+    let ids: Vec<_> = ids.into_iter().collect();
+    let index: BTreeMap<_, _> = ids.iter().enumerate().map(|(i, id)| (*id, i)).collect();
+    let mut forward = vec![Vec::new(); ids.len()];
+    let mut reverse = vec![Vec::new(); ids.len()];
+    for (from, targets) in contains {
+        let from = index[from];
+        for to in targets {
+            let to = index[to];
+            forward[from].push(to);
+            reverse[to].push(from);
+        }
+    }
+    let mut visited = vec![false; ids.len()];
+    let mut finished = Vec::with_capacity(ids.len());
+    for start in 0..ids.len() {
+        if visited[start] {
+            continue;
+        }
+        visited[start] = true;
+        let mut pending = vec![(start, 0)];
+        while let Some((node, next)) = pending.last_mut() {
+            if let Some(&child) = forward[*node].get(*next) {
+                *next += 1;
+                if !visited[child] {
+                    visited[child] = true;
+                    pending.push((child, 0));
+                }
+            } else {
+                finished.push(*node);
+                pending.pop();
+            }
+        }
+    }
+    visited.fill(false);
+    let mut cyclic = Vec::new();
+    for start in finished.into_iter().rev() {
+        if visited[start] {
+            continue;
+        }
+        visited[start] = true;
+        let mut pending = vec![start];
+        let mut component = Vec::new();
+        while let Some(node) = pending.pop() {
+            component.push(node);
+            for &parent in &reverse[node] {
+                if !visited[parent] {
+                    visited[parent] = true;
+                    pending.push(parent);
+                }
+            }
+        }
+        if component.len() > 1 || forward[start].contains(&start) {
+            cyclic.extend(component.into_iter().map(|node| ids[node]));
+        }
+    }
+    cyclic
+}
+
 fn check_anchor(
     anchor: &Anchor,
     sources: &BTreeMap<&str, &SourceFile>,
@@ -333,24 +398,14 @@ impl RustBehaviorIr {
                 );
             }
         }
-        for start in contains.keys() {
-            let mut pending = contains.get(start).cloned().unwrap_or_default();
-            let mut visited = BTreeSet::new();
-            while let Some(next) = pending.pop() {
-                if next == *start {
-                    finding(
-                        &mut findings,
-                        "containment_cycle",
-                        Severity::Error,
-                        format!("containment cycle through {start}"),
-                        None,
-                    );
-                    break;
-                }
-                if visited.insert(next) {
-                    pending.extend(contains.get(next).into_iter().flatten());
-                }
-            }
+        for start in containment_cycles(&contains) {
+            finding(
+                &mut findings,
+                "containment_cycle",
+                Severity::Error,
+                format!("containment cycle through {start}"),
+                None,
+            );
         }
         for node in &self.nodes {
             if node.kind == NodeKind::Loop

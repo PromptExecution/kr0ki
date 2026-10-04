@@ -20,6 +20,12 @@ Temporary check targets/shards use `.extract-*` beside the chosen output and are
 removed after successful or failed checks. An existing valid output is replaced
 atomically only after the new compiler facts pass validation.
 
+The default source root is Cargo metadata's workspace root, including when the
+selected manifest belongs to one member. An explicit `--workspace-root` must
+contain every workspace member manifest and target source; an incomplete root
+fails before compilation and preserves an existing output. The resolved root
+also determines source paths, configuration capture and provenance.
+
 Compilation runs build scripts and procedural macros. Analyze trusted local
 workspaces, or run in the resource-limited container. Never invoke this compiler
 from the raw-source HTTP endpoint.
@@ -50,6 +56,11 @@ definition can replace them. Compiler shards include the stable crate identity
 in their temporary filenames. Workspaces with conflicting fully qualified crate
 display names are rejected during merging rather than publishing a partial
 workspace after one crate overwrites another.
+Internal shard metadata distinguishes confirmed declarations from references.
+Shared trait references choose a deterministic evidence anchor, while a confirmed
+declaration supplies the node's anchor and annotations. Each reference retains
+its own edge evidence. Conflicting declarations still fail; this metadata is
+absent from the public IR schema.
 
 Explicit bracketed attributes are parsed from original source and attached only
 to compiler-confirmed item nodes. The syntax parser does not resolve calls or

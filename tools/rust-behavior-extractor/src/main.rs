@@ -8,6 +8,7 @@ extern crate rustc_span;
 
 mod compiler;
 mod config;
+mod shard;
 
 struct RunDirectory(PathBuf);
 impl Drop for RunDirectory {
@@ -16,7 +17,7 @@ impl Drop for RunDirectory {
     }
 }
 
-use kr0ki_behavior::{digest, NodeKind, Provenance, RustBehaviorIr, SCHEMA_VERSION};
+use kr0ki_behavior::{digest, Provenance, RustBehaviorIr, SCHEMA_VERSION};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, env, fs, path::PathBuf, process::Command};
 
@@ -93,12 +94,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             .get("--manifest-path")
             .ok_or("--manifest-path required")?,
     )?;
-    let root = fs::canonicalize(
-        options
-            .get("--workspace-root")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| manifest.parent().unwrap().to_owned()),
-    )?;
     let revision = options
         .get("--revision")
         .ok_or("--revision required")?
@@ -126,6 +121,82 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         env::current_dir()?.join(output)
     };
+    let mut metadata_command = Command::new("rustup");
+    metadata_command
+        .args([
+            "run",
+            TOOLCHAIN,
+            "cargo",
+            "metadata",
+            "--locked",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--manifest-path",
+        ])
+        .arg(&manifest)
+        .current_dir(manifest.parent().unwrap());
+    if options.contains_key("--offline") {
+        metadata_command.arg("--offline");
+    }
+    let metadata = metadata_command.output()?;
+    if !metadata.status.success() {
+        return Err(format!(
+            "Cargo metadata failed: {}",
+            String::from_utf8_lossy(&metadata.stderr)
+        )
+        .into());
+    }
+    let metadata: serde_json::Value = serde_json::from_slice(&metadata.stdout)?;
+    let cargo_root = fs::canonicalize(PathBuf::from(
+        metadata["workspace_root"]
+            .as_str()
+            .ok_or("Cargo metadata lacks workspace_root")?,
+    ))?;
+    let root = fs::canonicalize(
+        options
+            .get("--workspace-root")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| cargo_root.clone()),
+    )?;
+    // Reject an incomplete source boundary before any compiler wrapper runs.
+    for member in metadata["workspace_members"]
+        .as_array()
+        .ok_or("Cargo metadata lacks workspace_members")?
+    {
+        let package = metadata["packages"]
+            .as_array()
+            .ok_or("Cargo metadata lacks packages")?
+            .iter()
+            .find(|package| package["id"] == *member)
+            .ok_or("workspace member package is absent")?;
+        let mut paths = vec![package["manifest_path"]
+            .as_str()
+            .ok_or("workspace member lacks manifest_path")?];
+        for target in package["targets"]
+            .as_array()
+            .ok_or("workspace member lacks targets")?
+        {
+            paths.push(
+                target["src_path"]
+                    .as_str()
+                    .ok_or("workspace target lacks src_path")?,
+            );
+        }
+        for path in paths {
+            if !fs::canonicalize(path)?.starts_with(&root) {
+                return Err(format!(
+                    "workspace root {} excludes workspace member {} ({path}); no IR was published",
+                    root.display(),
+                    package["name"]
+                )
+                .into());
+            }
+        }
+    }
+    if !manifest.starts_with(&root) {
+        return Err("workspace root excludes the selected manifest".into());
+    }
     let tree_digest = match options.get("--tree-digest") {
         Some(v) => v.clone(),
         None => {
@@ -213,38 +284,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     config.insert(
         "target_selection".into(),
         "workspace-default-targets".into(),
-    );
-    let mut metadata_command = Command::new("rustup");
-    metadata_command
-        .args([
-            "run",
-            TOOLCHAIN,
-            "cargo",
-            "metadata",
-            "--locked",
-            "--no-deps",
-            "--format-version",
-            "1",
-            "--manifest-path",
-        ])
-        .arg(&manifest)
-        .current_dir(&root);
-    if options.contains_key("--offline") {
-        metadata_command.arg("--offline");
-    }
-    let metadata = metadata_command.output()?;
-    if !metadata.status.success() {
-        return Err(format!(
-            "Cargo metadata failed: {}",
-            String::from_utf8_lossy(&metadata.stderr)
-        )
-        .into());
-    }
-    let metadata: serde_json::Value = serde_json::from_slice(&metadata.stdout)?;
-    let cargo_root = PathBuf::from(
-        metadata["workspace_root"]
-            .as_str()
-            .ok_or("Cargo metadata lacks workspace_root")?,
     );
     config.insert(
         "cargo_lock_sha256".into(),
@@ -348,7 +387,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Result<Vec<_>, _>>()?;
     paths.sort();
     for path in paths {
-        let ir = RustBehaviorIr::from_json(&fs::read_to_string(path)?)?;
+        let shard: shard::CompilerShard = serde_json::from_slice(&fs::read(path)?)?;
+        shard.ir.ensure_valid()?;
+        let ir = shard.ir;
         if ir.provenance != merged.provenance {
             return Err("compiler shard provenance differs".into());
         }
@@ -361,16 +402,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             sources.insert(source.path.clone(), source);
         }
         for node in ir.nodes {
-            if let Some(old) = nodes.get(&node.id) {
-                let old: &kr0ki_behavior::Node = old;
-                if old == &node || (node.kind == NodeKind::External && old.name == node.name) {
-                    continue;
-                }
-                if old.kind != NodeKind::External || old.name != node.name {
-                    return Err(format!("conflicting node shard {}", node.id).into());
-                }
-            }
-            nodes.insert(node.id.clone(), node);
+            let confirmed = shard.confirmed_definitions.contains(&node.id);
+            shard::merge_node(&mut nodes, node, confirmed)?;
         }
         for edge in ir.edges {
             if let Some(old) = edges.get(&edge.id) {
@@ -383,7 +416,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         merged.diagnostics.extend(ir.diagnostics);
     }
     merged.sources = sources.into_values().collect();
-    merged.nodes = nodes.into_values().collect();
+    merged.nodes = nodes.into_values().map(|(node, _)| node).collect();
     merged.edges = edges.into_values().collect();
     if merged.nodes.is_empty() {
         return Err("compiler produced no workspace facts".into());

@@ -9,6 +9,24 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  compiler-extractor:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_BUILD_JOBS: 1
+    steps:
+      - uses: actions/checkout@v4
+      # This standalone workspace is intentionally excluded from stable CI.
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-06-16
+          components: rustc-dev, rust-src, rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools/rust-behavior-extractor -> target
+      - run: cargo fmt --manifest-path tools/rust-behavior-extractor/Cargo.toml -- --check
+      - run: cargo clippy --locked --manifest-path tools/rust-behavior-extractor/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --locked --manifest-path tools/rust-behavior-extractor/Cargo.toml -- --test-threads=1
+
   check:
     runs-on: ubuntu-latest
     steps:

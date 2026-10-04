@@ -677,7 +677,12 @@ impl Callbacks for Extractor {
             tcx.stable_crate_id(rustc_hir::def_id::LOCAL_CRATE)
         ));
         let result: Result<(), Box<dyn std::error::Error>> = (|| {
-            fs::write(file, self.ir.canonical_json()?)?;
+            self.ir.ensure_valid()?;
+            let shard = crate::shard::CompilerShard {
+                ir: self.ir.clone(),
+                confirmed_definitions: self.confirmed_definitions.clone(),
+            };
+            fs::write(file, serde_json::to_vec(&shard)?)?;
             Ok(())
         })();
         match result {
