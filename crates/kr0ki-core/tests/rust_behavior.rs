@@ -592,6 +592,56 @@ fn scxml_exports_only_complete_machine_content_selected_by_authored_view() {
 }
 
 #[test]
+fn scxml_requires_matching_transition_kind_and_machine_qualified_endpoints() {
+    let original = machine_fixture();
+    assert!(prepare(request(original.clone()))
+        .unwrap()
+        .scxml
+        .contains_key("ooda"));
+    for corruption in ["kind", "from", "to", "other-machine"] {
+        let mut model = original.clone();
+        let index = model
+            .edges
+            .iter()
+            .position(|edge| edge.kind == EdgeKind::Transition)
+            .unwrap();
+        let id = model.edges[index].id.clone();
+        match corruption {
+            "kind" => model.edges[index].kind = EdgeKind::Flow,
+            "from" => model.edges[index].from = model.edges[index].to.clone(),
+            "to" => model.edges[index].to = model.edges[index].from.clone(),
+            "other-machine" => {
+                for endpoint in ["from", "to"] {
+                    let old_id = if endpoint == "from" {
+                        &model.edges[index].from
+                    } else {
+                        &model.edges[index].to
+                    };
+                    let mut node = model
+                        .nodes
+                        .iter()
+                        .find(|node| &node.id == old_id)
+                        .unwrap()
+                        .clone();
+                    node.id = format!("other::{}", node.name);
+                    if endpoint == "from" {
+                        model.edges[index].from = node.id.clone();
+                    } else {
+                        model.edges[index].to = node.id.clone();
+                    }
+                    model.nodes.push(node);
+                }
+            }
+            _ => unreachable!(),
+        }
+        model.ensure_valid().unwrap();
+        let view = prepare(request(model)).unwrap();
+        assert!(view.evidence.contains_key(&id));
+        assert!(view.scxml.is_empty(), "accepted {corruption} corruption");
+    }
+}
+
+#[test]
 fn view_kind_filters_edge_content_and_prevents_hidden_machine_transitions() {
     let mut req = request(fixture());
     let mut view = authored(

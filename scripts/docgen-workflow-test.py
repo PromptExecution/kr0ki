@@ -24,7 +24,7 @@ class WorkflowTests(unittest.TestCase):
                  "tools/rust-behavior-extractor/tests/fixtures/workspace/Cargo.toml",
                  "crates/kr0ki-behavior/src/lib.rs", "crates/kr0ki-behavior/src/schema.rs",
                  "crates/kr0ki-core/src/rust_behavior.rs", "scripts/docgen-bundle.py",
-                 "containers/kr0ki-docgen/Containerfile"]
+                 "containers/kr0ki-docgen/Containerfile", "scripts/docgen-verify-toolchain.sh"]
         for relative in paths:
             path = self.repo / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,6 +106,28 @@ if args and args[0] == 'cp':
     def git(self, *args):
         subprocess.run(["git", "-C", str(self.repo), *args], check=True,
                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def test_builder_checks_actual_compiler_and_cargo_versions(self):
+        script = Path(__file__).with_name("docgen-verify-toolchain.sh")
+        containerfile = script.parent.parent / "containers/kr0ki-docgen/Containerfile"
+        recipe = containerfile.read_text()
+        check = "sh /opt/docgen/docgen-verify-toolchain.sh 1.98.0"
+        self.assertLess(recipe.index(check), recipe.index("apt-get update"))
+        self.assertIn("RUN " + check + " \\\n    && cargo build", recipe)
+        for compiler, cargo in [("1.98.0", "1.98.0"), ("1.97.0", "1.98.0"),
+                                ("1.98.0", "1.97.0"), ("1.98.0-nightly", "1.98.0")]:
+            with self.subTest(compiler=compiler, cargo=cargo):
+                (self.bin / "rustc").write_text("#!/bin/sh\nprintf 'rustc fixture\\nrelease: " + compiler + "\\n'\n")
+                (self.bin / "cargo").write_text("#!/bin/sh\nprintf 'cargo " + cargo + " (fixture)\\n'\n")
+                (self.bin / "rustc").chmod(0o755)
+                (self.bin / "cargo").chmod(0o755)
+                result = subprocess.run(["sh", str(script), "1.98.0"], env=self.env,
+                                        capture_output=True, text=True)
+                if compiler == cargo == "1.98.0":
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("base toolchain mismatch", result.stderr)
 
     def run_workflow(self, operation, **configuration):
         return subprocess.run(["bash", str(self.repo / "scripts/docgen.sh"), operation, "HEAD"],

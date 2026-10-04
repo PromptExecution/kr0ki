@@ -5,6 +5,9 @@ ARG DEBIAN_SNAPSHOT=20260901T000000Z
 ARG EXTRACTOR_TOOLCHAIN=nightly-2026-06-16
 ARG SOURCE_MANIFEST=tools/rust-behavior-extractor/tests/fixtures/workspace/Cargo.toml
 ENV CARGO_BUILD_JOBS=1 SOURCE_DATE_EPOCH=0 TZ=UTC LC_ALL=C
+COPY source/scripts/docgen-verify-toolchain.sh /opt/docgen/docgen-verify-toolchain.sh
+# Digest pinning identifies bytes; this check proves the advertised compiler.
+RUN sh /opt/docgen/docgen-verify-toolchain.sh 1.98.0
 RUN printf 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/%s bookworm main\n' "$DEBIAN_SNAPSHOT" > /etc/apt/sources.list \
     && rm -f /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
@@ -16,7 +19,8 @@ COPY source/Cargo.toml source/Cargo.lock /src/
 COPY source/crates/ /src/crates/
 COPY source/templates/ /src/templates/
 COPY source/tools/rust-behavior-extractor/ /src/tools/rust-behavior-extractor/
-RUN cargo build --locked --release -p kr0ki-core --bin kr0ki-docgen \
+RUN sh /opt/docgen/docgen-verify-toolchain.sh 1.98.0 \
+    && cargo build --locked --release -p kr0ki-core --bin kr0ki-docgen \
     && cargo +nightly-2026-06-16 build --locked --release --manifest-path tools/rust-behavior-extractor/Cargo.toml \
     && install -m755 target/release/kr0ki-docgen /usr/local/bin/kr0ki-docgen \
     && install -m755 tools/rust-behavior-extractor/target/release/rust-behavior-extractor /usr/local/bin/rust-behavior-extractor

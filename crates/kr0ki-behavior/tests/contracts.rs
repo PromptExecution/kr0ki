@@ -10,6 +10,39 @@ fn machine() -> StateMachine {
     serde_json::from_str(include_str!("fixtures/ooda.json")).unwrap()
 }
 
+#[test]
+fn transition_edges_require_two_state_endpoints() {
+    let mut ir = fixture();
+    ir.edges.clear();
+    ir.edges.push(Edge {
+        id: "typed-transition".into(),
+        from: ir.nodes[0].id.clone(),
+        to: ir.nodes[1].id.clone(),
+        kind: EdgeKind::Transition,
+        guard: None,
+        resolution: Resolution::Resolved,
+        anchor: ir.nodes[0].anchor.clone().unwrap(),
+    });
+    for (from, to) in [
+        (NodeKind::Function, NodeKind::State),
+        (NodeKind::State, NodeKind::Type),
+        (NodeKind::Function, NodeKind::Type),
+    ] {
+        ir.nodes[0].kind = from;
+        ir.nodes[1].kind = to;
+        assert!(ir
+            .validate()
+            .iter()
+            .any(|finding| finding.code == "edge_kind"));
+        assert!(ir.ensure_valid().is_err());
+    }
+    ir.nodes[0].kind = NodeKind::State;
+    ir.nodes[1].kind = NodeKind::State;
+    ir.ensure_valid().unwrap();
+    ir.edges[0].to = ir.edges[0].from.clone();
+    ir.ensure_valid().unwrap();
+}
+
 fn annotated_fixture() -> RustBehaviorIr {
     let content = include_str!("fixtures/annotations.rs");
     let annotation = |path: &str, text: &str| {

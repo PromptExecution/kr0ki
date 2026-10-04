@@ -474,10 +474,16 @@ pub fn prepare(mut request: BehaviorRequest) -> Result<BehaviorView, BehaviorErr
             .iter()
             .all(|state| chosen.contains(&format!("{}::{}", machine.id, state.id)))
             || !machine.transitions.iter().all(|transition| {
-                evidence.contains_key(&kr0ki_behavior::stable_id(
-                    "machine-transition",
-                    &format!("{}::{}", machine.id, transition.id),
-                ))
+                evidence
+                    .get(&kr0ki_behavior::stable_id(
+                        "machine-transition",
+                        &format!("{}::{}", machine.id, transition.id),
+                    ))
+                    .is_some_and(|edge| {
+                        edge.kind == EdgeKind::Transition
+                            && edge.from == format!("{}::{}", machine.id, transition.from)
+                            && edge.to == format!("{}::{}", machine.id, transition.to)
+                    })
             })
         {
             continue;

@@ -339,6 +339,7 @@ impl RustBehaviorIr {
                 );
             }
             let incompatible = match edge.kind {
+                EdgeKind::Transition => from.kind != NodeKind::State || to.kind != NodeKind::State,
                 EdgeKind::Satisfies => from.kind != NodeKind::Type || to.kind != NodeKind::Trait,
                 EdgeKind::Requires | EdgeKind::GovernedBy => to.kind != NodeKind::Trait,
                 EdgeKind::Calls => !matches!(

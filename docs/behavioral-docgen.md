@@ -74,7 +74,10 @@ Builds run serially. `KR0KI_DOCGEN_MEMORY` defaults to `8g`, and
 `KR0KI_DOCGEN_CPUS` defaults to `1`; runner temporary storage defaults to `6g` and
 may be changed with `KR0KI_DOCGEN_TMP_SIZE`. The immutable Rust 1.98.0 Debian bookworm base
 is pinned to its Linux amd64 manifest digest; a different immutable base may be
-specified with `KR0KI_DOCGEN_BASE_IMAGE`. Debian package sources are pinned to the
+specified with `KR0KI_DOCGEN_BASE_IMAGE`. The builder checks that its actual default
+`rustc` and Cargo both report `1.98.0` before installing dependencies and before
+compiling the generator; a mismatched override fails without publishing artifacts.
+Debian package sources are pinned to the
 `20260901T000000Z` snapshot. The stable and standalone compiler Cargo lockfiles are
 required and builds use `--locked`.
 
