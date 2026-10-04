@@ -43,6 +43,14 @@ predicate constraints. A generic or blanket implementation retains its compiler
 predicates on the `satisfies` edge. Implemented traits establish structural
 satisfaction; they do not prove all runtime behavior.
 
+Source node IDs distinguish Rust declaration kinds; a type, function, field and
+method can retain equal display names without conflating their identities.
+External function placeholders use the function namespace so a later local
+definition can replace them. Compiler shards include the stable crate identity
+in their temporary filenames. Workspaces with conflicting fully qualified crate
+display names are rejected during merging rather than publishing a partial
+workspace after one crate overwrites another.
+
 Explicit bracketed attributes are parsed from original source and attached only
 to compiler-confirmed item nodes. The syntax parser does not resolve calls or
 types. Each annotation preserves its exact text, path and byte anchor, including

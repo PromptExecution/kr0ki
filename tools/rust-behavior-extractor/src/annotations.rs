@@ -105,7 +105,7 @@ fn parse_source(content: &str) -> Result<syn::File, syn::Error> {
     syn::parse_str(&String::from_utf8(bytes).expect("masked prefix is UTF-8"))
 }
 
-pub fn attach(ir: &mut RustBehaviorIr) {
+pub fn attach(ir: &mut RustBehaviorIr, confirmed_definitions: &std::collections::BTreeSet<String>) {
     for source in &ir.sources {
         let ast = match parse_source(&source.content) {
             Ok(ast) => ast,
@@ -118,6 +118,11 @@ pub fn attach(ir: &mut RustBehaviorIr) {
         let mut collector = Collector::default();
         collector.visit_file(&ast);
         for node in &mut ir.nodes {
+            // Imported type/trait references can carry a local use-site span.
+            // They are not declarations at that span and cannot inherit attrs.
+            if !confirmed_definitions.contains(&node.id) {
+                continue;
+            }
             let Some(node_anchor) = &node.anchor else {
                 continue;
             };

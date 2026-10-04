@@ -59,6 +59,38 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn duplicate_crate_names_preserve_shards_and_fail_closed_on_identity_conflicts() {
+    let fixture = Fixture::new();
+    fs::write(
+        fixture.0.join("Cargo.toml"),
+        "[workspace]\nmembers = [\"a\", \"b\"]\nresolver = \"2\"\n",
+    )
+    .unwrap();
+    fs::write(fixture.0.join("Cargo.lock"), "version = 4\n\n[[package]]\nname = \"package-a\"\nversion = \"0.1.0\"\n\n[[package]]\nname = \"package-b\"\nversion = \"0.1.0\"\n").unwrap();
+    for package in ["a", "b"] {
+        let directory = fixture.0.join(package);
+        fs::create_dir_all(directory.join("src")).unwrap();
+        fs::write(directory.join("Cargo.toml"), format!("[package]\nname = \"package-{package}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n[lib]\nname = \"shared_name\"\n")).unwrap();
+        fs::write(
+            directory.join("src/lib.rs"),
+            "pub fn shared() -> u32 { 1 }\n",
+        )
+        .unwrap();
+    }
+    let result = fixture.extract("conflict.json");
+    assert!(
+        !result.status.success(),
+        "same-named crates must not silently overwrite compiler shards"
+    );
+    assert!(
+        String::from_utf8_lossy(&result.stderr).contains("conflicting node shard"),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(!fixture.0.join("conflict.json").exists());
+}
+
+#[test]
 fn compiler_facts_preserve_dispatch_control_and_provenance_deterministically() {
     let fixture = Fixture::new();
     let ir = fixture.ir("first.json");
@@ -68,6 +100,53 @@ fn compiler_facts_preserve_dispatch_control_and_provenance_deterministically() {
     let relocated = Fixture::new();
     assert_eq!(ir, relocated.ir("relocated.json"));
     assert!(!ir.validate().iter().any(|d| d.severity == Severity::Error));
+    for (suffix, left, right) in [
+        ("namespaces::Same", NodeKind::Type, NodeKind::Function),
+        ("namespaces::Same::x", NodeKind::Field, NodeKind::Function),
+        (
+            "namespaces::Associated::item",
+            NodeKind::AssociatedType,
+            NodeKind::Function,
+        ),
+        ("namespaces::nested::bb0", NodeKind::Type, NodeKind::Exit),
+    ] {
+        let same_name: Vec<_> = ir
+            .nodes
+            .iter()
+            .filter(|n| n.name.ends_with(suffix))
+            .collect();
+        let left_node = same_name
+            .iter()
+            .find(|n| n.kind == left)
+            .unwrap_or_else(|| panic!("missing {left:?} {suffix}: {same_name:?}"));
+        let right_node = same_name
+            .iter()
+            .find(|n| n.kind == right)
+            .unwrap_or_else(|| panic!("missing {right:?} {suffix}: {same_name:?}"));
+        assert_ne!(
+            left_node.id, right_node.id,
+            "distinct Rust namespaces must retain distinct facts"
+        );
+    }
+    assert!(ir.edges.iter().any(|edge| edge.kind == EdgeKind::Calls
+        && ir.nodes.iter().any(|node| node.id == edge.to
+            && node.kind == NodeKind::Function
+            && node.name == "behavior_fixture::namespaces::Same")));
+    assert!(ir
+        .nodes
+        .iter()
+        .find(|n| n.name == "behavior_fixture::Step")
+        .unwrap()
+        .annotations
+        .iter()
+        .any(|a| a.text == "#[doc = \"Reviewed Step stereotype\"]"));
+    assert!(
+        ir.nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Trait && n.name.starts_with("core::"))
+            .all(|n| n.annotations.is_empty()),
+        "external trait references must not inherit local declaration attributes"
+    );
     let counter = ir
         .nodes
         .iter()

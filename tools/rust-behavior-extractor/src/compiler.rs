@@ -51,6 +51,7 @@ pub struct Extractor {
     root: PathBuf,
     shards: PathBuf,
     ir: RustBehaviorIr,
+    confirmed_definitions: BTreeSet<String>,
 }
 
 fn successors(kind: &TerminatorKind<'_>) -> Vec<BasicBlock> {
@@ -107,6 +108,7 @@ impl Extractor {
         Ok(Self {
             root: PathBuf::from(env::var("KR0KI_BEHAVIOR_ROOT")?),
             shards: PathBuf::from(env::var("KR0KI_BEHAVIOR_SHARDS")?),
+            confirmed_definitions: BTreeSet::new(),
             ir: RustBehaviorIr {
                 schema_version: SCHEMA_VERSION,
                 provenance: serde_json::from_str(&env::var("KR0KI_BEHAVIOR_PROVENANCE")?)?,
@@ -162,7 +164,16 @@ impl Extractor {
     }
 
     fn node(&mut self, name: &str, kind: NodeKind, anchor: Option<Anchor>) -> String {
-        let id = stable_id("rust", name);
+        let namespace = match kind {
+            NodeKind::Function | NodeKind::External => "rust-function",
+            NodeKind::Type => "rust-type",
+            NodeKind::Trait => "rust-trait",
+            NodeKind::Module => "rust-module",
+            NodeKind::Field => "rust-field",
+            NodeKind::AssociatedType => "rust-associated-type",
+            _ => "rust",
+        };
+        let id = stable_id(namespace, name);
         if let Some(existing) = self.ir.nodes.iter_mut().find(|n| n.id == id) {
             if existing.kind == NodeKind::External && kind != NodeKind::External {
                 existing.kind = kind;
@@ -233,6 +244,7 @@ impl Extractor {
                 continue;
             };
             let id = self.node(&name, kind, Some(anchor.clone()));
+            self.confirmed_definitions.insert(id.clone());
             // Parent/trait-reference discovery can create a placeholder first.
             // A compiler definition always supplies its canonical declaration
             // span, rather than retaining an earlier impl/reference span.
@@ -657,11 +669,12 @@ impl Callbacks for Extractor {
             self.ir.edges.extend(snapshot.edges);
             self.ir.diagnostics.extend(snapshot.diagnostics);
         }
-        annotations::attach(&mut self.ir);
+        annotations::attach(&mut self.ir, &self.confirmed_definitions);
         self.ir.normalize();
         let file = self.shards.join(format!(
-            "{}.json",
-            tcx.crate_name(rustc_hir::def_id::LOCAL_CRATE)
+            "{}-{:?}.json",
+            tcx.crate_name(rustc_hir::def_id::LOCAL_CRATE),
+            tcx.stable_crate_id(rustc_hir::def_id::LOCAL_CRATE)
         ));
         let result: Result<(), Box<dyn std::error::Error>> = (|| {
             fs::write(file, self.ir.canonical_json()?)?;
