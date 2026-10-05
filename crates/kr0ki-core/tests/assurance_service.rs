@@ -121,17 +121,14 @@ fn filters_narrow_the_answer_so_only_what_is_needed_is_returned() {
         8
     );
     assert_eq!(f1(&|x| x.owner = Some("nobody".into())).total, 0);
-    // Implementation gaps: the controls the baseline records no implementation for.
-    let unimplemented = f1(&|x| x.gap = Some("control_not_implemented".into()));
-    assert!(
-        unimplemented.total >= 1 && unimplemented.total < 8,
-        "{}",
-        unimplemented.total
-    );
-    assert!(unimplemented.requirements.iter().all(|r| r
+    // A gap filter selects exactly the requirements with that gap kind.
+    let untested = f1(&|x| x.gap = Some("satisfied_untested".into()));
+    assert_eq!(untested.total, 8);
+    assert!(untested.requirements.iter().all(|r| r
         .gaps
         .iter()
-        .any(|g| matches!(g, GapKind::ControlNotImplemented { .. }))));
+        .any(|g| matches!(g, GapKind::SatisfiedUntested))));
+    assert_eq!(f1(&|x| x.gap = Some("no_such_gap".into())).total, 0);
     // A filtered answer is strictly smaller than the whole.
     let whole = serde_json::to_string(
         &f.service
@@ -139,7 +136,7 @@ fn filters_narrow_the_answer_so_only_what_is_needed_is_returned() {
             .unwrap(),
     )
     .unwrap();
-    let narrow = serde_json::to_string(&unimplemented).unwrap();
+    let narrow = serde_json::to_string(&f1(&|x| x.state = Some("verified".into()))).unwrap();
     assert!(narrow.len() < whole.len());
 }
 
@@ -189,17 +186,58 @@ fn trace_resolves_links_at_the_current_revision_and_reports_dangling_ones() {
         .links
         .iter()
         .any(|l| l.locator.ends_with("tests/assurance_a01.rs")));
-    // A requirement whose control records an implementation that does not yet exist, or whose
-    // test target is missing, shows it as dangling rather than hiding it.
-    let all: usize = ["KR-A06", "KR-A07", "KR-A08"]
-        .iter()
-        .map(|id| f.service.trace_requirement(id).unwrap().dangling)
-        .sum();
-    assert!(all >= 1, "later stages' test targets do not exist yet");
     assert!(matches!(
         f.service.trace_requirement("nope"),
         Err(ServiceError::UnknownRequirement(_))
     ));
+
+    // A baseline whose control names a file that does not exist and whose case names a test
+    // target that does not exist: both are reported dangling, with the reason.
+    let dir = std::env::temp_dir().join(format!("kr0ki-service-dangling-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = repo_root().join("docs/assurance");
+    let toml = std::fs::read_to_string(src.join("kr0ki.assurance.toml"))
+        .unwrap()
+        .replacen(
+            "crates/kr0ki-core/src/assurance_trace.rs",
+            "crates/kr0ki-core/src/does_not_exist.rs",
+            1,
+        )
+        .replacen(
+            "--test\", \"assurance_a01\"",
+            "--test\", \"no_such_test\"",
+            1,
+        );
+    std::fs::write(dir.join("kr0ki.assurance.toml"), toml).unwrap();
+    std::fs::copy(
+        src.join("kr0ki-assurance.sysml"),
+        dir.join("kr0ki-assurance.sysml"),
+    )
+    .unwrap();
+    let broken = AssuranceService::new(
+        AssuranceConfig {
+            baseline_path: dir.join("kr0ki.assurance.toml"),
+            repo_root: repo_root(),
+            evidence_dir: dir.join("evidence"),
+            run_timeout: Duration::from_secs(5),
+        },
+        f.probe.clone(),
+        f.stub.clone(),
+    );
+    let dangling_in = |id: &str| broken.trace_requirement(id).unwrap();
+    let a02 = dangling_in("KR-A02");
+    assert!(a02.dangling >= 1, "{:#?}", a02.links);
+    assert!(a02
+        .links
+        .iter()
+        .any(|l| l.locator.ends_with("does_not_exist.rs")));
+    let a01 = dangling_in("KR-A01");
+    assert!(a01.dangling >= 1, "{:#?}", a01.links);
+    assert!(a01
+        .links
+        .iter()
+        .any(|l| l.locator.ends_with("no_such_test.rs")));
 }
 
 #[test]

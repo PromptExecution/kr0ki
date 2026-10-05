@@ -148,5 +148,96 @@ class BridgeDispatchTest(unittest.TestCase):
         self.assertEqual(request.get_header("Content-type"), "application/json")
 
 
+
+RESOURCES = [
+    {
+        "uriTemplate": "kr0ki://requirement/{id}",
+        "name": "requirement",
+        "description": "d",
+        "mimeType": "application/json",
+        "httpBinding": {"method": "GET", "pathTemplate": "/assurance/requirements/{id}", "args": [{"name": "id", "placement": "path"}]},
+    },
+    {
+        "uriTemplate": "kr0ki://evidence/{requirement}",
+        "name": "evidence",
+        "description": "d",
+        "mimeType": "application/json",
+        "httpBinding": {"method": "GET", "pathTemplate": "/assurance/evidence", "args": [{"name": "requirement", "placement": "query"}]},
+    },
+]
+
+PROMPTS = [
+    {
+        "name": "explain_gap",
+        "description": "Explain a gap.",
+        "arguments": [{"name": "id", "description": "Requirement id.", "required": True}],
+        "template": "Explain {{id}}: call trace_requirement with id={{id}}.",
+    },
+    {"name": "next", "description": "d", "arguments": [], "template": "Do the next slice."},
+]
+
+
+class ResourcesAndPromptsTest(unittest.TestCase):
+    def test_a_resource_uri_resolves_to_its_get_route_with_path_and_query_args(self):
+        with patch("manifest_dispatch.http_call") as call:
+            call.side_effect = [
+                ("application/json", json.dumps(RESOURCES).encode()),
+                ("application/json", b'{"requirement": {"id": "KR-A01"}}'),
+            ]
+            result = bridge.handle({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "kr0ki://requirement/KR-A01"}})
+            self.assertEqual(call.call_args_list[1][0][:2], ("GET", f"{bridge.BASE_URL}/assurance/requirements/KR-A01"))
+            self.assertEqual(call.call_args_list[1][1]["headers"], {"X-Kr0ki-Transport": "mcp"})
+            self.assertIn("KR-A01", result["result"]["contents"][0]["text"])
+
+            call.side_effect = [("application/json", json.dumps(RESOURCES).encode()), ("application/json", b"{}")]
+            bridge.handle({"jsonrpc": "2.0", "id": 2, "method": "resources/read", "params": {"uri": "kr0ki://evidence/KR-A02"}})
+            self.assertEqual(call.call_args_list[3][0][1], f"{bridge.BASE_URL}/assurance/evidence?requirement=KR-A02")
+
+    def test_a_path_variable_is_percent_encoded_so_it_cannot_change_the_route(self):
+        with patch("manifest_dispatch.http_call") as call:
+            call.side_effect = [("application/json", json.dumps(RESOURCES).encode()), ("application/json", b"{}")]
+            bridge.handle({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "kr0ki://requirement/..%2Fadmin"}})
+            self.assertNotIn("/../admin", call.call_args_list[1][0][1])
+            self.assertTrue(call.call_args_list[1][0][1].endswith("..%2Fadmin"))
+
+    def test_an_unknown_resource_is_an_error_not_a_guess(self):
+        with patch("manifest_dispatch.http_call") as call:
+            call.return_value = ("application/json", json.dumps(RESOURCES).encode())
+            result = bridge.handle({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "kr0ki://nope/x"}})
+            self.assertEqual(result["error"]["code"], -32602)
+
+    def test_a_server_refusal_on_a_resource_read_is_surfaced_with_its_status(self):
+        err = urllib.error.HTTPError("u", 403, "Forbidden", {}, __import__("io").BytesIO(b'{"error":"forbidden"}'))
+        with patch("manifest_dispatch.http_call") as call:
+            call.side_effect = [("application/json", json.dumps(RESOURCES).encode()), err]
+            result = bridge.handle({"jsonrpc": "2.0", "id": 1, "method": "resources/read", "params": {"uri": "kr0ki://requirement/KR-A01"}})
+            self.assertIn("403", result["error"]["message"])
+
+    def test_prompts_list_and_get_render_arguments_once(self):
+        with patch("manifest_dispatch.http_call") as call:
+            call.return_value = ("application/json", json.dumps(PROMPTS).encode())
+            listed = bridge.handle({"jsonrpc": "2.0", "id": 1, "method": "prompts/list"})
+            self.assertEqual([p["name"] for p in listed["result"]["prompts"]], ["explain_gap", "next"])
+            got = bridge.handle({"jsonrpc": "2.0", "id": 2, "method": "prompts/get", "params": {"name": "explain_gap", "arguments": {"id": "KR-A06"}}})
+            text = got["result"]["messages"][0]["content"]["text"]
+            self.assertIn("trace_requirement with id=KR-A06", text)
+            self.assertNotIn("{{", text)
+
+    def test_prompt_arguments_are_checked_and_never_re_expanded(self):
+        with patch("manifest_dispatch.http_call") as call:
+            call.return_value = ("application/json", json.dumps(PROMPTS).encode())
+            def get(args):
+                return bridge.handle({"jsonrpc": "2.0", "id": 1, "method": "prompts/get", "params": {"name": "explain_gap", "arguments": args}})
+            self.assertEqual(get({})["error"]["code"], -32602)
+            self.assertEqual(get({"id": "  "})["error"]["code"], -32602)
+            self.assertEqual(get({"id": "x", "evil": "y"})["error"]["code"], -32602)
+            injected = get({"id": "{{id}}"})["result"]["messages"][0]["content"]["text"]
+            self.assertIn("id={{id}}", injected)
+
+    def test_initialize_advertises_tools_resources_and_prompts(self):
+        caps = bridge.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize"})["result"]["capabilities"]
+        self.assertEqual(set(caps), {"tools", "resources", "prompts"})
+
+
 if __name__ == "__main__":
     unittest.main()

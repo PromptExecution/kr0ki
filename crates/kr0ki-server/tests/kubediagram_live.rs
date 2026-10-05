@@ -58,6 +58,7 @@ async fn kr0ki_renders_its_own_deployment_manifest() {
         boot_wall_clock: std::time::SystemTime::now(),
         auth_token: None,
         contract: contract.clone(),
+        assurance: None,
     };
     let app = router(state, None, contract);
 

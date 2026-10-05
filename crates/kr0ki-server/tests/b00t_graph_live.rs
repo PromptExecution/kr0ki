@@ -67,6 +67,7 @@ async fn b00t_graph_renders_a_real_turtle_fixture_to_svg() {
         boot_wall_clock: std::time::SystemTime::now(),
         auth_token: None,
         contract: contract.clone(),
+        assurance: None,
     };
     let app = router(state, None, contract);
 
