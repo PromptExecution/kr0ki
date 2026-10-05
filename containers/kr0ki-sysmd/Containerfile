@@ -1,0 +1,12 @@
+# kr0ki sidecar: SysMD (tukcps/SysMD, interval constraint solver) running headless on :8081. Black box: kr0ki talks REST only.
+# Build: `just sysmd-image` (builds the bootJar from the PromptExecution/SysMD fork, then this image). Needs Java 25.
+FROM docker.io/library/eclipse-temurin:25-jre
+RUN useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin sysmd && mkdir -p /app/SysMD /tmp/sysmd && chown sysmd /app /app/SysMD /tmp/sysmd
+WORKDIR /app
+COPY sysmd.jar /app/sysmd.jar
+USER sysmd
+EXPOSE 8081
+# Run with: --init --memory 1g --read-only --tmpfs /tmp --tmpfs /app/SysMD:rw,mode=1777 --cap-drop=ALL --security-opt no-new-privileges
+# (SysMD keeps each project as files under /app/SysMD; kr0ki treats that as a throwaway store.)
+ENV JAVA_TOOL_OPTIONS="-Xmx512m -Djava.io.tmpdir=/tmp/sysmd -Dlogging.file.name=/tmp/sysmd/sysmd.log -Djava.awt.headless=true"
+CMD ["java", "-jar", "/app/sysmd.jar", "headless"]

@@ -107,6 +107,7 @@ pub async fn start_with(tag: &str, public_ui: bool) -> Harness {
         ui_bus: Arc::new(kr0ki_core::ui_bus::UiBus::new()),
         brand_dir: tmp.join("no-brands"),
         sysml_mcp: None,
+        sysmd: None,
         storyb00k_agent_url: None,
         llm_api_url: None,
         llm_api_key: None,

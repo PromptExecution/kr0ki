@@ -51,6 +51,7 @@ async fn kr0ki_renders_its_own_deployment_manifest() {
         ui_bus: Arc::new(kr0ki_core::ui_bus::UiBus::new()),
         brand_dir: std::env::temp_dir().join("kr0ki-no-brands"),
         sysml_mcp: None,
+        sysmd: None,
         storyb00k_agent_url: None,
         llm_api_url: None,
         llm_api_key: None,

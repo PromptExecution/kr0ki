@@ -108,6 +108,7 @@ fn test_state(tag: &str) -> AppState {
         ui_bus: Arc::new(kr0ki_core::ui_bus::UiBus::new()),
         brand_dir: std::env::temp_dir().join("kr0ki-no-brands"),
         sysml_mcp: None,
+        sysmd: None,
         storyb00k_agent_url: None,
         llm_api_url: None,
         llm_api_key: None,
@@ -273,7 +274,7 @@ async fn mcp_tools_lists_all_tools_with_bindings() {
     let (status, body) = body_string(resp).await;
     assert_eq!(status, StatusCode::OK);
     let tools: Vec<serde_json::Value> = serde_json::from_str(&body).unwrap();
-    assert_eq!(tools.len(), 32);
+    assert_eq!(tools.len(), 33);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"render_diagram"));
     assert!(names.contains(&"list_formats"));
@@ -2399,6 +2400,201 @@ async fn health_reports_the_sysml_sidecar_when_configured_and_omits_it_otherwise
     assert_eq!(with["checks"]["sysml_mcp"]["ok"], true);
     let (_, without) = get_json(test_app(test_state("sysml-nohealth")), "/health").await;
     assert!(without["checks"]["sysml_mcp"].is_null());
+}
+
+fn state_with_sysmd(tag: &str, url: &str) -> AppState {
+    let mut state = test_state(tag);
+    state.sysmd = Some(Arc::new(kr0ki_core::sysmd_client::SysmdClient::new(url)));
+    state
+}
+
+/// A SysMD stand-in. The first session it hands out is the library-baseline run (an empty model), the second the caller's.
+async fn sysmd_sidecar(
+    model_status: u16,
+    issues: serde_json::Value,
+    user_variables: serde_json::Value,
+) -> wiremock::MockServer {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, Request as WmRequest, ResponseTemplate};
+    let s = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/projects"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([])))
+        .mount(&s)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/projects"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({"@id": "P1"})))
+        .mount(&s)
+        .await;
+    let n = Arc::new(AtomicUsize::new(0));
+    Mock::given(method("POST"))
+        .and(path("/session"))
+        .respond_with(move |_: &WmRequest| {
+            let id = if n.fetch_add(1, Ordering::SeqCst) == 0 {
+                "BASE"
+            } else {
+                "USER"
+            };
+            ResponseTemplate::new(201).set_body_string(id)
+        })
+        .mount(&s)
+        .await;
+    Mock::given(method("PUT")).and(path("/session/model"))
+        .respond_with(move |req: &WmRequest| {
+            if req.headers.get("SessionId").map(|v| v.as_bytes()) == Some(b"BASE") {
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"issues": [], "numberOfPropagateIterations": 1, "updates": {}}))
+            } else {
+                ResponseTemplate::new(model_status).set_body_json(serde_json::json!({"issues": issues, "numberOfPropagateIterations": 4, "updates": {}}))
+            }
+        })
+        .mount(&s).await;
+    Mock::given(method("GET")).and(path("/session/variables"))
+        .respond_with(move |req: &WmRequest| {
+            let library = serde_json::json!({"qualifiedName": "Base::things::multiplicity", "unit": "1", "value": "*..*"});
+            let mut vars = vec![library];
+            if req.headers.get("SessionId").map(|v| v.as_bytes()) == Some(b"USER") {
+                vars.extend(user_variables.as_array().unwrap().iter().cloned());
+            }
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"variables": vars}))
+        })
+        .mount(&s).await;
+    Mock::given(method("DELETE"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&s)
+        .await;
+    s
+}
+
+#[tokio::test]
+async fn sysmd_solve_returns_widened_ranges_with_units_and_hides_the_standard_library() {
+    let sidecar = sysmd_sidecar(
+        200,
+        serde_json::json!([]),
+        serde_json::json!([{"qualifiedName": "w", "unit": "m", "value": "0.2..0.6"}, {"qualifiedName": "w/2/1", "unit": "1", "value": "*..*"}]),
+    )
+    .await;
+    let app = test_app(state_with_sysmd("sysmd-ok", &sidecar.uri()));
+    let (s, b) = post_text(
+        app,
+        "/sysmd/solve",
+        b"attribute w: ISQ::LengthValue = 0.1 .. 0.3 [m]; ".to_vec(),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["verdict"], "consistent");
+    let vars = b["variables"].as_array().unwrap();
+    assert_eq!(
+        vars.len(),
+        1,
+        "library and bookkeeping variables are not the caller's: {b}"
+    );
+    assert_eq!(vars[0]["path"], "w");
+    assert_eq!(vars[0]["range"]["kind"], "bounded");
+    let (lo, hi) = (
+        vars[0]["range"]["range"]["lo"].as_f64().unwrap(),
+        vars[0]["range"]["range"]["hi"].as_f64().unwrap(),
+    );
+    assert!(
+        lo < 0.2 && 0.6 < hi,
+        "printed bounds are widened outward: [{lo}, {hi}]"
+    );
+    assert_eq!(vars[0]["quantity"]["unit"]["dimension"]["length"], 1);
+}
+
+#[tokio::test]
+async fn sysmd_solve_reports_an_unsolvable_model_as_a_verdict_not_an_http_error() {
+    let issues =
+        serde_json::json!([{"kind": "ERROR_SYNTACTICAL", "message": "expected ']'", "line": 1}]);
+    let sidecar = sysmd_sidecar(500, issues, serde_json::json!([])).await;
+    let (s, b) = post_text(
+        test_app(state_with_sysmd("sysmd-err", &sidecar.uri())),
+        "/sysmd/solve?language=kerml",
+        b"part x {{{".to_vec(),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "{b}");
+    assert_eq!(b["verdict"], "error");
+    assert_eq!(b["issues"][0]["kind"], "ERROR_SYNTACTICAL");
+}
+
+#[tokio::test]
+async fn sysmd_solve_refuses_bad_requests_and_reports_a_missing_or_down_sidecar() {
+    let (s, b) = post_text(
+        test_app(test_state("sysmd-none")),
+        "/sysmd/solve",
+        b"x".to_vec(),
+    )
+    .await;
+    assert_eq!(s, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(b["error"].as_str(), Some("sysmd_not_configured"));
+
+    let sidecar = sysmd_sidecar(200, serde_json::json!([]), serde_json::json!([])).await;
+    let (s, _) = post_text(
+        test_app(state_with_sysmd("sysmd-lang", &sidecar.uri())),
+        "/sysmd/solve?language=cobol",
+        b"x".to_vec(),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = post_text(
+        test_app(state_with_sysmd("sysmd-utf", &sidecar.uri())),
+        "/sysmd/solve",
+        vec![0xff, 0xfe],
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = post_text(
+        test_app(state_with_sysmd("sysmd-big", &sidecar.uri())),
+        "/sysmd/solve",
+        vec![b'a'; 300 * 1024],
+    )
+    .await;
+    assert_eq!(s, StatusCode::PAYLOAD_TOO_LARGE);
+
+    let (s, b) = post_text(
+        test_app(state_with_sysmd("sysmd-down", "http://127.0.0.1:1")),
+        "/sysmd/solve",
+        b"x".to_vec(),
+    )
+    .await;
+    assert_eq!(s, StatusCode::BAD_GATEWAY);
+    assert_eq!(b["error"].as_str(), Some("sysmd_unavailable"));
+}
+
+#[tokio::test]
+async fn health_reports_the_sysmd_sidecar_only_when_configured() {
+    let sidecar = sysmd_sidecar(200, serde_json::json!([]), serde_json::json!([])).await;
+    let (_, with) = get_json(
+        test_app(state_with_sysmd("sysmd-health", &sidecar.uri())),
+        "/health",
+    )
+    .await;
+    assert_eq!(with["checks"]["sysmd"]["ok"], true);
+    let (_, down) = get_json(
+        test_app(state_with_sysmd("sysmd-health-down", "http://127.0.0.1:1")),
+        "/health",
+    )
+    .await;
+    assert_eq!(down["checks"]["sysmd"]["ok"], false);
+    let (_, without) = get_json(test_app(test_state("sysmd-nohealth")), "/health").await;
+    assert!(without["checks"]["sysmd"].is_null());
+}
+
+#[tokio::test]
+async fn mcp_manifest_advertises_solve_constraints_bound_to_the_sysmd_route() {
+    let (_, v) = get_json(test_app(test_state("mcp-sysmd")), "/mcp/tools").await;
+    let t = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "solve_constraints")
+        .expect("solve_constraints missing");
+    assert_eq!(t["httpBinding"]["pathTemplate"], "/sysmd/solve");
+    assert_eq!(t["httpBinding"]["args"][0]["placement"], "body");
+    assert_eq!(t["httpBinding"]["args"][1]["name"], "language");
+    assert_eq!(t["httpBinding"]["args"][1]["placement"], "query");
 }
 
 #[tokio::test]

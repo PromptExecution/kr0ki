@@ -102,6 +102,7 @@ crates/
 | `KR0KI_PUBLIC_UI` | unset (off) | `1`/`true`: serve the static `/playbook` UI **without a token** (a browser navigation cannot send an `Authorization` header, so with per-identity grants on the page could not otherwise load). GET only, exact static routes only (`gateway::PUBLIC_UI_PATTERNS`); every data route still needs a token. Enter the token under Playb00k Setup (kept in `sessionStorage` only). Other Playb00k tabs still call the server without a token, so with grants on they need an `anonymous`-style open server or will show auth errors; the **Assurance** tab sends the token |
 | `KR0KI_AUDIT_FILE` | `./.kr0ki-audit/audit.jsonl` when identities are set | Hash-chained, append-only audit log (one record per invocation, permitted or denied). If a record cannot be written the request is refused (503) |
 | `KR0KI_ASSURANCE_BASELINE` / `KR0KI_REPO_ROOT` / `KR0KI_EVIDENCE_DIR` / `KR0KI_ASSURANCE_PREFIX` | `docs/assurance/kr0ki.assurance.toml` / `.` / `./.kr0ki-evidence` / `kr0ki:assurance:` | Enable `/assurance/*` (the assurance thread) and where its baseline, repository and evidence live |
+| `KR0KI_SYSMD_URL` | unset | SysMD constraint-solver sidecar (`containers/kr0ki-sysmd`, `127.0.0.1:8081`, `just sysmd-image` then `just sysmd-up`); enables `POST /sysmd/solve` (MCP `solve_constraints`) and the `sysmd` health check. See `docs/SYSMD-SIDECAR.md` |
 | `KR0KI_SYSML_MCP_URL` | unset | SysML v2 MCP sidecar (`containers/kr0ki-sysml-mcp`, `127.0.0.1:8790`); enables `/sysml/{validate,parse,symbols,summary}` and the `sysml_mcp` health check |
 
 ---

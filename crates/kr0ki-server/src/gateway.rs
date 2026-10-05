@@ -231,6 +231,7 @@ pub const ROUTES: &[(&str, &str, Option<&str>)] = &[
     ("POST", "/sysml/parse", Some("model.read")),
     ("POST", "/sysml/symbols", Some("model.read")),
     ("POST", "/sysml/summary", Some("model.read")),
+    ("POST", "/sysmd/solve", Some("model.read")),
     ("POST", "/requirements/import", Some("model.read")),
     ("POST", "/requirements/import/url", Some("model.read")),
     ("POST", "/requirements/export", Some("model.read")),
