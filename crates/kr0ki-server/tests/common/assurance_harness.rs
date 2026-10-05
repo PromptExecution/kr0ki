@@ -64,6 +64,11 @@ pub struct Harness {
 
 /// Start the server. `tag` keeps concurrent tests' files apart.
 pub async fn start(tag: &str) -> Harness {
+    start_with(tag, false).await
+}
+
+/// `public_ui`: serve the static /playbook routes without a token.
+pub async fn start_with(tag: &str, public_ui: bool) -> Harness {
     let tmp = std::env::temp_dir().join(format!("kr0ki-gw-{tag}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(&tmp).unwrap();
@@ -128,6 +133,7 @@ pub async fn start(tag: &str) -> Harness {
     let svc = assurance_service.clone();
     let gateway = Arc::new(
         Gateway::new(AuthMode::Identities(identities), Some(audit.clone()))
+            .with_public_ui(public_ui)
             .with_model_revision(move || svc.model_revision()),
     );
     let app = router_with_gateway(state, gateway, contract);

@@ -216,3 +216,61 @@ async fn resource_reads_pass_through_the_same_gateway_as_the_equivalent_http_req
         .unwrap();
     assert!(p.contains("trace_requirement with id=KR-A06"), "{prompt}");
 }
+
+#[tokio::test]
+async fn the_static_ui_needs_a_token_unless_the_operator_opts_in_and_data_never_does() {
+    // Default: nothing is public, exactly as before.
+    let h = start("a06-ui-default").await;
+    let (s, _) = http(
+        Method::GET,
+        &format!("{}/playbook/", h.base),
+        "",
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(
+        s, 401,
+        "the static UI is behind the gateway unless KR0KI_PUBLIC_UI is on"
+    );
+
+    // Opted in: the static UI loads without a token...
+    let h = start_with("a06-ui-public", true).await;
+    let resp = reqwest::get(format!("{}/playbook/", h.base)).await.unwrap();
+    assert_ne!(
+        resp.status().as_u16(),
+        401,
+        "the static UI must load without a token when opted in"
+    );
+    // ...but every data route still needs one, whatever its path looks like.
+    for path in [
+        "/assurance/requirements",
+        "/assurance/audit",
+        "/assurance/view?format=svg",
+        "/mcp/tools",
+        "/model/projects",
+        "/playbook-not-a-route/x",
+    ] {
+        let resp = reqwest::get(format!("{}{path}", h.base)).await.unwrap();
+        assert_eq!(
+            resp.status().as_u16(),
+            401,
+            "{path} must still require a token"
+        );
+    }
+    // A POST to a /playbook path is not the static UI.
+    let resp = reqwest::Client::new()
+        .post(format!("{}/playbook/x", h.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 401);
+    // Public static reads are not audited (they are not tool invocations).
+    assert!(h
+        .audit
+        .read_all()
+        .unwrap()
+        .iter()
+        .all(|r| !r.path.starts_with("/playbook/")
+            || r.decision == kr0ki_core::audit_log::Decision::Deny));
+}

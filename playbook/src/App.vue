@@ -7,6 +7,7 @@ import Setup from './components/Setup.vue'
 import CatalogTree from './components/CatalogTree.vue'
 import PlannerView from './components/PlannerView.vue'
 import ProjectsView from './components/ProjectsView.vue'
+import AssuranceView from './components/AssuranceView.vue'
 import { connectUiBridge, plannerSessionId } from './lib/uiBridge.js'
 import { loadLspUrls, saveLspUrls } from './lib/lsp.js'
 
@@ -43,6 +44,20 @@ const outputFormat = ref(localStorage.getItem('kr0ki:outputFormat') || 'svg')
 const llmUrl = ref(localStorage.getItem('kr0ki:llmUrl') || `http://${window.location.hostname}:8002/v1`)
 const llmKey = ref(localStorage.getItem('kr0ki:llmKey') || '')
 const llmModel = ref(localStorage.getItem('kr0ki:llmModel') || 'gpt-4o')
+
+// Access token for a server with per-identity grants. SESSION storage on purpose: it is cleared when the tab closes and is never
+// written next to the persistent settings. It is only ever sent as an Authorization header (see lib/assurance.js).
+const kr0kiToken = ref(readSession('kr0ki:token'))
+function readSession(key) {
+  try { return sessionStorage.getItem(key) || '' } catch { return '' }
+}
+function updateKr0kiToken(token) {
+  kr0kiToken.value = token
+  try {
+    if (token) sessionStorage.setItem('kr0ki:token', token)
+    else sessionStorage.removeItem('kr0ki:token')
+  } catch { /* storage unavailable: the token still works for this page load */ }
+}
 
 function updateRendererUrl(url) {
   rendererUrl.value = url
@@ -267,6 +282,9 @@ onMounted(async () => {
         <button class="view-tab" :class="{ active: viewMode === 'projects' }" data-testid="tab-projects" @click="viewMode = 'projects'">
           Projects
         </button>
+        <button class="view-tab" :class="{ active: viewMode === 'assurance' }" data-testid="tab-assurance" @click="viewMode = 'assurance'">
+          Assurance
+        </button>
         <button class="view-tab" :class="{ active: viewMode === 'editor' }" data-testid="tab-editor" @click="viewMode = 'editor'">
           Code Editor
         </button>
@@ -288,7 +306,7 @@ onMounted(async () => {
     </aside>
 
     <section class="content">
-      <header v-if="viewMode !== 'planner' && viewMode !== 'projects'" class="hero">
+      <header v-if="viewMode !== 'planner' && viewMode !== 'projects' && viewMode !== 'assurance'" class="hero">
         <p class="eyebrow">IAC / CODE → PROCEDURAL DIAGRAM → KROKI → SVG / PNG</p>
         <h1>Diagram-as-code, rendered.</h1>
         <p v-if="viewMode === 'gallery'">
@@ -319,8 +337,10 @@ onMounted(async () => {
       <Setup
         v-else-if="viewMode === 'setup'"
         :renderer-url="rendererUrl"
+        :kr0ki-token="kr0kiToken"
         :agent-url="agentUrl"
         :lsp-urls="lspUrls"
+        @update:kr0ki-token="updateKr0kiToken"
         @update:lsp-urls="updateLspUrls"
         @update:renderer-url="updateRendererUrl"
         @update:agent-url="updateAgentUrl"
@@ -330,6 +350,7 @@ onMounted(async () => {
         @update:output-format="updateOutputFormat"
       />
       <ProjectsView v-else-if="viewMode === 'projects'" :renderer-url="rendererUrl" />
+      <AssuranceView v-else-if="viewMode === 'assurance'" :renderer-url="rendererUrl" :token="kr0kiToken" />
       <Gallery
         v-else-if="viewMode === 'gallery'"
         :examples="examples"

@@ -36,7 +36,7 @@ describe('App navigation', () => {
   it('has Planner and Projects as top-level menu items after Gallery; the gallery is home', async () => {
     const w = await mountApp()
     const labels = w.findAll('.view-tab').map((b) => b.text())
-    expect(labels).toEqual(['Gallery', 'Planner', 'Projects', 'Code Editor', 'Agent', 'Setup'])
+    expect(labels).toEqual(['Gallery', 'Planner', 'Projects', 'Assurance', 'Code Editor', 'Agent', 'Setup'])
     expect(w.find('[data-testid="tab-gallery"]').classes()).toContain('active')
     expect(w.find('.gallery').exists()).toBe(true)
     w.unmount()

@@ -2,6 +2,8 @@
 //!
 //! Config (env):
 //!   KR0KI_BIND                 default 0.0.0.0:8787
+//!   KR0KI_PUBLIC_UI            `1`/`true`: serve the static /playbook UI without a token (a browser navigation cannot
+//!                              send one); data routes still need it. Default off.
 //!   KR0KI_CACHE_DIR            default ./.kr0ki-cache
 //!   KR0KI_BACKEND_URL          default http://127.0.0.1:8010 (private SECURE-mode Kroki)
 //!   KR0KI_AUTH_TOKEN           if set, require `Authorization: Bearer <token>` on every
@@ -198,7 +200,14 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| "kr0ki:assurance:".into()),
         })
     });
-    let mut gateway = Gateway::new(auth_mode, audit.clone());
+    let public_ui = matches!(
+        std::env::var("KR0KI_PUBLIC_UI").as_deref(),
+        Ok("1") | Ok("true")
+    );
+    if public_ui {
+        tracing::warn!("KR0KI_PUBLIC_UI is on: the static /playbook UI is served without a token (data routes still need one)");
+    }
+    let mut gateway = Gateway::new(auth_mode, audit.clone()).with_public_ui(public_ui);
     if let Some(rt) = &assurance {
         let service = rt.service.clone();
         gateway = gateway.with_model_revision(move || service.model_revision());
