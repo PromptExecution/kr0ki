@@ -12,6 +12,18 @@ front-end — Rust AST → UFO graph"*.
 vocabulary, `rust_lift.rs` bridges it into the shared lift, and `POST /render/rust-source` serves it (see
 [`../AGENTS.md`](../AGENTS.md) §1 Box 3 and `PATTERNS-rust-source.md`). Deferred because they need real type
 resolution: method calls, type-qualified/trait-dispatch calls, and calls crossing a `mod foo;` file boundary.
+**Update 2026-10-03:** those limits describe the AST endpoint. The isolated compiler
+adapter in [PLAN-KR0KI-009](PLAN-KR0KI-009-rust-behavioral-docgen.md) adds typed method
+and trait dispatch, cross-file compiler analysis, and control-flow evidence through
+versioned `RustBehaviorIR`. Unresolved dynamic targets remain explicit findings.
+`POST /render/rust-behavior` and the `kr0ki-docgen` CLI validate that evidence,
+build upstream `SysGraph`, execute authored view selection, and emit notation;
+the HTTP interface never compiles submitted source. Shared executable transition
+tables produce state-machine exports. [behavioral-docgen.md](behavioral-docgen.md)
+records the pinned compiler and OCI workflow. **Delivery update 2026-10-04:**
+[delivery evidence](behavioral-docgen-delivery.md) records passing source/container
+and private SVG/PNG gates, full digests and supported analysis/notation limits.
+
 The text below is the original plan. Originally: proposed, unimplemented. Written to correct a false assumption made while
 landing the docgen/playbook work (`#14`, `#15`, `#16`) — see §1 — before any further
 code is written against it.
@@ -161,6 +173,11 @@ step is needed or should be built.
   walker written from scratch.
 
 ## 5. Non-goals
+
+These are the historical PLAN-003 structural-arm boundaries. PLAN-009 extends the
+separate behavioral evidence interface with validated SysML text, state-machine
+exports, and OCI packaging; it does not change the existing source-text endpoint
+into an HTTP compiler.
 
 - Not a change to `docgen/` or `playbook/` — both stay as-is, scoped to what §1
   describes them as.

@@ -540,3 +540,13 @@ assurance-gaps:
 # Delegate an errand to the local Qwen3.8 via pi (read-only by default). See docs/PATTERN-pi-subagents.md.
 delegate +prompt:
     scripts/delegate-qwen38.sh {{prompt}}
+
+# Revision-bound compiler evidence and compressed derived artifacts.
+docgen-image revision="HEAD":
+    bash scripts/docgen.sh image "{{revision}}"
+
+docgen-self-test revision="HEAD":
+    bash scripts/docgen.sh self-test "{{revision}}"
+
+docgen-artifacts revision="HEAD":
+    bash scripts/docgen.sh artifacts "{{revision}}"

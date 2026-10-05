@@ -1,0 +1,7 @@
+[
+  {"transition":"observe","from":"idle","to":"observe","event":"observe","guard":null,"effect":"read_observation","terminal":false},
+  {"transition":"orient","from":"observe","to":"orient","event":"orient","guard":"observation_available","effect":"update_context","terminal":false},
+  {"transition":"decide","from":"orient","to":"decide","event":"decide","guard":null,"effect":"choose_action","terminal":false},
+  {"transition":"act","from":"decide","to":"act","event":"act","guard":null,"effect":"apply_action","terminal":false},
+  {"transition":"finish","from":"act","to":"done","event":"finish","guard":"goal_met","effect":null,"terminal":true}
+]

@@ -32,9 +32,10 @@ curl -X POST http://localhost:8787/render/graphviz?output=png \
 
 ## 1. Architecture — the five-box pipeline
 
-kr0ki's long-term scope is a **five-box ingestion chain** (PLAN §2). Only Box 5 (the
-render loop) is implemented. Boxes 1–4 are upstream dependencies (`ufo-types`,
-`sysml-v2-parser`, model servers) that kr0ki consumes but does not host.
+kr0ki implements source recognizers, graph lifting, view selection, and the render
+loop in the **five-box ingestion chain** (PLAN §2). Shared semantic types and
+grammars remain upstream (`ufo-types`, `sysml-v2-parser`); model servers remain
+external. Compiler behavior extraction is isolated under `tools/rust-behavior-extractor`.
 
 ```
 Box 1 ──► Box 2 ──► Box 3 ──► Box 4 ──► Box 5
@@ -47,8 +48,8 @@ front-end semantic  recog-    constructs adapters
 |---|---|---|---|
 | 1 | Source front-ends (SysML-v2 API client, Rust AST, k8s manifests, ReqIF) | **Partial** — `kr0ki-sysmlv2-client` reads *and writes* OMG-API servers; the k8s manifest and Rust-source front-ends are built (Box 3 recognizers); ReqIF import/export exist (`reqif_import`/`reqif_export`/`reqif_fetch`). Not built: dbt manifest, live databases | dbt `SysGraph` builder (upstream, `ufo-types`) |
 | 2 | Canonical UFO-typed semantic graph | **Partial** — `ufo-types` ships the `SysGraph` container (`sysgraph` module); the SysML-v2 arm builds it (`ufo_graph.rs`). The dbt arm's builder (`PLAN-KR0KI-006` piece 1) is spec-only, not yet in `ufo-types` | dbt `SysGraph` builder (upstream, `ufo-types`) |
-| 3 | Pattern recognizers (Kubernetes first) | **✅ Both arms shipped** — `k8s_recognizer.rs` (955 lines), wired into `kr0ki-server`'s routes, oracle-tested against real KubeDiagrams. Rust arm's recognizer (`rust_recognizer.rs`, `PLAN-KR0KI-003`) emits the full `UfoRelation` vocabulary (`has_part`/`flows_to`/`satisfies`/`requires`/`governed_by`, per `PATTERNS-rust-source.md`), including generic/blanket trait-impl bound tracking and `self`/`super`/`crate`/child-submodule path-qualified call resolution, both added 2026-09-29; wired end-to-end via the `rust_lift.rs` bridge and `POST /render/rust-source` — verified live against real Rust source. Method calls, type-qualified/trait-dispatch calls, and calls crossing a `mod foo;` file boundary remain explicitly deferred — each needs real type resolution this AST-only recognizer doesn't do (`PATTERNS-rust-source.md` §5) | Rust arm: method/trait-dispatch call resolution (needs type info, not just AST) |
-| 4 | SysML v2 model constructs / view definitions | **Partial** — `ElementKind` (24), `Relation` (12), `SysmlViewKind` done; edges are lifted to `Relation`s (`sysml_lift.rs`) and rendered as D2/Mermaid (`sysml_render.rs`); `ViewDefinition` as data not yet | Box 2 + Box 3 |
+| 3 | Pattern recognizers (Kubernetes first) | **✅ Both arms shipped** — `k8s_recognizer.rs` (955 lines), wired into `kr0ki-server`'s routes, oracle-tested against real KubeDiagrams. Rust arm's recognizer (`rust_recognizer.rs`, `PLAN-KR0KI-003`) emits the full `UfoRelation` vocabulary (`has_part`/`flows_to`/`satisfies`/`requires`/`governed_by`, per `PATTERNS-rust-source.md`), including generic/blanket trait-impl bound tracking and `self`/`super`/`crate`/child-submodule path-qualified call resolution, both added 2026-09-29; wired end-to-end via the `rust_lift.rs` bridge and `POST /render/rust-source` — verified live against real Rust source. The AST-only route still defers method calls, type-qualified/trait-dispatch calls, and external module boundaries; the isolated compiler extractor handles these with compiler evidence (`PATTERNS-rust-source.md` §5) | Rust arm: method/trait-dispatch call resolution (needs type info, not just AST) |
+| 4 | SysML v2 model constructs / view definitions | **Partial** — `ElementKind` (24), `Relation` (12), `SysmlViewKind` done; edges are lifted to `Relation`s (`sysml_lift.rs`) and rendered as D2/Mermaid (`sysml_render.rs`); model-authored `ViewDefinition`/`Expose` selection is implemented by the validated Rust behavior route | Box 2 + Box 3 |
 | 5 | **Renderer adapters + HTTP service** | **✅ Implemented** — `kr0ki-core` + `kr0ki-server`: cache, auth, PNG, docgen, contract headers, `/model/*` read routes and the `/sync` write route | CDN tier (D5), artifact resolver (FR6) |
 
 **Current implemented surface:**
@@ -294,3 +295,11 @@ tier: frontier
 cmds: just test, just check, just run, just test-live, just test-live-png
 complexity: 7
 -->
+
+## Rust behavior evidence (PLAN-KR0KI-009)
+
+`kr0ki-behavior` owns versioned source facts and a shared state-machine runtime.
+The separate pinned compiler adapter emits evidence consumed by
+`POST /render/rust-behavior`; HTTP never invokes Cargo or rustc. See
+`docs/behavioral-docgen.md` for validation levels, resource limits, and
+`just docgen-image`, `just docgen-self-test`, `just docgen-artifacts`.

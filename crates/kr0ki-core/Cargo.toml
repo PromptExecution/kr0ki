@@ -7,6 +7,9 @@ repository.workspace = true
 description = "kr0ki P0 render loop — Kroki-family text to SVG, content-addressed cache — plus box-2 UFO-graph builders for the SysML-v2 and Kubernetes arms (PLAN-KR0KI-002), and the b00t-graph Turtle -> holon-viz -> D2 route (kr0ki#13)."
 
 [dependencies]
+kr0ki-behavior = { path = "../kr0ki-behavior" }
+sysml-v2-parser = "0.55"
+roxmltree = "0.20"
 anyhow.workspace = true
 thiserror.workspace = true
 serde = { workspace = true }

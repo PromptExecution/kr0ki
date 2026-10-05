@@ -156,6 +156,10 @@ pub fn router_with_gateway(
         .route("/render/k8s-topology", post(render_k8s_topology))
         .route("/render/rust-source", post(render_rust_source))
         .route(
+            "/render/rust-behavior",
+            post(render_rust_behavior).layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
+        .route(
             "/render/sysmlv2/projects/:project_id/commits/:commit_id",
             post(render_sysmlv2_snapshot),
         )
@@ -1551,6 +1555,92 @@ async fn render_k8s_topology(
 /// (box 4, same as the Kubernetes arm), `sysml_render::to_d2` emits D2 text,
 /// rendered through the same content-addressed cache every other
 /// `/render/*` route uses.
+/// Consume already-extracted evidence. This route never runs Cargo or rustc.
+async fn render_rust_behavior(
+    State(state): State<AppState>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+    body: Bytes,
+) -> Response {
+    let request: kr0ki_core::rust_behavior::BehaviorRequest = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(e) => return error_json(StatusCode::BAD_REQUEST, "bad_behavior_json", &e.to_string()),
+    };
+    let format = params
+        .get("format")
+        .map(String::as_str)
+        .unwrap_or("svg")
+        .to_owned();
+    if !["svg", "png", "json", "d2", "mermaid", "sysml"].contains(&format.as_str()) {
+        return error_json(
+            StatusCode::BAD_REQUEST,
+            "unknown_behavior_format",
+            "expected svg, png, json, d2, mermaid, or sysml",
+        );
+    }
+    let prepared = match tokio::task::spawn_blocking(move || {
+        kr0ki_core::rust_behavior::prepare(request)
+    })
+    .await
+    {
+        Ok(Ok(prepared)) => prepared,
+        Ok(Err(e)) => {
+            return error_json(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "invalid_behavior",
+                &e.to_string(),
+            )
+        }
+        Err(_) => {
+            return error_json(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "behavior_worker_failed",
+                "behavior worker failed",
+            )
+        }
+    };
+    match format.as_str() {
+        "json" => Json(prepared).into_response(),
+        "d2" => (
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            prepared.d2,
+        )
+            .into_response(),
+        "mermaid" => (
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            prepared.mermaid,
+        )
+            .into_response(),
+        "sysml" => (
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            prepared.sysml,
+        )
+            .into_response(),
+        _ => {
+            let output = if format == "png" {
+                OutputKind::Png
+            } else {
+                OutputKind::Svg
+            };
+            // Output kind is part of the model key; SVG and PNG cannot collide.
+            match state
+                .service
+                .render_model(
+                    &format!("rust-behavior-{format}"),
+                    DiagramFormat::D2,
+                    output,
+                    &prepared.d2,
+                    &prepared.content_hash,
+                    kr0ki_core::rust_behavior::RULE_VERSION,
+                )
+                .await
+            {
+                Ok(rendered) => rendered_response(output, rendered),
+                Err(e) => service_error_response(e),
+            }
+        }
+    }
+}
+
 async fn render_rust_source(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
@@ -1592,7 +1682,16 @@ async fn render_rust_source(
         }
     };
 
-    let ontological = kr0ki_core::rust_lift::lift_rust_edges(&edges);
+    let ontological = match kr0ki_core::rust_lift::lift_rust_edges(&edges) {
+        Ok(edges) => edges,
+        Err(e) => {
+            return error_json(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "unsupported_rust_relation",
+                &e.to_string(),
+            )
+        }
+    };
     let lifted = kr0ki_core::sysml_lift::lift_edges(&ontological);
     let relations: Vec<_> = match params.get("view") {
         Some(view) => {

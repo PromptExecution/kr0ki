@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "revision": "7f564d8000000000000000000000000000000000",
+    "tree_digest": "4845a59a6c64d696beeea812cde0b58e83542b0790015e9306e516737fcac716",
+    "toolchain": "fixture-reviewed-v1",
+    "extractor": "reviewed-fixture/v1",
+    "config": {
+      "edition": "2021"
+    }
+  },
+  "sources": [
+    {
+      "path": "src/lib.rs",
+      "sha256": "4845a59a6c64d696beeea812cde0b58e83542b0790015e9306e516737fcac716",
+      "content": "pub trait Worker { fn work(&self); }\npub struct Job;\nimpl Worker for Job { fn work(&self) {} }\npub fn run() { let job = Job; job.work(); }\npub fn dynamic(worker: &dyn Worker) { worker.work(); }\npub fn bounded() { loop { break; } }\n"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "worker",
+      "name": "Worker",
+      "kind": "trait",
+      "anchor": {
+        "file": "src/lib.rs",
+        "symbol": "Worker",
+        "start": 0,
+        "end": 36
+      }
+    },
+    {
+      "id": "job",
+      "name": "Job",
+      "kind": "type",
+      "anchor": {
+        "file": "src/lib.rs",
+        "symbol": "Job",
+        "start": 37,
+        "end": 52
+      }
+    },
+    {
+      "id": "job-work",
+      "name": "Job::work",
+      "kind": "function",
+      "anchor": {
+        "file": "src/lib.rs",
+        "symbol": "Job::work",
+        "start": 75,
+        "end": 92
+      }
+    },
+    {
+      "id": "run",
+      "name": "run",
+      "kind": "function",
+      "anchor": {
+        "file": "src/lib.rs",
+        "symbol": "run",
+        "start": 95,
+        "end": 138
+      }
+    },
+    {
+      "id": "dynamic",
+      "name": "dynamic",
+      "kind": "function",
+      "anchor": {
+        "file": "src/lib.rs",
+        "symbol": "dynamic",
+        "start": 139,
+        "end": 193
+      }
+    },
+    {
+      "id": "dispatch",
+      "name": "dynamic::dispatch",
+      "kind": "dispatch",
+      "anchor": {
+        "file": "src/lib.rs",
+        "symbol": "dynamic::dispatch",
+        "start": 177,
+        "end": 190
+      }
+    },
+    {
+      "id": "loop",
+      "name": "bounded::loop",
+      "kind": "loop",
+      "anchor": {
+        "file": "src/lib.rs",
+        "symbol": "bounded::loop",
+        "start": 213,
+        "end": 228
+      }
+    },
+    {
+      "id": "exit",
+      "name": "bounded::exit",
+      "kind": "exit",
+      "anchor": {
+        "file": "src/lib.rs",
+        "symbol": "bounded::exit",
+        "start": 220,
+        "end": 226
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "satisfies",
+      "to": "worker",
+      "kind": "satisfies",
+      "guard": null,
+      "resolution": "resolved",
+      "anchor": {
+        "file": "src/lib.rs",
+        "symbol": "job",
+        "start": 53,
+        "end": 72
+      },
+      "from": "job"
+    },
+    {
+      "id": "concrete-call",
+      "to": "job-work",
+      "kind": "calls",
+      "guard": null,
+      "resolution": "resolved",
+      "anchor": {
+        "file": "src/lib.rs",
+        "symbol": "run",
+        "start": 125,
+        "end": 135
+      },
+      "from": "run"
+    },
+    {
+      "id": "dynamic-call",
+      "to": "dispatch",
+      "kind": "calls",
+      "guard": null,
+      "resolution": "unresolved",
+      "anchor": {
+        "file": "src/lib.rs",
+        "symbol": "dynamic",
+        "start": 177,
+        "end": 190
+      },
+      "from": "dynamic"
+    },
+    {
+      "id": "loop-exit",
+      "to": "exit",
+      "kind": "exit",
+      "guard": null,
+      "resolution": "resolved",
+      "anchor": {
+        "file": "src/lib.rs",
+        "symbol": "loop",
+        "start": 220,
+        "end": 226
+      },
+      "from": "loop"
+    }
+  ],
+  "diagnostics": [],
+  "machines": []
+}

@@ -13,9 +13,8 @@
 //! `governed_by` (generic bounds, PATTERNS-rust-source.md §2 last-but-one
 //! row) is emitted by the recognizer as of 2026-09-29 (generic/blanket impl
 //! bound tracking) and lifts through this same relation_for() mapping like
-//! every other edge_type — the "skip an edge_type this module doesn't
-//! recognize rather than fail the whole conversion" fallback below now
-//! only matters for a genuinely future relation, not a known gap.
+//! every other supported edge type. Unknown vocabulary fails the complete
+//! conversion with an explicit error; no edge is silently lost.
 
 use ufo_types::iso_ir::Edge as IsoEdge;
 use ufo_types::ontology::{OntologicalEdge, SourceAnchor, UfoRelation};
@@ -23,7 +22,7 @@ use ufo_types::sysml_model::ElementId;
 
 /// Convert `edge_type` (as emitted by `rust_recognizer.rs`) into the
 /// matching `UfoRelation`, or `None` for a classifier this bridge doesn't
-/// (yet) know how to lift.
+/// (yet) know how to lift. The public boundary reports this as an error.
 fn relation_for(edge_type: &str) -> Option<UfoRelation> {
     match edge_type {
         "has_part" => Some(UfoRelation::HasPart),
@@ -35,22 +34,33 @@ fn relation_for(edge_type: &str) -> Option<UfoRelation> {
     }
 }
 
-/// Lift `rust_recognizer`'s raw `iso_ir::Edge`s into `OntologicalEdge`s.
+/// Lift all recognized edges, rejecting unsupported vocabulary without partial output.
 /// Provenance is `SourceAnchor::SymbolPath` on both ends (the recognizer
 /// doesn't currently carry line/col spans — see module docs) rather than
 /// `RustSpan`, so as not to assert location precision the source data
 /// doesn't have.
-pub fn lift_rust_edges(edges: &[IsoEdge]) -> Vec<OntologicalEdge> {
+#[derive(Debug, thiserror::Error)]
+#[error("unsupported Rust relation {relation} on edge {edge_id}")]
+pub struct RustLiftError {
+    pub relation: String,
+    pub edge_id: String,
+}
+
+pub fn lift_rust_edges(edges: &[IsoEdge]) -> Result<Vec<OntologicalEdge>, RustLiftError> {
     edges
         .iter()
-        .filter_map(|e| {
-            let relation = relation_for(&e.edge_type)?;
+        .map(|e| {
+            let relation = relation_for(&e.edge_type).ok_or_else(|| RustLiftError {
+                relation: e.edge_type.clone(),
+                edge_id: e.id.clone(),
+            })?;
             let source = ElementId::new(e.from.clone());
             let target = ElementId::new(e.to.clone());
             let id = format!("{}~{}~{}", e.from, relation.canonical_name(), e.to);
             let mut oe = OntologicalEdge::new(id, source, target, relation);
             oe.provenance.push(SourceAnchor::SymbolPath(e.from.clone()));
-            Some(oe)
+            oe.provenance.push(SourceAnchor::SymbolPath(e.to.clone()));
+            Ok(oe)
         })
         .collect()
 }
@@ -78,7 +88,7 @@ mod tests {
             edge("Car", "Drive", "satisfies"),
             edge("mycrate", "othercrate::Thing", "requires"),
         ];
-        let lifted = lift_rust_edges(&edges);
+        let lifted = lift_rust_edges(&edges).unwrap();
         assert_eq!(lifted.len(), 4);
         assert_eq!(lifted[0].relation, UfoRelation::HasPart);
         assert_eq!(lifted[0].source, ElementId::new("Pkg"));
@@ -91,21 +101,26 @@ mod tests {
     #[test]
     fn provenance_is_symbol_path_not_rust_span() {
         let edges = vec![edge("a", "b", "has_part")];
-        let lifted = lift_rust_edges(&edges);
+        let lifted = lift_rust_edges(&edges).unwrap();
         assert_eq!(
             lifted[0].provenance,
-            vec![SourceAnchor::SymbolPath("a".to_string())]
+            vec![
+                SourceAnchor::SymbolPath("a".to_string()),
+                SourceAnchor::SymbolPath("b".to_string())
+            ]
         );
     }
 
     #[test]
-    fn unrecognized_edge_type_is_skipped_not_fatal() {
+    fn unrecognized_edge_type_is_reported() {
         let edges = vec![
             edge("a", "b", "has_part"),
             edge("c", "d", "some_future_relation_this_bridge_does_not_know"),
         ];
-        let lifted = lift_rust_edges(&edges);
-        assert_eq!(lifted.len(), 1);
-        assert_eq!(lifted[0].source, ElementId::new("a"));
+        let error = lift_rust_edges(&edges).unwrap_err();
+        assert_eq!(
+            error.relation,
+            "some_future_relation_this_bridge_does_not_know"
+        );
     }
 }

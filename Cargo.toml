@@ -17,7 +17,8 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/kr0ki-core", "crates/kr0ki-server", "crates/kr0ki-sysmlv2-client", "crates/kr0ki-svg", "crates/kr0ki-raster-ingest"]
+members = ["crates/kr0ki-core", "crates/kr0ki-server", "crates/kr0ki-sysmlv2-client", "crates/kr0ki-svg", "crates/kr0ki-raster-ingest", "crates/kr0ki-behavior"]
+exclude = ["tools/rust-behavior-extractor"]
 
 [workspace.package]
 version = "0.1.1"

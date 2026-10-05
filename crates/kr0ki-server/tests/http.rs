@@ -9,6 +9,79 @@ use axum::http::{Request, StatusCode};
 use kr0ki_core::{cache::FsCache, render::HttpKrokiBackend, RenderService};
 use tower::ServiceExt; // oneshot
 
+const BEHAVIOR_FIXTURE: &str = include_str!("../../kr0ki-behavior/tests/fixtures/behavior.json");
+
+#[tokio::test]
+async fn behavior_json_preserves_provenance_and_unknown_dispatch() {
+    let request = serde_json::json!({ "model": serde_json::from_str::<serde_json::Value>(BEHAVIOR_FIXTURE).unwrap(), "expand_depth": 1 });
+    let response = test_app(test_state("behavior-json"))
+        .oneshot(
+            Request::post("/render/rust-behavior?format=json")
+                .header("content-type", "application/json")
+                .body(Body::from(request.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let response: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(
+        response["evidence"]["dynamic-call"]["resolution"],
+        "unresolved"
+    );
+    assert!(response["graph"]["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|e| e["provenance"].as_array().unwrap().len() >= 4));
+}
+
+#[tokio::test]
+async fn behavior_invalid_model_is_rejected_before_renderer() {
+    let mut model: serde_json::Value = serde_json::from_str(BEHAVIOR_FIXTURE).unwrap();
+    model["edges"][0]["to"] = serde_json::json!("missing");
+    let request = serde_json::json!({"model": model});
+    let response = test_app(test_state("behavior-invalid"))
+        .oneshot(
+            Request::post("/render/rust-behavior")
+                .header("content-type", "application/json")
+                .body(Body::from(request.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let (status, body) = body_string(response).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(body.contains("invalid_behavior"));
+}
+
+#[tokio::test]
+async fn behavior_unknown_format_and_strict_uncertainty_fail() {
+    let request = serde_json::json!({"model": serde_json::from_str::<serde_json::Value>(BEHAVIOR_FIXTURE).unwrap(), "strict": true});
+    for (url, expected) in [
+        (
+            "/render/rust-behavior?format=unknown",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "/render/rust-behavior?format=d2",
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ] {
+        let response = test_app(test_state("behavior-options"))
+            .oneshot(
+                Request::post(url)
+                    .header("content-type", "application/json")
+                    .body(Body::from(request.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+}
+
 // The server crate is a bin; pull the router module in via path.
 #[path = "../src/app.rs"]
 mod app;
