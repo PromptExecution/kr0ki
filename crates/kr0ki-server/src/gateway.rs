@@ -215,6 +215,7 @@ pub const ROUTES: &[(&str, &str, Option<&str>)] = &[
     ("POST", "/render/kubediagram", Some("render")),
     ("POST", "/render/k8s-topology", Some("render")),
     ("POST", "/render/rust-source", Some("render")),
+    ("POST", "/render/rust-behavior", Some("render")),
     (
         "POST",
         "/render/sysmlv2/projects/:project_id/commits/:commit_id",

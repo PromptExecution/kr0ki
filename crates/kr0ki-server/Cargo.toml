@@ -34,7 +34,7 @@ hmac = "0.12"
 thiserror.workspace = true
 toml = "0.8"
 # The assurance profile types the /assurance routes and the gateway use (same pin as kr0ki-core).
-ufo-types = { git = "https://github.com/PromptExecution/ufo-types", rev = "db8e22fc2c09ff1b58cc4effce6096d17a89f3e4" }
+ufo-types = { git = "https://github.com/PromptExecution/ufo-types", rev = "1846e6f20c68e8eb614556386a56cd3077446cdb" }
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["json"] }
