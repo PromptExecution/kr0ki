@@ -75,9 +75,9 @@ describe('RendererPanel syntax skill', () => {
   })
 
   it('says plainly whether a language server exists, is configured, or is connected', async () => {
-    const plain = mountPanel(d2)
+    const plain = mountPanel(gv)
     await flushPromises()
-    expect(plain.find('[data-testid="lsp-badge"]').text()).toContain('No language server exists for d2')
+    expect(plain.find('[data-testid="lsp-badge"]').text()).toContain('No language server exists for graphviz')
     const vega = { id: 'e4', format: 'vegalite', title: 'V', description: '', input_kind: 'json', source: '{"a":1}', outputs: ['svg'] }
     const idle = mountPanel(vega)
     await flushPromises()

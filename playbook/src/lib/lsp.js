@@ -1,7 +1,7 @@
 // Language intelligence for the source editor: syntax highlighting where a CodeMirror language exists, and an
 // optional Language Server (LSP) connection per diagram language, "when available".
 //
-// Honest scope (verified 2026-10-01): of kr0ki's 26 diagram languages only JSON (vega, vegalite) and YAML (wireviz) have a
+// Honest scope (verified 2026-10-01): of kr0ki's 26 diagram languages only JSON (vega, vegalite), YAML (wireviz) and, via a built Go binary, D2 have a
 // language server we can run. wavedrom is JSON5-ish, so a strict JSON server would flag valid sources; it gets none.
 // Everything else edits as plain text. A server is used only when the user configures a WebSocket URL for that language
 // (Setup -> Language servers) and the connection succeeds; any failure degrades silently to the plain editor.
@@ -14,6 +14,7 @@ export const LANGUAGES = {
   vega: { highlight: json, lsp: 'json' },
   vegalite: { highlight: json, lsp: 'json' },
   wireviz: { highlight: yaml, lsp: 'yaml' },
+  d2: { highlight: null, lsp: 'd2' }, // no CodeMirror grammar; the server (via lsp-bridge /d2) supplies diagnostics, format, hover
   wavedrom: { highlight: json, lsp: null }, // highlight only: valid WaveDrom is not strict JSON
 }
 
@@ -23,7 +24,7 @@ export const lspFormats = () => Object.keys(LANGUAGES).filter(lspCapable)
 /** CodeMirror language extension for a format, or null for plain text. */
 export function highlightFor(format) {
   const l = LANGUAGES[format]
-  return l ? l.highlight() : null
+  return l?.highlight ? l.highlight() : null
 }
 
 const STORAGE_KEY = 'kr0ki:lspUrls'

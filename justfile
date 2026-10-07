@@ -34,6 +34,18 @@ lsp-bridge:
     pnpm --dir tools/lsp-bridge install --frozen-lockfile
     node tools/lsp-bridge/bridge.mjs
 
+# Build the D2 language server (ram02z/d2-language-server, pinned; real d2 compiler: diagnostics, format, hover, completion) for the bridge.
+# Then: KR0KI_D2_LSP_BIN=$HOME/.local/share/kr0ki/d2-language-server just lsp-bridge  ->  ws://127.0.0.1:8791/d2
+d2-lsp-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
+    git clone -q https://github.com/ram02z/d2-language-server.git "$dir"
+    git -C "$dir" checkout -q 6a9cfb9eb8768ba4364ac3dc971cfde3e7185cb6
+    mkdir -p "$HOME/.local/share/kr0ki"
+    (cd "$dir" && go build -o "$HOME/.local/share/kr0ki/d2-language-server" .)
+    echo "built $HOME/.local/share/kr0ki/d2-language-server"
+
 # Tests for the language-server bridge (against a fake stdio server; no real language server needed).
 test-lsp-bridge:
     pnpm --dir tools/lsp-bridge install --frozen-lockfile
