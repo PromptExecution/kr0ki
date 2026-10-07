@@ -94,3 +94,11 @@ test('parseFrames handles split chunks, several messages, and hostile headers', 
   assert.throws(() => parseFrames(Buffer.from('Nope: 1\r\n\r\n'), 1024), /missing/)
   assert.throws(() => parseFrames(Buffer.alloc(5000, 65), 1024), /header too large/)
 })
+
+test('/d2 is offered only when the operator names the binary in the environment', async () => {
+  const { defaultCommands } = await import('../bridge.mjs')
+  assert.equal('/d2' in defaultCommands({}), false)
+  const c = defaultCommands({ KR0KI_D2_LSP_BIN: '/opt/d2ls' })
+  assert.deepEqual(c['/d2'].argv(), ['/opt/d2ls'])
+  assert.equal(c['/d2'].languageId, 'd2')
+})

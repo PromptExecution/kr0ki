@@ -2,7 +2,7 @@
 //
 // SECURITY MODEL. This process spawns local binaries on behalf of a web page, so it is deliberately narrow:
 //   * binds 127.0.0.1 by default (set LSP_BRIDGE_HOST to change it; do not expose it);
-//   * the browser picks a language by URL path (/json, /yaml) and NEVER supplies a command or arguments: the
+//   * the browser picks a language by URL path (/json, /yaml, /d2) and NEVER supplies a command or arguments: the
 //     argv for each path is a fixed allowlist in COMMANDS;
 //   * the WebSocket Origin must be in the allowed list (browsers always send it); requests without one are refused;
 //   * one process per socket, killed when the socket closes; at most MAX_SESSIONS at once; messages and frames are
@@ -30,8 +30,12 @@ function binOf(pkg, bin) {
 }
 
 /** The ONLY commands the bridge will run. Keyed by URL path; argv is fixed. */
-export function defaultCommands() {
+export function defaultCommands(env = process.env) {
+  // D2 has no npm server: it is a Go binary (ram02z/d2-language-server, built by `just d2-lsp-build`). Offered only when
+  // the operator names it in the environment; the path never comes from the browser.
+  const d2 = env.KR0KI_D2_LSP_BIN ? { '/d2': { languageId: 'd2', argv: () => [env.KR0KI_D2_LSP_BIN] } } : {}
   return {
+    ...d2,
     '/json': { languageId: 'json', argv: () => [process.execPath, binOf('vscode-langservers-extracted', 'vscode-json-language-server'), '--stdio'] },
     '/yaml': { languageId: 'yaml', argv: () => [process.execPath, binOf('yaml-language-server', 'yaml-language-server'), '--stdio'] },
   }
@@ -78,7 +82,7 @@ export function createBridge({
 } = {}) {
   const server = http.createServer((req, res) => {
     res.writeHead(426, { 'Content-Type': 'text/plain' })
-    res.end('WebSocket only: connect to /json or /yaml\n')
+    res.end('WebSocket only: connect to /json, /yaml or /d2\n')
   })
   const wss = new WebSocketServer({ noServer: true, maxPayload: maxMessageBytes })
   let sessions = 0
@@ -169,5 +173,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const host = process.env.LSP_BRIDGE_HOST || '127.0.0.1'
   const port = Number(process.env.LSP_BRIDGE_PORT || 8791)
   const bridge = createBridge({ log: (...a) => console.error('[lsp-bridge]', ...a), trace: process.env.LSP_BRIDGE_TRACE === '1' })
-  bridge.server.listen(port, host, () => console.error(`[lsp-bridge] ws://${host}:${port}/json  /yaml   origins: ${defaultOrigins().join(', ')}`))
+  bridge.server.listen(port, host, () => console.error(`[lsp-bridge] ws://${host}:${port}/json  /yaml  ${Object.keys(defaultCommands()).includes('/d2') ? '/d2  ' : ''}origins: ${defaultOrigins().join(', ')}`))
 }
