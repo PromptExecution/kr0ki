@@ -14,6 +14,7 @@ const AssuranceStub = {
 }
 
 beforeEach(() => {
+  window.history.replaceState(null, '', '#/gallery') // deep links persist across tests in jsdom
   sessionStorage.clear()
   localStorage.clear()
   Element.prototype.scrollIntoView = vi.fn()

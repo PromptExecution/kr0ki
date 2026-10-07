@@ -12,6 +12,7 @@ const StoryStub = { name: 'StoryB00k', props: { planner: Boolean, threadId: Stri
 
 let renders
 beforeEach(() => {
+  window.history.replaceState(null, '', '#/gallery') // deep links persist across tests in jsdom
   renders = []
   Element.prototype.scrollIntoView = vi.fn()
   vi.stubGlobal('CSS', { escape: (s) => s })
@@ -39,6 +40,20 @@ describe('App navigation', () => {
     expect(labels).toEqual(['Gallery', 'Planner', 'Projects', 'Assurance', 'Code Editor', 'Agent', 'Setup'])
     expect(w.find('[data-testid="tab-gallery"]').classes()).toContain('active')
     expect(w.find('.gallery').exists()).toBe(true)
+    w.unmount()
+  })
+
+  it('makes each tab a history entry, so Back returns to the previous tab instead of leaving kr0ki', async () => {
+    const w = await mountApp()
+    await w.find('[data-testid="tab-editor"]').trigger('click')
+    await w.find('[data-testid="tab-agent"]').trigger('click')
+    expect(window.location.hash).toBe('#/agent')
+    expect(w.find('[data-testid="tab-agent"]').classes()).toContain('active')
+    window.history.back()
+    await new Promise((r) => setTimeout(r, 50)) // jsdom fires popstate asynchronously
+    await flushPromises()
+    expect(window.location.hash).toBe('#/editor')
+    expect(w.find('[data-testid="tab-editor"]').classes()).toContain('active')
     w.unmount()
   })
 
