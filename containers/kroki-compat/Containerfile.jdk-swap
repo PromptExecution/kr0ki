@@ -1,3 +1,5 @@
+# NOT USED IN PRODUCTION. Kept for reproducing docs/evaluations/EVAL-graalvm-vs-jvm-kroki.md (verdict: Temurin stays).
+# No recipe, unit, CI job or deploy file builds or references this file; production uses containers/kroki-compat/Containerfile.
 # EVALUATION ONLY (docs/evaluations/EVAL-graalvm-vs-jvm-kroki.md): the production kroki-compat image with its JDK swapped for another one.
 # Only /opt/java/openjdk changes. It is the directory the base image's PATH, Kroki's entrypoint and plantuml-java all resolve
 # `java` from, so the Kroki server and the per-request PlantUML JVM move together.

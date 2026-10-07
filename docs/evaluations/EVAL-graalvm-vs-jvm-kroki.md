@@ -1,6 +1,8 @@
 # EVAL — GraalVM CE vs Temurin for the Kroki render backend
 
 **Date:** 2026-10-07 · **Branch:** `feat/graalvm-kroki-eval` · **Verdict:** keep Temurin. GraalVM CE is slower and larger on this workload.
+**Status of the GraalVM config in this repo: NOT USED.** `Containerfile.jdk-swap`, `Containerfile.jdk-dir` and `scripts/bench_kroki_jvm.py`
+are kept only to reproduce this evaluation; nothing builds them in production, CI or deploy.
 Raw data: [`evidence/graalvm-vs-jvm-kroki-21.json`](evidence/graalvm-vs-jvm-kroki-21.json), [`evidence/graalvm-vs-jvm-kroki-25.json`](evidence/graalvm-vs-jvm-kroki-25.json).
 Harness: `scripts/bench_kroki_jvm.py` · image variants: `containers/kroki-compat/Containerfile.jdk-swap`, `Containerfile.jdk-dir`.
 

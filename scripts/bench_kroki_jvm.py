@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Compare JVM builds of the Kroki render backend under the production container limits (--memory=2g --cpus=1).
+"""NOT USED IN PRODUCTION: evaluation harness (docs/evaluations/EVAL-graalvm-vs-jvm-kroki.md); kept to reproduce those numbers.
+
+Compare JVM builds of the Kroki render backend under the production container limits (--memory=2g --cpus=1).
 
 Usage: scripts/bench_kroki_jvm.py label=image [label=image ...] [--rounds 3] [--requests 90] [--out result.json]
 
