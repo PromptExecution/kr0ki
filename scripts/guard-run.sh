@@ -5,7 +5,8 @@
 #
 # - the job is capped by cgroup (MemoryMax, no swap for the job, CPUQuota), so the kernel kills IT, not the host's other services;
 # - a sampler writes one CSV row every 2 s: time, MemAvailable, swap used, memory PSI (some/full avg10), CPU PSI, load1, job RSS;
-# - if MemAvailable drops under --min-avail-gib, or memory PSI "full" avg10 exceeds 10 %, the scope is stopped and the exit code is 99.
+# - if MemAvailable drops under --min-avail-gib, or memory PSI "full" avg10 stays above 10 % for 3 samples (6 s, PSI_SAMPLES), the scope is
+#   stopped and the exit code is 99.
 # Born from the 2026-10-07 stall: the host sat at ~2 GiB available for two hours with the HDD swap full, then stopped.
 set -uo pipefail
 
@@ -35,11 +36,14 @@ sample() {
   echo "$avail $full"
 }
 
-( # watchdog
+( # watchdog: low MemAvailable trips at once; memory-stall pressure must persist for PSI_SAMPLES (default 3 = 6 s) in a row, so a
+  # one-sample burst while a job starts up (page-cache churn on the HDD) does not kill it.
+  bad=0
   while sleep 2; do
     read -r avail full < <(sample)
-    if [ "$avail" -lt $((MIN_AVAIL_GIB*1024)) ] || awk "BEGIN{exit !($full>10)}"; then
-      echo "guard-run: host squeezed (MemAvailable=${avail}MiB, mem PSI full10=${full}%) -> stopping $UNIT" >&2
+    if awk "BEGIN{exit !($full>10)}"; then bad=$((bad+1)); else bad=0; fi
+    if [ "$avail" -lt $((MIN_AVAIL_GIB*1024)) ] || [ "$bad" -ge "${PSI_SAMPLES:-3}" ]; then
+      echo "guard-run: host squeezed (MemAvailable=${avail}MiB, mem PSI full10=${full}% for ${bad} sample(s)) -> stopping $UNIT" >&2
       touch "$LOG.tripped"; systemctl --user stop "$UNIT.scope" 2>/dev/null; exit 0
     fi
   done
