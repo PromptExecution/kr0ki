@@ -3,6 +3,8 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useChat } from '@synoped/ag-ui-vue'
 import StoryB00kPanel from './StoryB00kPanel.vue'
 import RevisionTimeline from './RevisionTimeline.vue'
+import ZoomPan from './ZoomPan.vue'
+import CheckpointDialog from './CheckpointDialog.vue'
 import { downloadText, renderSvg, sourceFilename } from '../lib/renderSource.js'
 import {
   createRevisionGraph, activeNode, addPromptNode, addEditNode,
@@ -719,7 +721,9 @@ function formatTokens(u) {
           <span class="storyb00k__handoff-meta">{{ startingPoint.title }}<template v-if="startingPoint.title"> · </template>{{ startingPoint.detectedType && startingPoint.detectedType !== 'unknown' ? startingPoint.detectedType + ' · ' : '' }}{{ startingPoint.format }}</span>
         </button>
         <div v-show="startOpen" class="storyb00k__start-body">
-          <div v-if="startSvg" class="storyb00k__start-svg" data-testid="starting-render" v-html="startSvg"></div>
+          <ZoomPan v-if="startSvg" :content-key="startSvg.length" height="18rem">
+            <div class="storyb00k__start-svg" data-testid="starting-render" v-html="startSvg"></div>
+          </ZoomPan>
           <img v-else-if="startingPoint.imageData" :src="startingPoint.imageData" alt="Diagram transferred from the Code Editor" data-testid="starting-image" />
           <p v-else class="storyb00k__empty">No picture yet: press Render.</p>
           <textarea v-model="startDraft" class="storyb00k__start-source" rows="8" spellcheck="false" aria-label="Starting diagram code" data-testid="starting-source"></textarea>
@@ -894,11 +898,13 @@ function formatTokens(u) {
         </button>
         <span v-if="saveState" class="storyb00k__savestate" data-testid="save-state">{{ saveState }}</span>
       </div>
+      <CheckpointDialog :source="activeRevision.source" :format="activeRevision.format" :title="activeRevision.title || activeRevision.label" @saved="saveState = `checkpoint saved to project`" />
       <RevisionTimeline
         v-if="showRevisions"
         :graph="revisionGraph"
         :tool-calls="toolOutcomes"
         :focus-id="revisionFocus"
+        :renderer-url="rendererUrl"
         @restore="checkoutRevision"
         @fork="forkRevision"
       />

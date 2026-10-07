@@ -3,9 +3,10 @@
 // parent), the tool call behind it, a snapshot of the picture, and the actions that matter: view, compare, restore, fork, download.
 // Restoring only changes which revision is current; nothing is ever deleted, so every state stays recoverable.
 import { computed, ref, watch } from 'vue'
+import ZoomPan from './ZoomPan.vue'
 import { diffLines, diffStats } from '../lib/lineDiff.js'
 import { parentOf } from '../lib/revisionGraph.js'
-import { downloadText, sourceFilename } from '../lib/renderSource.js'
+import { downloadText, renderSvg, sourceFilename } from '../lib/renderSource.js'
 
 const props = defineProps({
   graph: { type: Object, required: true },
@@ -13,6 +14,8 @@ const props = defineProps({
   toolCalls: { type: Object, default: () => ({}) },
   /** revision to open (e.g. from a tool call's "revision" link) */
   focusId: { type: String, default: '' },
+  /** kr0ki server, used to draw a snapshot for revisions that were never rendered (starting point, edits) */
+  rendererUrl: { type: String, default: '' },
 })
 const emit = defineEmits(['restore', 'fork'])
 
@@ -41,6 +44,16 @@ const kindLabel = { root: 'start', prompt: 'agent', edit: 'edit', fork: 'fork' }
 
 function view(n) { viewId.value = viewId.value === n.id ? '' : n.id }
 function compare(n) { compareId.value = compareId.value === n.id ? '' : n.id }
+const snapState = ref('')
+async function renderSnapshot(n) {
+  snapState.value = 'rendering…'
+  try {
+    n.rendered = { svg: await renderSvg({ rendererUrl: props.rendererUrl, format: n.format, route: n.route || null, source: n.source }) }
+    snapState.value = ''
+  } catch (err) {
+    snapState.value = `Render failed: ${err.message}`
+  }
+}
 function download(n) { downloadText(sourceFilename(n.format, `revision-${n.id.slice(-6)}`), n.source) }
 </script>
 
@@ -69,9 +82,15 @@ function download(n) { downloadText(sourceFilename(n.format, `revision-${n.id.sl
           <button type="button" data-testid="rev-download" :disabled="!r.n.source" title="Download this revision's code" @click="download(r.n)">⬇ Code</button>
         </div>
         <div v-if="r.n.id === viewId" class="timeline__view" data-testid="rev-snapshot">
-          <img v-if="r.n.rendered?.imageDataUrl" :src="r.n.rendered.imageDataUrl" alt="Snapshot of this revision" />
-          <div v-else-if="r.n.rendered?.svg" class="timeline__svg" v-html="r.n.rendered.svg"></div>
-          <p v-else class="timeline__empty">No picture was captured for this revision.</p>
+          <ZoomPan v-if="r.n.rendered?.imageDataUrl || r.n.rendered?.svg" :content-key="r.n.id" height="18rem">
+            <img v-if="r.n.rendered?.imageDataUrl" :src="r.n.rendered.imageDataUrl" alt="Snapshot of this revision" />
+            <div v-else class="timeline__svg" v-html="r.n.rendered.svg"></div>
+          </ZoomPan>
+          <p v-else class="timeline__empty">
+            No picture was captured for this revision.
+            <button type="button" data-testid="rev-render" :disabled="!r.n.source" @click="renderSnapshot(r.n)">▶ Render snapshot</button>
+            <span v-if="snapState" data-testid="rev-render-state">{{ snapState }}</span>
+          </p>
           <pre class="timeline__src">{{ r.n.source || '(empty)' }}</pre>
         </div>
       </li>

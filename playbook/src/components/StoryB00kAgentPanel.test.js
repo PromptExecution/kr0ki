@@ -111,4 +111,15 @@ describe('RevisionTimeline', () => {
     const w = mountTl(g, { focusId: g.nodes[1].id })
     expect(w.find('[data-testid="rev-snapshot"]').exists()).toBe(true)
   })
+
+  it('draws a snapshot on demand for a revision that was never rendered', async () => {
+    const g = graph()
+    const f = vi.fn(async () => ({ ok: true, text: async () => '<svg id="late"/>' }))
+    vi.stubGlobal('fetch', f)
+    const w = mountTl(g, { focusId: g.nodes[2].id, rendererUrl: 'http://k.test' })
+    await w.find('[data-testid="rev-render"]').trigger('click')
+    await flushPromises()
+    expect(f).toHaveBeenCalledWith('http://k.test/render/d2?output=svg', expect.anything())
+    expect(w.find('[data-testid="rev-snapshot"]').html()).toContain('late')
+  })
 })
