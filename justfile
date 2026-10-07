@@ -509,7 +509,7 @@ sysmd-image:
 
 sysmd-up:
     -podman rm -f kr0ki-sysmd
-    podman run -d --rm --name kr0ki-sysmd --init --memory=1g --memory-swap=1g --read-only --tmpfs /tmp --tmpfs /app/SysMD:rw,mode=1777 --cap-drop=ALL --security-opt no-new-privileges -p 127.0.0.1:8081:8081 localhost/kr0ki-sysmd:dev
+    podman run -d --rm --name kr0ki-sysmd --init --memory=1g --memory-swap=1g --read-only --tmpfs /tmp -v kr0ki-sysmd-data:/app/SysMD:U --cap-drop=ALL --security-opt no-new-privileges -p 127.0.0.1:8081:8081 localhost/kr0ki-sysmd:dev
     @echo "SysMD on http://127.0.0.1:8081 (set KR0KI_SYSMD_URL to use it from kr0ki-server)"
 sysmd-down:
     -podman rm -f kr0ki-sysmd

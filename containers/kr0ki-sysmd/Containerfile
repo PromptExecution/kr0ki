@@ -6,7 +6,7 @@ WORKDIR /app
 COPY sysmd.jar /app/sysmd.jar
 USER sysmd
 EXPOSE 8081
-# Run with: --init --memory 1g --read-only --tmpfs /tmp --tmpfs /app/SysMD:rw,mode=1777 --cap-drop=ALL --security-opt no-new-privileges
+# Run with: --init --memory 1g --read-only --tmpfs /tmp -v kr0ki-sysmd-data:/app/SysMD:U --cap-drop=ALL --security-opt no-new-privileges
 # (SysMD keeps each project as files under /app/SysMD; kr0ki treats that as a throwaway store.)
 ENV JAVA_TOOL_OPTIONS="-Xmx512m -Djava.io.tmpdir=/tmp/sysmd -Dlogging.file.name=/tmp/sysmd/sysmd.log -Djava.awt.headless=true"
 CMD ["java", "-jar", "/app/sysmd.jar", "headless"]

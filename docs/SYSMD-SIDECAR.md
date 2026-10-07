@@ -41,7 +41,7 @@ unmappable unit is reported (`unit_problem`), not guessed.
 Upstream is on the CPS chair's GitLab (GitHub is a mirror), so patches go by emailed diff; the formatted patches are kept with the fork branches.
 
 ## Limits
-* SysMD writes each project as files under `/app/SysMD` (a tmpfs here, so nothing persists across restarts).
+* SysMD writes each project as files under `/app/SysMD`: a named podman volume (`kr0ki-sysmd-data`) mounted with `:U`, so podman chowns it to the container user (uid 10001) and no world-writable mode is needed. (A tmpfs cannot take `uid=` under rootless podman.) kr0ki deletes each project it creates; `podman volume rm kr0ki-sysmd-data` clears the rest.
 * `POST /session` / `PUT /session/model` take no auth: keep it on loopback (the unit and `just sysmd-up` bind `127.0.0.1`).
 * kr0ki solves at most 2 models at once and deletes each project and session; the container memory limit and `Restart=on-failure` are the backstop.
 * SysMD's own `Variable` values are only the *solved range*; kr0ki does not feed solutions back into `ufo-types` models yet.
