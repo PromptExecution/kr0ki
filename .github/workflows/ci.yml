@@ -47,6 +47,12 @@ jobs:
           cache-dependency-path: playbook/pnpm-lock.yaml
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # KR-A07's sandbox cases run under bubblewrap and fail (by design) without it.
+      - name: Install bubblewrap and allow unprivileged user namespaces
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --ro-bind / / true
       - run: cargo test --workspace
       - name: kr0ki-mcp Python tests
         run: |
