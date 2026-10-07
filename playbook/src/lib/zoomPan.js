@@ -1,6 +1,6 @@
 // Pure view-transform maths for zooming and panning a large diagram: {scale, x, y} maps content to the viewport
 // (screen = content * scale + translate). Kept apart from the component so it can be tested without a DOM.
-export const MIN_SCALE = 0.05
+export const MIN_SCALE = 0.01
 export const MAX_SCALE = 16
 
 export const clampScale = (s) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s))

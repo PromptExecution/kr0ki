@@ -8,6 +8,8 @@ const props = defineProps({
   contentKey: { type: [String, Number], default: '' },
   /** viewport height; "tall" gives a large working area for big diagrams */
   height: { type: String, default: '24rem' },
+  /** natural size {w,h} when the slot cannot report it (an <img> of an svg that has a viewBox but no width/height) */
+  size: { type: Object, default: null },
 })
 
 const vp = ref(null)
@@ -25,12 +27,16 @@ function measure() {
   const svg = el.querySelector('svg')
   const declared = svg ? svgSize(svg.outerHTML.slice(0, 600)) : null
   const img = el.querySelector('img')
-  natural.value = declared
+  natural.value = props.size?.w > 0 && props.size?.h > 0
+    ? { w: props.size.w, h: props.size.h }
+    : declared
     ? { w: declared.w, h: declared.h }
     : img && img.naturalWidth
       ? { w: img.naturalWidth, h: img.naturalHeight }
       : { w: el.scrollWidth || 0, h: el.scrollHeight || 0 }
   // Give an <svg> its natural pixel size so the transform scales it, instead of the svg shrinking to the viewport width.
+  // An <img> of a viewBox-only svg has no intrinsic size; pin it to the natural size so the transform scales a real box.
+  if (img && natural.value.w > 0) { img.style.width = `${natural.value.w}px`; img.style.height = `${natural.value.h}px` }
   if (svg && declared) { svg.setAttribute('width', declared.w); svg.setAttribute('height', declared.h); svg.style.maxWidth = 'none' }
 }
 
@@ -115,6 +121,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => ro?.disconnect())
 watch(() => props.contentKey, refit)
+watch(() => props.size, refit)
 watch(tall, () => nextTick(fitView))
 
 const percent = () => `${Math.round(view.value.scale * 100)}%`

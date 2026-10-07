@@ -4,6 +4,7 @@ import { fetchSkill } from '../lib/skills.js'
 import { LANGUAGES, lspCapable } from '../lib/lsp.js'
 import CodeEditor from './CodeEditor.vue'
 import ZoomPan from './ZoomPan.vue'
+import { svgSize } from '../lib/zoomPan.js'
 import CheckpointDialog from './CheckpointDialog.vue'
 import { downloadText, sourceFilename } from '../lib/renderSource.js'
 
@@ -44,6 +45,7 @@ const getFallbackUrl = () => {
 }
 const localRendererUrl = ref(getFallbackUrl())
 const artifactUrl = ref('')
+const artifactSize = ref(null) // natural size of an svg artifact, read from its text (an <img> of a viewBox-only svg reports none)
 const result = ref('Ready')
 const busy = ref(false)
 const autoRender = ref(true)
@@ -187,6 +189,7 @@ async function render() {
     })
     const bytes = await response.blob()
     if (!response.ok) throw new Error(await bytes.text())
+    artifactSize.value = output.value === 'png' ? null : svgSize(await bytes.text())
     artifactUrl.value = URL.createObjectURL(bytes)
     result.value = `${response.headers.get('x-kr0ki-cache') || 'miss'} · ${response.headers.get('x-kr0ki-key') || 'no cache key'}`
   } catch (error) {
@@ -366,7 +369,7 @@ async function sendToAgent() {
       </div>
       <section class="preview" aria-live="polite">
         <p class="status">{{ result }}</p>
-        <ZoomPan v-if="artifactUrl" :content-key="artifactUrl" height="30rem">
+        <ZoomPan v-if="artifactUrl" :content-key="artifactUrl" :size="artifactSize" height="30rem">
           <img :src="artifactUrl" :alt="`${example.title} rendered output`" />
         </ZoomPan>
         <p v-else class="empty">Render the fixture to inspect its artifact here.</p>
