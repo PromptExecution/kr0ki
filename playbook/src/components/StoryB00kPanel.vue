@@ -1,4 +1,5 @@
 <script setup>
+import ZoomPan from './ZoomPan.vue'
 defineProps({
   panel: { type: Object, required: true },
 })
@@ -17,8 +18,10 @@ const kindLabel = {
   <article class="storyb00k-panel" :data-kind="panel.kind">
     <span class="storyb00k-panel__label">{{ kindLabel[panel.kind] || 'Agent output' }}</span>
     <div v-if="panel.kind === 'render'" class="storyb00k-panel__render">
-      <img v-if="panel.imageDataUrl" data-testid="rendered-image" :src="panel.imageDataUrl" alt="Rendered diagram" />
-      <div v-else data-testid="rendered-output" v-html="panel.content"></div>
+      <ZoomPan :content-key="panel.toolCallId || panel.imageDataUrl || panel.content.length">
+        <img v-if="panel.imageDataUrl" data-testid="rendered-image" :src="panel.imageDataUrl" alt="Rendered diagram" />
+        <div v-else data-testid="rendered-output" v-html="panel.content"></div>
+      </ZoomPan>
       <!-- The diagram's source is already in the panel: let the user jump
            straight into the editor with it preloaded. -->
       <div v-if="panel.source?.text" class="storyb00k-panel__source-block">

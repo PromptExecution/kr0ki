@@ -468,7 +468,7 @@ def render_recommendation_samples(recommendations):
     return panels
 
 
-def panel_from_tool_result(name, arguments, content_type, result):
+def panel_from_tool_result(name, arguments, content_type, result, tool_call_id=None):
     """Preserve binary render output rather than corrupting PNG bytes as UTF-8."""
     # Tool-name → editor format/route mapping: the k8s tools take a `manifest`
     # arg and have no `format` argument, so without this the EDIT button would
@@ -486,6 +486,7 @@ def panel_from_tool_result(name, arguments, content_type, result):
     panel = {
         "kind": "render" if name.startswith("render_") else "query-result",
         "toolName": name,
+        "toolCallId": tool_call_id,  # lets the UI tie this picture to the tool call that made it
         "source": {
             "text": arguments.get("source") or arguments.get("manifest"),
             "format": panel_format,
@@ -984,14 +985,14 @@ class Handler(BaseHTTPRequestHandler):
         if diagram_context and diagram_context.get("source"):
             ctx = diagram_context
             context_msg = (
-                f"DIAGRAM CONTEXT (from Code Editor handoff):\n"
+                f"CURRENT DIAGRAM (the user's working state; the Code Editor handoff or the revision they restored or last edited):\n"
                 f"Title: {ctx.get('title', 'Untitled')}\n"
                 f"Format: {ctx.get('format', 'unknown')}\n"
                 f"Detected Type: {ctx.get('detectedType', 'unknown')}\n"
                 f"Output: {ctx.get('output', 'svg')}\n"
                 f"\nDiagram Source Code:\n```\n{ctx['source']}\n```\n"
-                f"\nThe user wants you to review this diagram and suggest improvements. "
-                f"Analyze both the code structure and suggest specific improvements."
+                f"\nApply the user's next request to THIS diagram: start from this source and change only what they ask for. "
+                f"If they ask for a review, analyze the code structure and suggest specific improvements."
             )
             messages.append({"role": "user", "content": context_msg})
             # Clear the context after injecting it (one-time use)
@@ -1301,7 +1302,7 @@ class Handler(BaseHTTPRequestHandler):
                     content_type, result = http_call(method, url, body)
                     if call_key:
                         completed_calls.add(call_key)
-                    panel = panel_from_tool_result(name, arguments, content_type, result)
+                    panel = panel_from_tool_result(name, arguments, content_type, result, tool_call_id)
                     tool_content = panel["content"] or "Rendered binary image."
                     tool_image_data_url = panel.get("imageDataUrl")
                     tool_ok = True

@@ -10,6 +10,7 @@ import ProjectsView from './components/ProjectsView.vue'
 import AssuranceView from './components/AssuranceView.vue'
 import { connectUiBridge, plannerSessionId } from './lib/uiBridge.js'
 import { loadLspUrls, saveLspUrls } from './lib/lsp.js'
+import { bindViewHistory } from './lib/viewHistory.js'
 
 // Version from Cargo.toml (injected at build time by Vite)
 const appVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'
@@ -23,6 +24,10 @@ const viewMode = ref('gallery')
 // The planner chat stays mounted once opened, so its conversation survives switching tabs.
 const plannerMounted = ref(false)
 watch(viewMode, (v) => { if (v === 'planner') plannerMounted.value = true })
+// Each tab is a browser history entry (#/agent, #/editor, ...), so Back returns to the previous tab instead of leaving kr0ki.
+const viewHistory = bindViewHistory({ getView: () => viewMode.value, setView: (v) => { viewMode.value = v } })
+watch(viewMode, (v) => viewHistory.push(v))
+onBeforeUnmount(() => viewHistory.stop())
 // Source handed over from StoryB00k's EDIT button (agent-rendered diagram).
 const editedSource = ref('')
 const editedRoute = ref(null)
@@ -364,7 +369,10 @@ onMounted(async () => {
         @open-in-editor="openInEditor"
         @agent-handoff="agentHandoff"
       />
-      <StoryB00k v-else-if="viewMode === 'storyb00k'" :prefill="agentPrefill" :locked-type="agentTypeId" :llm-url="llmUrl" :llm-key="llmKey" :llm-model="llmModel" :agent-url="agentUrl" :editor-handoff="editorHandoff" @edit-in-editor="editInEditor" />
+      <!-- Kept alive so leaving the tab (or pressing Back) does not throw away the transcript, panels and revisions. -->
+      <KeepAlive v-else-if="viewMode === 'storyb00k'">
+        <StoryB00k :prefill="agentPrefill" :locked-type="agentTypeId" :llm-url="llmUrl" :llm-key="llmKey" :llm-model="llmModel" :agent-url="agentUrl" :renderer-url="rendererUrl" :editor-handoff="editorHandoff" @edit-in-editor="editInEditor" />
+      </KeepAlive>
       <RendererPanel
         v-else-if="selectedExample"
         :example="selectedExample"

@@ -3,6 +3,10 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { fetchSkill } from '../lib/skills.js'
 import { LANGUAGES, lspCapable } from '../lib/lsp.js'
 import CodeEditor from './CodeEditor.vue'
+import ZoomPan from './ZoomPan.vue'
+import { svgSize } from '../lib/zoomPan.js'
+import CheckpointDialog from './CheckpointDialog.vue'
+import { downloadText, sourceFilename } from '../lib/renderSource.js'
 
 const props = defineProps({
   example: { type: Object, required: true },
@@ -41,6 +45,7 @@ const getFallbackUrl = () => {
 }
 const localRendererUrl = ref(getFallbackUrl())
 const artifactUrl = ref('')
+const artifactSize = ref(null) // natural size of an svg artifact, read from its text (an <img> of a viewBox-only svg reports none)
 const result = ref('Ready')
 const busy = ref(false)
 const autoRender = ref(true)
@@ -184,6 +189,7 @@ async function render() {
     })
     const bytes = await response.blob()
     if (!response.ok) throw new Error(await bytes.text())
+    artifactSize.value = output.value === 'png' ? null : svgSize(await bytes.text())
     artifactUrl.value = URL.createObjectURL(bytes)
     result.value = `${response.headers.get('x-kr0ki-cache') || 'miss'} · ${response.headers.get('x-kr0ki-key') || 'no cache key'}`
   } catch (error) {
@@ -191,6 +197,20 @@ async function render() {
   } finally {
     busy.value = false
   }
+}
+
+function downloadCode() {
+  downloadText(sourceFilename(props.example.format, props.example.id || 'diagram'), source.value)
+}
+// The rendered artifact is a blob: URL already; download it under a name that says what it is.
+function downloadImage() {
+  if (!artifactUrl.value) return
+  const a = document.createElement('a')
+  a.href = artifactUrl.value
+  a.download = `${props.example.id || 'diagram'}.${output.value === 'png' ? 'png' : 'svg'}`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
 }
 
 // Diagram type detection (best-guess regex)
@@ -349,8 +369,15 @@ async function sendToAgent() {
       </div>
       <section class="preview" aria-live="polite">
         <p class="status">{{ result }}</p>
-        <img v-if="artifactUrl" :src="artifactUrl" :alt="`${example.title} rendered output`" />
+        <ZoomPan v-if="artifactUrl" :content-key="artifactUrl" :size="artifactSize" height="30rem">
+          <img :src="artifactUrl" :alt="`${example.title} rendered output`" />
+        </ZoomPan>
         <p v-else class="empty">Render the fixture to inspect its artifact here.</p>
+        <div class="export-row" data-testid="export-row">
+          <button type="button" data-testid="export-code" :disabled="!source.trim()" title="Download the diagram code" @click="downloadCode">⬇ Code</button>
+          <button type="button" data-testid="export-image" :disabled="!artifactUrl" title="Download the rendered image" @click="downloadImage">⬇ {{ output.toUpperCase() }}</button>
+          <CheckpointDialog :source="source" :format="example.format" :title="example.title" />
+        </div>
       </section>
     </div>
   </article>
@@ -374,5 +401,6 @@ async function sendToAgent() {
 .toast-leave-active { transition: opacity .4s ease; }
 .toast-enter-from { opacity: 0; transform: translateY(-4px); }
 .toast-leave-to { opacity: 0; }
+.export-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; margin-top: .5rem; }
 </style>
 

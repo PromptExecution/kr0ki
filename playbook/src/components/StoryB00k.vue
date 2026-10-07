@@ -2,10 +2,13 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useChat } from '@synoped/ag-ui-vue'
 import StoryB00kPanel from './StoryB00kPanel.vue'
-import RevisionFlow from './RevisionFlow.vue'
+import RevisionTimeline from './RevisionTimeline.vue'
+import ZoomPan from './ZoomPan.vue'
+import CheckpointDialog from './CheckpointDialog.vue'
+import { downloadText, renderSvg, sourceFilename } from '../lib/renderSource.js'
 import {
   createRevisionGraph, activeNode, addPromptNode, addEditNode,
-  checkoutNode, forkFrom, serialize as serializeGraph,
+  checkoutNode, forkFrom, serialize as serializeGraph, nodeForToolCall,
 } from '../lib/revisionGraph.js'
 
 const props = defineProps({
@@ -17,6 +20,7 @@ const props = defineProps({
   llmKey: { type: String, default: '' },
   llmModel: { type: String, default: 'gpt-4o' },
   agentUrl: { type: String, default: '' },
+  rendererUrl: { type: String, default: '' },
   // Editor → Agent handoff: full diagram data from the editor
   editorHandoff: { type: Object, default: null },
   // Planner mode (gallery side panel): a chat-only column whose thread id doubles as the UI session id, so
@@ -71,11 +75,44 @@ const handoffProblem = computed(() => (props.editorHandoff ? validateHandoff(pro
 watch(() => props.editorHandoff, (handoff) => {
   handoffError.value = ''
   startOpen.value = true
+  startDraft.value = handoff?.source || ''
+  startSvg.value = ''
+  startRenderState.value = ''
+  // A new handoff arriving while this panel is alive becomes a new revision on top of what is there (kept alive across tabs).
+  if (handoff?.source?.trim() && handoff.source !== activeNode(revisionGraph).source) {
+    const n = addEditNode(revisionGraph, { source: handoff.source, format: handoff.format, route: handoff.route || null, label: handoff.title ? `From Code Editor: ${handoff.title}` : 'From Code Editor' })
+    n.detectedType = handoff.detectedType
+    n.output = handoff.output
+    n.title = handoff.title
+  }
   if (handoff) console.info('[storyb00k] handoff received:', {
     format: handoff.format, detectedType: handoff.detectedType,
     title: handoff.title, sourceLen: handoff.source?.length ?? 0,
   })
 })
+// The starting point is editable and renderable in place: edit the code, Render to see it, and apply it as a new revision (the
+// agent's next request then starts from your edit). Resets when a new handoff arrives.
+const startDraft = ref(props.editorHandoff?.source || '')
+const startSvg = ref('')
+const startRenderState = ref('')
+async function renderStart() {
+  const h = startingPoint.value
+  if (!h) return
+  startRenderState.value = 'rendering…'
+  try {
+    startSvg.value = await renderSvg({ rendererUrl: props.rendererUrl, format: h.format, route: h.route || null, source: startDraft.value })
+    startRenderState.value = ''
+  } catch (err) {
+    startSvg.value = ''
+    startRenderState.value = `Render failed: ${err.message}`
+  }
+}
+function applyStartEdit() {
+  const h = startingPoint.value
+  if (!h || !startDraft.value.trim() || startDraft.value === activeRevision.value.source) return
+  addEditNode(revisionGraph, { source: startDraft.value, format: h.format, route: h.route || null, label: 'Edited starting point' })
+  saveState.value = 'applied your edit as a new revision'
+}
 const autoScroll = ref(true)
 const transcriptEl = ref(null)
 const chat = useChat({
@@ -171,13 +208,40 @@ async function testAgentConnection() {
 
 // Test connection on mount
 testAgentConnection()
-const toolActivity = computed(() => Array.from(toolCallTrackers.value?.values() || []).map(t => ({
-  id: t.toolCallId,
-  name: t.toolName,
-  running: t.state === 'input-streaming' || t.state === 'input-available' || t.state === 'approval-requested',
-  failed: t.state === 'output-error' || t.state === 'output-denied',
-  output: t.output,
-})))
+// What each tool call did, in the order it happened: arguments, outcome, and (for renders) the revision it produced.
+// A call "failed" when the tracker says so OR its result text says the tool failed / was held back (the agent reports
+// those as ordinary results, so the tracker alone would call them successes).
+function toolOutcome(t) {
+  if (t.state === 'output-error' || t.state === 'output-denied' || t.error) return 'failed'
+  if (t.state === 'input-streaming' || t.state === 'input-available' || t.state === 'approval-requested') return 'running'
+  if (/^tool \S+ failed:|was NOT run yet/.test(String(t.output || ''))) return 'failed'
+  return 'ok'
+}
+function prettyArgs(raw) {
+  try { return JSON.stringify(JSON.parse(raw || '{}'), null, 2) } catch { return String(raw || '') }
+}
+const toolActivity = computed(() => Array.from(toolCallTrackers.value?.values() || []).map((t) => {
+  const outcome = toolOutcome(t)
+  const rev = nodeForToolCall(revisionGraph, t.toolCallId)
+  return {
+    id: t.toolCallId,
+    name: t.toolName,
+    running: outcome === 'running',
+    failed: outcome === 'failed',
+    ok: outcome === 'ok',
+    args: prettyArgs(t.args),
+    output: t.output || t.error || '',
+    revisionId: rev?.id || '',
+  }
+}))
+const toolOutcomes = computed(() => Object.fromEntries(toolActivity.value.map((t) => [t.id, { name: t.name, ok: t.ok }])))
+const openTool = ref('')
+function showToolRevision(tool) {
+  if (!tool.revisionId) return
+  showRevisions.value = true
+  revisionFocus.value = tool.revisionId
+}
+const revisionFocus = ref('')
 // ---- Project: the conceptual unit of work within a session ----
 // The agent tracks goal/Q&A/prompts server-side (project_store.py); the UI
 // mirrors it so the user can see (and edit) what was asked and answered.
@@ -286,18 +350,28 @@ if (props.editorHandoff) {
 
 // Watch panel renders: when the agent produces a new diagram, record it as a
 // prompt node (the prompt that produced it) on top of the active revision.
+// Every render becomes a revision, once (keyed by the tool call that made it; by source when the panel has no id), with
+// its picture so the timeline can show it later without re-rendering.
+function lastUserText() {
+  const u = [...items.value].reverse().find((i) => i.role === 'user')
+  return (u?.parts || []).map((p) => (p.type === 'text' ? p.text : '')).join('').trim()
+}
 watch(panels, (list) => {
-  const latest = [...list].reverse().find((p) => p.kind === 'render' && p.source?.text)
-  if (!latest) return
-  if (revisionGraph.nodes.some((n) => n.source === latest.source.text && n.kind !== 'root')) return
-  addPromptNode(revisionGraph, {
-    prompt: latest.promptUsed || latest.toolName || 'agent render',
-    source: latest.source.text,
-    format: latest.source.format || 'd2',
-    route: latest.source.route || null,
-    notes: '',
-  })
-  saveState.value = ''
+  for (const p of list) {
+    if (p.kind !== 'render' || !p.source?.text) continue
+    if (p.toolCallId ? nodeForToolCall(revisionGraph, p.toolCallId) : revisionGraph.nodes.some((n) => n.source === p.source.text && n.kind !== 'root')) continue
+    addPromptNode(revisionGraph, {
+      prompt: lastUserText() || p.toolName || 'agent render',
+      source: p.source.text,
+      format: p.source.format || 'd2',
+      route: p.source.route || null,
+      notes: '',
+      rendered: p.imageDataUrl ? { imageDataUrl: p.imageDataUrl } : p.content ? { svg: p.content } : null,
+      toolCallId: p.toolCallId || null,
+      toolName: p.toolName || null,
+    })
+    saveState.value = ''
+  }
 }, { deep: true })
 
 async function persistChart(description) {
@@ -319,14 +393,12 @@ async function persistChart(description) {
   }
 }
 
+// Restoring only changes which revision is current (the agent's next request starts from it); the evidence panels and every
+// other revision are left alone, so nothing is lost by going back.
 function checkoutRevision(nodeId) {
   checkoutNode(revisionGraph, nodeId)
-  console.info('[storyb00k] time travel →', nodeId)
-  // Push the restored state into the live panel stream so the dashboard shows it.
-  const node = activeNode(revisionGraph)
-  if (node.source) {
-    chat.state.value = { panels: [{ kind: 'render', toolName: 'time-travel', content: '', source: { text: node.source, format: node.format, route: node.route } }], drafts: drafts.value }
-  }
+  console.info('[storyb00k] restored revision →', nodeId)
+  saveState.value = `restored ${activeNode(revisionGraph).label}`
 }
 
 function forkRevision(nodeId) {
@@ -388,42 +460,37 @@ async function sendMessage() {
     }
   }
   
-  // If there's an editor handoff, validate and store the diagram context first
-  if (props.editorHandoff) {
-    const herr = validateHandoff(props.editorHandoff)
-    if (herr) {
-      console.error('[storyb00k] skipping diagram context: ', herr)
-    } else {
-      try {
-        const contextRes = await fetch(`${agentUrl}/projects/set-diagram-context`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            threadId: threadId.value,
-            source: props.editorHandoff.source,
-            format: props.editorHandoff.format,
-            detectedType: props.editorHandoff.detectedType,
-            output: props.editorHandoff.output,
-            imageData: props.editorHandoff.imageData,
-            title: props.editorHandoff.title,
-          }),
-        })
-        if (!contextRes.ok) {
-          const errBody = await contextRes.text().catch(() => '')
-          console.warn('[storyb00k] Failed to set diagram context:', contextRes.status, errBody)
-          handoffError.value = `Handoff failed: HTTP ${contextRes.status}`
-        } else {
-          const data = await contextRes.json().catch(() => ({}))
-          console.info('[storyb00k] Diagram context set for thread:', threadId.value, data)
-          handoffError.value = ''
-        }
-      } catch (err) {
-        console.error('[storyb00k] Error setting diagram context:', err)
-        handoffError.value = `Handoff network error: ${err.message}`
+  // The agent starts from the CURRENT revision (the editor handoff at first; later the agent's last render, an edit, or a
+  // revision the user restored). The server consumes this once per run, so it is sent with every message.
+  const cur = activeRevision.value
+  if (cur?.source?.trim() && cur.format) {
+    try {
+      const contextRes = await fetch(`${agentUrl}/projects/set-diagram-context`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threadId: threadId.value,
+          source: cur.source,
+          format: cur.format,
+          detectedType: cur.detectedType || undefined,
+          output: cur.output || undefined,
+          imageData: cur.kind === 'root' ? props.editorHandoff?.imageData : undefined,
+          title: cur.title || cur.label,
+        }),
+      })
+      if (!contextRes.ok) {
+        const errBody = await contextRes.text().catch(() => '')
+        console.warn('[storyb00k] Failed to set diagram context:', contextRes.status, errBody)
+        handoffError.value = `Could not give the agent the current diagram: HTTP ${contextRes.status}`
+      } else {
+        handoffError.value = ''
       }
+    } catch (err) {
+      console.error('[storyb00k] Error setting diagram context:', err)
+      handoffError.value = `Could not give the agent the current diagram: ${err.message}`
     }
   }
-  
+
   input.value = ''
   console.info('[storyb00k] send →', text, '| thread:', threadId.value, '| agent:', agentUrl)
   try {
@@ -544,9 +611,38 @@ function editPanelSource({ source, format }) {
   emit('edit-in-editor', { source, format })
 }
 
+// "Clear chat" empties the transcript the agent is sent. The project record on the server (goal, answers), the evidence panels
+// and every revision are kept, so nothing that was made is lost.
 function clearThread() {
   console.info('[storyb00k] clearing thread', threadId.value)
   chat.clear()
+}
+
+// "Hide panels" only empties the evidence column. Revisions (with their pictures) are untouched and still listed below.
+function clearPanels() {
+  chat.agent.setState({ ...(chat.state.value || {}), panels: [] })
+  chat.state.value = chat.agent.state
+  comparisonPanels.value = []
+}
+
+// What the agent receives on the next request, shown so there is no hidden state to guess at.
+const showContext = ref(false)
+const contextSummary = computed(() => ({
+  thread: threadId.value,
+  messages: items.value.length,
+  diagram: activeRevision.value.source ? `${activeRevision.value.format}, ${activeRevision.value.source.split('\n').length} lines (revision "${activeRevision.value.label}")` : 'none',
+  answers: project.value?.qa?.length || 0,
+  lockedType: project.value?.lockedType || props.lockedType || '',
+  goal: project.value?.goal || '',
+}))
+
+function downloadCurrent() {
+  const r = activeRevision.value
+  if (r.source) downloadText(sourceFilename(r.format, 'diagram'), r.source)
+}
+function downloadStart() {
+  const h = startingPoint.value
+  if (h) downloadText(sourceFilename(h.format, 'starting-point'), startDraft.value)
 }
 
 function reloadLast() {
@@ -625,9 +721,19 @@ function formatTokens(u) {
           <span class="storyb00k__handoff-meta">{{ startingPoint.title }}<template v-if="startingPoint.title"> · </template>{{ startingPoint.detectedType && startingPoint.detectedType !== 'unknown' ? startingPoint.detectedType + ' · ' : '' }}{{ startingPoint.format }}</span>
         </button>
         <div v-show="startOpen" class="storyb00k__start-body">
-          <img v-if="startingPoint.imageData" :src="startingPoint.imageData" alt="Diagram transferred from the Code Editor" data-testid="starting-image" />
-          <p v-else class="storyb00k__empty">No rendered image was captured with this transfer.</p>
-          <pre data-testid="starting-source">{{ startingPoint.source }}</pre>
+          <ZoomPan v-if="startSvg" :content-key="startSvg.length" height="18rem">
+            <div class="storyb00k__start-svg" data-testid="starting-render" v-html="startSvg"></div>
+          </ZoomPan>
+          <img v-else-if="startingPoint.imageData" :src="startingPoint.imageData" alt="Diagram transferred from the Code Editor" data-testid="starting-image" />
+          <p v-else class="storyb00k__empty">No picture yet: press Render.</p>
+          <textarea v-model="startDraft" class="storyb00k__start-source" rows="8" spellcheck="false" aria-label="Starting diagram code" data-testid="starting-source"></textarea>
+          <div class="storyb00k__start-actions">
+            <button type="button" data-testid="start-render" @click="renderStart">▶ Render</button>
+            <button type="button" data-testid="start-apply" :disabled="!startDraft.trim() || startDraft === activeRevision.source" title="Make your edit the current revision; the agent's next request starts from it" @click="applyStartEdit">Use my edit</button>
+            <button type="button" data-testid="start-editor" title="Open in the Code Editor (renders there, with language-server help)" @click="emit('edit-in-editor', { source: startDraft, format: startingPoint.format, route: startingPoint.route })">✏️ Open in editor</button>
+            <button type="button" data-testid="start-download" @click="downloadStart">⬇ Code</button>
+            <span v-if="startRenderState" class="storyb00k__savestate" data-testid="start-render-state">{{ startRenderState }}</span>
+          </div>
         </div>
       </section>
       <p v-if="planner" class="storyb00k__lede">Tell me what you want to show. I'll narrow the gallery and suggest the best-fit diagram type.</p>
@@ -668,11 +774,19 @@ function formatTokens(u) {
           </template>
         </article>
 
-        <div v-for="tool in toolActivity" :key="tool.id" class="storyb00k__step" data-testid="tool-step">
-          <span class="storyb00k__step-name">{{ tool.name }}</span>
-          <span v-if="tool.running" class="storyb00k__step-status">running…</span>
-          <span v-else-if="tool.failed" class="storyb00k__step-status storyb00k__step-status--error">failed</span>
-        </div>
+        <details v-for="tool in toolActivity" :key="tool.id" class="storyb00k__step" data-testid="tool-step" :open="openTool === tool.id" @toggle="openTool = $event.target.open ? tool.id : (openTool === tool.id ? '' : openTool)">
+          <summary>
+            <span class="storyb00k__step-name">{{ tool.name }}</span>
+            <span v-if="tool.running" class="storyb00k__step-status">running…</span>
+            <span v-else-if="tool.failed" class="storyb00k__step-status storyb00k__step-status--error" data-testid="tool-failed">✗ failed</span>
+            <span v-else class="storyb00k__step-status storyb00k__step-status--ok" data-testid="tool-ok">✓ ok</span>
+            <button v-if="tool.revisionId" type="button" class="storyb00k__step-rev" data-testid="tool-revision" title="Show the diagram this call produced, in the revision timeline" @click.prevent="showToolRevision(tool)">⏱ revision</button>
+          </summary>
+          <p class="storyb00k__step-label">Arguments</p>
+          <pre class="storyb00k__step-pre">{{ tool.args }}</pre>
+          <p class="storyb00k__step-label">Result</p>
+          <pre class="storyb00k__step-pre">{{ tool.output ? tool.output.slice(0, 4000) : '(none yet)' }}</pre>
+        </details>
 
         <div v-for="interrupt in interrupts" :key="interrupt.id" class="storyb00k__interrupt">
           <template v-if="isQuestionInterrupt(interrupt)">
@@ -739,9 +853,18 @@ function formatTokens(u) {
           <button v-if="busy" @click="stopRun">Stop</button>
           <button v-else :disabled="!input.trim()" data-testid="send" @click="sendMessage">Send</button>
           <button :disabled="busy" title="Drop everything after the last user message and run it again" @click="reloadLast">Retry</button>
-          <button :disabled="busy && !items.length" title="Empty the transcript and reset run state" @click="clearThread">Clear</button>
+          <button :disabled="busy && !items.length" title="Empty the chat transcript. Your project record, the evidence panels and all revisions are kept." @click="clearThread">Clear chat</button>
+          <button type="button" data-testid="toggle-context" title="What the agent receives with your next message" @click="showContext = !showContext">{{ showContext ? '▾' : '▸' }} Context</button>
         </div>
       </div>
+      <dl v-if="showContext" class="storyb00k__context" data-testid="context-info">
+        <dt>Sent with every message</dt>
+        <dd>this chat's {{ contextSummary.messages }} message{{ contextSummary.messages === 1 ? '' : 's' }} (nothing else is remembered from earlier runs), plus the current diagram: {{ contextSummary.diagram }}.</dd>
+        <dt>Kept on the server for this thread ({{ contextSummary.thread.slice(0, 8) }}…)</dt>
+        <dd>your goal{{ contextSummary.goal ? ` ("${contextSummary.goal.slice(0, 60)}")` : '' }}, {{ contextSummary.answers }} answered question{{ contextSummary.answers === 1 ? '' : 's' }}, the diagram type lock{{ contextSummary.lockedType ? ` (${contextSummary.lockedType})` : ' (none)' }}, and the model-change drafts awaiting approval.</dd>
+        <dt>Also in the agent's instructions</dt>
+        <dd>its fixed role, the syntax skill for the diagram type (loaded when the type is locked or a render needs it), and any MBSE skill it chooses to load: that is a visible tool call above, with its arguments.</dd>
+      </dl>
     </section>
 
     <section v-if="!planner" class="storyb00k__dashboard" aria-label="Agent dashboard">
@@ -749,7 +872,7 @@ function formatTokens(u) {
         <h3>Evidence panels</h3>
         <span>{{ panels.length }} panel{{ panels.length === 1 ? '' : 's' }}</span>
         <span v-if="busy" class="storyb00k__spinner" data-testid="panel-spinner" role="status" aria-label="Diagram generating" title="Generating diagram…"></span>
-        <button v-if="panels.length" class="storyb00k__clear-panels" @click="chat.state = { panels: [], drafts: [] }">Clear panels</button>
+        <button v-if="panels.length" class="storyb00k__clear-panels" data-testid="hide-panels" title="Hide these evidence panels. Nothing is deleted: every render is still in the revision timeline below." @click="clearPanels">Hide panels</button>
       </header>
       <p v-if="busy" class="storyb00k__generating" data-testid="generating-note">
         <span class="storyb00k__spinner"></span> Generating diagram<span class="storyb00k__dots">…</span>
@@ -767,17 +890,22 @@ function formatTokens(u) {
           {{ showRevisions ? '▾' : '▸' }} Revisions ({{ revisionGraph.nodes.length }})
         </button>
         <span class="storyb00k__rev-active" :title="activeRevision.prompt || activeRevision.label">
-          active: {{ activeRevision.label }}
+          current: {{ activeRevision.label }}
         </span>
-        <button :disabled="!activeRevision.source" data-testid="save-chart" title="Serialize the revision graph + active diagram to the local filesystem (jj snapshot)" @click="persistChart(`save ${activeRevision.label}`)">
+        <button :disabled="!activeRevision.source" data-testid="download-current" title="Download the current revision's code" @click="downloadCurrent">⬇ Code</button>
+        <button :disabled="!activeRevision.source" data-testid="save-chart" title="Save the revision history and current diagram on the agent server (versioned with jj when available)" @click="persistChart(`save ${activeRevision.label}`)">
           💾 Save
         </button>
-        <span v-if="saveState" class="storyb00k__savestate">{{ saveState }}</span>
+        <span v-if="saveState" class="storyb00k__savestate" data-testid="save-state">{{ saveState }}</span>
       </div>
-      <RevisionFlow
+      <CheckpointDialog :source="activeRevision.source" :format="activeRevision.format" :title="activeRevision.title || activeRevision.label" @saved="saveState = `checkpoint saved to project`" />
+      <RevisionTimeline
         v-if="showRevisions"
         :graph="revisionGraph"
-        @checkout="checkoutRevision"
+        :tool-calls="toolOutcomes"
+        :focus-id="revisionFocus"
+        :renderer-url="rendererUrl"
+        @restore="checkoutRevision"
         @fork="forkRevision"
       />
     </section>
@@ -879,4 +1007,17 @@ function formatTokens(u) {
 .storyb00k__fasttrack button:hover { filter: brightness(1.1); }
 .storyb00k__fasttrack button:disabled { opacity: .5; cursor: wait; }
 @media (max-width: 760px) { .storyb00k { grid-template-columns: 1fr; } }
+
+.storyb00k__start-source { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: .8rem; }
+.storyb00k__start-actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.storyb00k__start-svg { max-width: 100%; overflow: auto; }
+.storyb00k__start-svg :deep(svg) { max-width: 100%; height: auto; }
+.storyb00k__step summary { display: flex; gap: .5rem; align-items: center; cursor: pointer; }
+.storyb00k__step-status--ok { color: #15803d; }
+.storyb00k__step-rev { font-size: .72rem; padding: .05rem .4rem; cursor: pointer; margin-left: auto; }
+.storyb00k__step-label { margin: .4rem 0 .1rem; font-size: .7rem; text-transform: uppercase; opacity: .65; }
+.storyb00k__step-pre { margin: 0; padding: .4rem; background: rgba(100, 116, 139, .12); border-radius: 4px; white-space: pre-wrap; overflow-x: auto; max-height: 12rem; overflow-y: auto; font-size: .76rem; }
+.storyb00k__context { margin: .4rem 0 0; font-size: .8rem; padding: .5rem .7rem; border: 1px solid #c8ced8; border-radius: 6px; }
+.storyb00k__context dt { font-weight: 700; margin-top: .3rem; }
+.storyb00k__context dd { margin: 0; opacity: .85; }
 </style>

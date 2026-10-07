@@ -56,7 +56,7 @@ describe('StoryB00kPanel', () => {
     it('shows the transferred code and diagram on the very first mount', async () => {
       const w = mount(StoryB00k, { props: { editorHandoff: handoff } })
       await flushPromises()
-      expect(w.find('[data-testid="starting-source"]').text()).toBe('a -> b')
+      expect(w.find('[data-testid="starting-source"]').element.value).toBe('a -> b')
       expect(w.find('[data-testid="starting-image"]').attributes('src')).toBe(handoff.imageData)
     })
 
@@ -74,7 +74,7 @@ describe('StoryB00kPanel', () => {
       const noImg = mount(StoryB00k, { props: { editorHandoff: { ...handoff, imageData: null } } })
       await flushPromises()
       expect(noImg.find('[data-testid="starting-image"]').exists()).toBe(false)
-      expect(noImg.text()).toContain('No rendered image was captured')
+      expect(noImg.text()).toContain('No picture yet')
       expect(mount(StoryB00k).find('[data-testid="starting-point"]').exists()).toBe(false)
     })
 

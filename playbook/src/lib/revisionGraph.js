@@ -51,7 +51,7 @@ export function ancestryOf(graph, nodeId) {
 }
 
 /** Mutate the active node's diagram: append a prompt node on top of it. */
-export function addPromptNode(graph, { prompt, source, format, route, notes = '' }) {
+export function addPromptNode(graph, { prompt, source, format, route, notes = '', rendered = null, toolCallId = null, toolName = null }) {
   const parent = activeNode(graph)
   const node = {
     id: makeId('rev'),
@@ -63,6 +63,10 @@ export function addPromptNode(graph, { prompt, source, format, route, notes = ''
     format,
     route,
     notes,
+    // The picture this state produced, and the tool call that produced it, so a revision can be shown and traced without re-rendering.
+    rendered,
+    toolCallId,
+    toolName,
     createdAt: new Date().toISOString(),
   }
   graph.nodes.push(node)
@@ -117,6 +121,17 @@ export function addEditNode(graph, { source, format, route, label = 'Edited' }) 
   graph.nodes.push(node)
   graph.activeId = node.id
   return node
+}
+
+/** The revision a tool call produced, if any. */
+export function nodeForToolCall(graph, toolCallId) {
+  return graph.nodes.find((n) => n.toolCallId === toolCallId) || null
+}
+
+/** The parent of a node (null for a root). */
+export function parentOf(graph, nodeId) {
+  const n = graph.nodes.find((x) => x.id === nodeId)
+  return (n?.parentId && graph.nodes.find((x) => x.id === n.parentId)) || null
 }
 
 /** JSON persistence shape (small, stable, jj-friendly). */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createRevisionGraph, activeNode, addPromptNode, addEditNode,
-  checkoutNode, forkFrom, serialize, deserialize, ancestryOf,
+  checkoutNode, forkFrom, serialize, deserialize, ancestryOf, nodeForToolCall, parentOf,
 } from '../revisionGraph.js'
 
 describe('revisionGraph', () => {
@@ -60,5 +60,16 @@ describe('revisionGraph', () => {
 
   it('rejects foreign payloads', () => {
     expect(() => deserialize({ version: 99, nodes: [] })).toThrow()
+  })
+
+  it('remembers the picture and the tool call behind a revision', () => {
+    const g = createRevisionGraph({ source: 'a', format: 'd2' })
+    const n = addPromptNode(g, { prompt: 'p', source: 'a -> b', format: 'd2', rendered: { svg: '<svg/>' }, toolCallId: 'tc1', toolName: 'render_diagram' })
+    expect(nodeForToolCall(g, 'tc1').id).toBe(n.id)
+    expect(nodeForToolCall(g, 'nope')).toBeNull()
+    expect(n.rendered).toEqual({ svg: '<svg/>' })
+    expect(parentOf(g, n.id).kind).toBe('root')
+    expect(parentOf(g, g.nodes[0].id)).toBeNull()
+    expect(deserialize(serialize(g)).nodes[1].toolCallId).toBe('tc1')
   })
 })
