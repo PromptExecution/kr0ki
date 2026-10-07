@@ -1,0 +1,15 @@
+# EVALUATION ONLY (docs/evaluations/EVAL-graalvm-vs-jvm-kroki.md): the production kroki-compat image with its JDK swapped for another one.
+# Only /opt/java/openjdk changes. It is the directory the base image's PATH, Kroki's entrypoint and plantuml-java all resolve
+# `java` from, so the Kroki server and the per-request PlantUML JVM move together.
+#   podman build --memory=2g -t localhost/kr0ki-kroki-compat:graalvm25 --build-arg JDK_IMAGE=ghcr.io/graalvm/jdk-community:25 -f containers/kroki-compat/Containerfile.jdk-swap .
+#   podman build --memory=2g -t localhost/kr0ki-kroki-compat:temurin25 --build-arg JDK_IMAGE=docker.io/library/eclipse-temurin:25-jre -f containers/kroki-compat/Containerfile.jdk-swap .
+ARG JDK_IMAGE
+FROM ${JDK_IMAGE} AS jdk
+# Resolve the JDK home from whichever `java` the image puts on PATH (works for Temurin, GraalVM and Oracle layouts).
+RUN mkdir /out && cp -a "$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")" /out/jdk
+
+FROM localhost/kr0ki-kroki-compat:dev
+USER root
+RUN rm -rf /opt/java/openjdk
+COPY --from=jdk /out/jdk /opt/java/openjdk
+USER kroki

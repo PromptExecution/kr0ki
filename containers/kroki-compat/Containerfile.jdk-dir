@@ -1,0 +1,9 @@
+# EVALUATION ONLY: kroki-compat with /opt/java/openjdk replaced by an unpacked JDK directory passed as a named build context.
+# Used when the vendor's container image cannot run on this node (GraalVM 25's Oracle Linux 10 image needs x86-64-v3; the node
+# exposes v2), but the JDK itself runs fine on the Ubuntu base Kroki already uses.
+#   podman build --memory=2g -t localhost/kr0ki-kroki-compat:graalvm25 --build-context jdkdir=/path/to/unpacked/jdk -f containers/kroki-compat/Containerfile.jdk-dir .
+FROM localhost/kr0ki-kroki-compat:dev
+USER root
+RUN rm -rf /opt/java/openjdk
+COPY --from=jdkdir . /opt/java/openjdk
+USER kroki
