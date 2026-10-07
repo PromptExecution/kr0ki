@@ -63,6 +63,8 @@ pub struct AppState {
     pub brand_dir: PathBuf,
     /// SysML v2 MCP sidecar client (`KR0KI_SYSML_MCP_URL`); `None` makes `/sysml/*` return 503.
     pub sysml_mcp: Option<Arc<kr0ki_core::sysml_mcp::SysmlMcpClient>>,
+    /// SysMD constraint-solver sidecar client (`KR0KI_SYSMD_URL`); `None` makes `/sysmd/solve` return 503.
+    pub sysmd: Option<Arc<kr0ki_core::sysmd_client::SysmdClient>>,
     /// AG-UI storyb00k sidecar base URL (deep /health probe). `None` skips it.
     pub storyb00k_agent_url: Option<String>,
     /// OpenAI-compatible LLM endpoint for the storyb00k agent. The /health LLM
@@ -117,6 +119,7 @@ pub fn router_with_gateway(
         .route("/sparql", post(sparql_query))
         .route("/sparql/shapes", post(sparql_shapes))
         .route("/sparql/rollup", post(sparql_rollup))
+        .route("/sysmd/solve", post(sysmd_solve))
         .route(
             "/sysml/validate",
             post(|s: State<AppState>, b: Bytes| sysml_tool(s, "validate", b)),
@@ -1776,6 +1779,64 @@ async fn sysml_tool(State(state): State<AppState>, tool: &'static str, body: Byt
             "sysml_mcp_error",
             &e.to_string(),
         ),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct SysmdSolveQuery {
+    language: Option<String>,
+}
+
+/// `POST /sysmd/solve[?language=sysml|kerml|sysmd]` — body is model text; solved by the SysMD sidecar. Read-only: nothing is
+/// stored in SysMD (the throwaway project and session are deleted). Ranges are widened outward, see `kr0ki_core::sysmd_client`.
+async fn sysmd_solve(
+    State(state): State<AppState>,
+    Query(q): Query<SysmdSolveQuery>,
+    body: Bytes,
+) -> Response {
+    use kr0ki_core::sysmd_client::{SysmdError, SysmdLanguage};
+    let Some(client) = state.sysmd.as_ref() else {
+        return error_json(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "sysmd_not_configured",
+            "set KR0KI_SYSMD_URL to the SysMD sidecar (just sysmd-up)",
+        );
+    };
+    let language = match q
+        .language
+        .as_deref()
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        None | Some("sysml") => SysmdLanguage::Sysml,
+        Some("kerml") => SysmdLanguage::Kerml,
+        Some("sysmd") => SysmdLanguage::Sysmd,
+        Some(_) => {
+            return error_json(
+                StatusCode::BAD_REQUEST,
+                "invalid_language",
+                "language must be sysml, kerml or sysmd",
+            )
+        }
+    };
+    let Ok(code) = std::str::from_utf8(&body) else {
+        return error_json(
+            StatusCode::BAD_REQUEST,
+            "invalid_utf8",
+            "model text must be UTF-8",
+        );
+    };
+    match client.solve(code, language).await {
+        Ok(report) => Json(report).into_response(),
+        Err(SysmdError::TooLarge) => error_json(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "sysmd_source_too_large",
+            "model text is limited to 256 KiB",
+        ),
+        Err(e @ (SysmdError::Unavailable(_) | SysmdError::Protocol(_))) => {
+            error_json(StatusCode::BAD_GATEWAY, "sysmd_unavailable", &e.to_string())
+        }
+        Err(e) => error_json(StatusCode::BAD_GATEWAY, "sysmd_rejected", &e.to_string()),
     }
 }
 

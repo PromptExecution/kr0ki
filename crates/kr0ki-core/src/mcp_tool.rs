@@ -34,6 +34,7 @@ pub enum McpTool {
     ValidateSysml,
     SysmlSymbols,
     SysmlSummary,
+    SolveConstraints,
     ListRequirements,
     GetRequirement,
     TraceRequirement,
@@ -70,6 +71,7 @@ impl McpTool {
         Self::ValidateSysml,
         Self::SysmlSymbols,
         Self::SysmlSummary,
+        Self::SolveConstraints,
         Self::ListRequirements,
         Self::GetRequirement,
         Self::TraceRequirement,
@@ -106,6 +108,7 @@ impl McpTool {
             Self::ValidateSysml => "validate_sysml",
             Self::SysmlSymbols => "sysml_symbols",
             Self::SysmlSummary => "sysml_summary",
+            Self::SolveConstraints => "solve_constraints",
             Self::ListRequirements => "list_requirements",
             Self::GetRequirement => "get_requirement",
             Self::TraceRequirement => "trace_requirement",
@@ -192,6 +195,13 @@ impl McpTool {
             Self::SysmlSummary => {
                 "Summarise SysML v2 text: counts of elements by kind (part def, requirement, ...), via the SysML MCP sidecar."
             }
+            Self::SolveConstraints => {
+                "Solve the numeric constraints of a model with the SysMD sidecar (an interval constraint solver). Send SysML v2 / KerML \
+                 text with attributes that have units and ranges; get back each variable's range as a closed interval (already widened \
+                 outward for SysMD's 5-digit rounding, so it contains the true range) with its unit, plus the solver's issues and a \
+                 verdict: consistent, inconsistent (a constraint cannot hold: the values are not a solution) or error (the model did \
+                 not parse). Read-only. A range that is unbounded or empty is reported as such, never as a number."
+            }
             Self::ListRequirements => {
                 "List the assurance baseline's requirements, each with its status, owner, assurance state (unsatisfied / satisfied_untested / verified / failing / stale) and gap kinds. Filters narrow the result so only what is needed enters your context; call get_requirement for one in full."
             }
@@ -231,6 +241,14 @@ impl McpTool {
                 "type": "object",
                 "required": ["code"],
                 "properties": {"code": {"type": "string", "description": "SysML v2 textual notation (max 256 KiB)."}}
+            }),
+            Self::SolveConstraints => serde_json::json!({
+                "type": "object",
+                "required": ["code"],
+                "properties": {
+                    "code": {"type": "string", "description": "SysML v2 / KerML / SysMD text (max 256 KiB)."},
+                    "language": {"type": "string", "enum": ["sysml", "kerml", "sysmd"], "description": "Notation of `code`; default sysml."}
+                }
             }),
             Self::ListRequirements => serde_json::json!({
                 "type": "object",
@@ -432,6 +450,14 @@ impl McpTool {
                 method: HttpMethod::Post,
                 path_template: "/sysml/summary",
                 args: &[ArgBinding { name: "code", placement: ArgPlacement::Body }],
+            },
+            Self::SolveConstraints => HttpBinding {
+                method: HttpMethod::Post,
+                path_template: "/sysmd/solve",
+                args: &[
+                    ArgBinding { name: "code", placement: ArgPlacement::Body },
+                    ArgBinding { name: "language", placement: ArgPlacement::Query },
+                ],
             },
             Self::ListDiagramTypes => HttpBinding {
                 method: HttpMethod::Get,
@@ -875,7 +901,7 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), before, "duplicate McpTool name in ALL");
-        assert_eq!(McpTool::ALL.len(), 32);
+        assert_eq!(McpTool::ALL.len(), 33);
     }
 
     #[test]

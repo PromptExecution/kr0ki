@@ -1,0 +1,14 @@
+[Unit]
+Description=kr0ki: SysMD constraint-solver sidecar (:8081, loopback only)
+After=network-online.target
+
+[Service]
+ExecStartPre=-/usr/bin/podman rm -f kr0ki-sysmd
+# SysMD has no way to bound its own sessions, so the memory limit + Restart are the backstop; kr0ki deletes each session it opens.
+ExecStart=/usr/bin/podman run --rm --name kr0ki-sysmd --init --memory=1g --memory-swap=1g --read-only --tmpfs /tmp -v kr0ki-sysmd-data:/app/SysMD:U --cap-drop=ALL --security-opt no-new-privileges -p 127.0.0.1:8081:8081 localhost/kr0ki-sysmd:dev
+ExecStop=/usr/bin/podman stop -t 10 kr0ki-sysmd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

@@ -475,7 +475,7 @@ status-agent port="8789":
 
 # Boot persistence: user-level systemd units (linger is enabled for this account, so they start at boot, not login).
 # Needs the images built (`just dev-kroki-up`, `just sysml-mcp-image`) and ./target/debug/kr0ki (`cargo build`).
-services_units := "kr0ki-kroki kr0ki-sysml-mcp kr0ki-server kr0ki-agent"
+services_units := "kr0ki-kroki kr0ki-sysml-mcp kr0ki-sysmd kr0ki-server kr0ki-agent"
 services-install:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -502,6 +502,21 @@ sysml-mcp-image:
 test-sysml-mcp:
     pnpm --dir containers/kr0ki-sysml-mcp install --frozen-lockfile
     pnpm --dir containers/kr0ki-sysml-mcp test
+
+# SysMD constraint-solver sidecar (loopback :8081): builds the PromptExecution/SysMD fork (JDK 25; run alone, not beside cargo).
+sysmd-image:
+    scripts/build-sysmd.sh
+
+sysmd-up:
+    -podman rm -f kr0ki-sysmd
+    podman run -d --rm --name kr0ki-sysmd --init --memory=1g --memory-swap=1g --read-only --tmpfs /tmp -v kr0ki-sysmd-data:/app/SysMD:U --cap-drop=ALL --security-opt no-new-privileges -p 127.0.0.1:8081:8081 localhost/kr0ki-sysmd:dev
+    @echo "SysMD on http://127.0.0.1:8081 (set KR0KI_SYSMD_URL to use it from kr0ki-server)"
+sysmd-down:
+    -podman rm -f kr0ki-sysmd
+
+# Live test of the solver client against a running sidecar (`just sysmd-up` first; it takes ~10 s to start).
+test-live-sysmd:
+    KR0KI_SYSMD_URL=${KR0KI_SYSMD_URL:-http://127.0.0.1:8081} cargo test -p kr0ki-core --test sysmd_live -- --ignored --test-threads=1
 
 # SysML v2 pilot API server + postgres (loopback :9000). Build it once with ~/.local/share/kr0ki/sysml-api/build.sh.
 sysml-api-up:

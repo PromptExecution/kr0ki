@@ -53,6 +53,7 @@ pub mod reqif_fetch;
 pub mod reqif_import;
 pub mod reqif_roundtrip;
 pub mod sync_engine;
+pub mod sysmd_client;
 pub mod sysml_mcp;
 pub mod ui_bus;
 pub mod verification_runner;

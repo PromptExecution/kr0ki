@@ -47,6 +47,17 @@ binding obligations stay distinguishable (`source_kind`).
 A **satisfaction relationship is an architectural assertion**; a **passing result is
 revision-specific evidence**.
 
+### Evidence is revision-bound: re-verify on a minor release, not a patch
+
+Evidence records carry `model_revision` and `implementation_revision`, so a pass proves
+only the revision it ran against; any new commit makes it stale for display.
+
+Release policy: run `just assurance-verify` (then `just assurance-view`) **when the
+minor version bumps** (0.1.x -> 0.2.0) and the evidence is promoted for that release. A
+patch bump (0.1.1 -> 0.1.2) does not trigger a new assurance run; it keeps the evidence
+of the minor it belongs to. Re-run earlier only when a change touches a verified
+requirement's code, model, or configuration digest.
+
 ## Runtime parts
 
 `AgentWorkload`, `WorkloadIdentity`, `ToolGateway`, `ExecutionSandbox`, `ModelService`,

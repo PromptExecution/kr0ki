@@ -231,6 +231,7 @@ pub const ROUTES: &[(&str, &str, Option<&str>)] = &[
     ("POST", "/sysml/parse", Some("model.read")),
     ("POST", "/sysml/symbols", Some("model.read")),
     ("POST", "/sysml/summary", Some("model.read")),
+    ("POST", "/sysmd/solve", Some("model.read")),
     ("POST", "/requirements/import", Some("model.read")),
     ("POST", "/requirements/import/url", Some("model.read")),
     ("POST", "/requirements/export", Some("model.read")),
@@ -311,6 +312,16 @@ pub const ROUTES: &[(&str, &str, Option<&str>)] = &[
     ("GET", "/assurance/skills/:name", Some("assurance.read")),
 ];
 
+/// The static Playb00k UI. With `KR0KI_PUBLIC_UI` on these `GET` routes skip authentication and audit, because a
+/// browser navigation cannot send an `Authorization` header, so the page could not otherwise load. They serve
+/// built JavaScript and example metadata only; every data route stays behind the gateway.
+pub const PUBLIC_UI_PATTERNS: &[&str] = &[
+    "/playbook",
+    "/playbook/",
+    "/playbook/*path",
+    "/playbook/api/examples.json",
+];
+
 /// The grant a `(method, pattern)` requires. Unknown → `admin` (deny by default).
 pub fn required_grant(method: &str, pattern: Option<&str>) -> Option<&'static str> {
     let Some(pattern) = pattern else {
@@ -343,6 +354,7 @@ pub struct Gateway {
     audit: Option<Arc<AuditLog>>,
     tools: BTreeMap<(String, String), &'static str>,
     model_revision: Option<Box<dyn Fn() -> Option<String> + Send + Sync>>,
+    public_ui: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -358,7 +370,15 @@ impl Gateway {
             audit,
             tools: tool_names(),
             model_revision: None,
+            public_ui: false,
         }
+    }
+
+    /// Serve the static Playb00k UI (`PUBLIC_UI_PATTERNS`) without a token. Off by default: an operator opts in.
+    #[allow(dead_code)] // used by main.rs and tests/assurance_a06.rs; other test crates include this file without it
+    pub fn with_public_ui(mut self, on: bool) -> Self {
+        self.public_ui = on;
+        self
     }
 
     /// How to learn "the model revision in play" for routes that name none in the request
@@ -476,6 +496,17 @@ pub async fn gateway_middleware(req: Request, next: Next, gateway: Arc<Gateway>)
         .extensions()
         .get::<MatchedPath>()
         .map(|m| m.as_str().to_string());
+    // Opt-in: the static UI loads without a token (a browser navigation cannot send one). GET only,
+    // and only the exact patterns listed; everything else, including a POST to a /playbook path, is
+    // authenticated and audited as usual.
+    if gateway.public_ui
+        && method == Method::GET
+        && pattern
+            .as_deref()
+            .is_some_and(|p| PUBLIC_UI_PATTERNS.contains(&p))
+    {
+        return next.run(req).await;
+    }
     let transport = match req
         .headers()
         .get("x-kr0ki-transport")
@@ -619,6 +650,20 @@ mod tests {
             stale.is_empty(),
             "gateway::ROUTES entries that match no registered route: {stale:?}"
         );
+    }
+
+    #[test]
+    fn the_public_ui_patterns_are_only_static_playbook_gets_and_hold_no_grant() {
+        for p in PUBLIC_UI_PATTERNS {
+            assert!(p.starts_with("/playbook"), "{p}");
+            let row = ROUTES.iter().find(|(m, rp, _)| *m == "GET" && rp == p);
+            assert!(row.is_some(), "{p} is not a registered GET route");
+            assert_eq!(row.unwrap().2, None, "{p} must need no grant");
+        }
+        // Nothing that serves model or assurance data may ever be listed.
+        assert!(PUBLIC_UI_PATTERNS
+            .iter()
+            .all(|p| !p.contains("assurance") && !p.contains("model") && !p.contains("audit")));
     }
 
     #[test]

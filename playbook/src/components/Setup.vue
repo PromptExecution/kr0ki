@@ -4,16 +4,20 @@ import { LANGUAGES, isWsUrl, lspFormats } from '../lib/lsp.js'
 
 const props = defineProps({
   rendererUrl: { type: String, default: '' },
+  // Optional bearer token for a kr0ki server that has per-identity grants on. Session-only: App keeps it in sessionStorage.
+  kr0kiToken: { type: String, default: '' },
   agentUrl: { type: String, default: '' },
   // Optional language servers: { format: ws:// URL }
   lspUrls: { type: Object, default: () => ({}) },
 })
 
-const emit = defineEmits(['update:rendererUrl', 'update:llmUrl', 'update:llmKey', 'update:llmModel', 'update:agentUrl', 'update:outputFormat', 'update:lspUrls'])
+const emit = defineEmits(['update:kr0kiToken', 'update:rendererUrl', 'update:llmUrl', 'update:llmKey', 'update:llmModel', 'update:agentUrl', 'update:outputFormat', 'update:lspUrls'])
 
 // Local state for form inputs
 const localRendererUrl = ref(props.rendererUrl)
 const localAgentUrl = ref(props.agentUrl)
+const localToken = ref(props.kr0kiToken)
+const showToken = ref(false)
 const llmUrl = ref('')
 const llmKey = ref('')
 const llmModel = ref('')
@@ -56,6 +60,9 @@ import { watch } from 'vue'
 watch(() => props.rendererUrl, (newVal) => {
   localRendererUrl.value = newVal
 })
+watch(() => props.kr0kiToken, (newVal) => {
+  localToken.value = newVal
+})
 
 function saveSettings() {
   // Save LLM settings to localStorage
@@ -67,6 +74,8 @@ function saveSettings() {
   
   // Emit updates
   emit('update:rendererUrl', localRendererUrl.value)
+  // Deliberately NOT written to localStorage with the other settings: the token lives for this browser session only.
+  emit('update:kr0kiToken', localToken.value.trim())
   emit('update:llmUrl', llmUrl.value)
   emit('update:llmKey', llmKey.value)
   emit('update:llmModel', llmModel.value)
@@ -231,6 +240,25 @@ async function testAgent() {
             class="setup__input"
           />
           <span class="setup__hint">The kr0ki server that renders diagrams. Defaults to the current host.</span>
+        </label>
+        <label class="setup__field">
+          <span class="setup__label">Access token <small>(optional)</small></span>
+          <span class="setup__keyrow">
+            <input
+              v-model="localToken"
+              :type="showToken ? 'text' : 'password'"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="only if the server requires one"
+              class="setup__input"
+              data-testid="kr0ki-token"
+            />
+            <button type="button" class="setup__btn setup__btn--secondary" data-testid="toggle-token" @click="showToken = !showToken">{{ showToken ? 'Hide' : 'Show' }}</button>
+          </span>
+          <span class="setup__hint">
+            For a kr0ki server with per-identity grants (the Assurance view needs it). Sent only as an
+            <code>Authorization</code> header to the renderer URL, and kept for <b>this browser session only</b>: closing the tab forgets it.
+          </span>
         </label>
         <label class="setup__field">
           <span class="setup__label">Default Output Format</span>
@@ -424,6 +452,8 @@ async function testAgent() {
   color: #ced8ee;
 }
 
+.setup__keyrow { display: flex; gap: .5rem; align-items: stretch; }
+.setup__keyrow .setup__input { flex: 1; }
 .setup__input {
   width: 100%;
   border: 1px solid #3b4d7d;
