@@ -98,6 +98,9 @@ crates/
 | `KR0KI_TEST_BACKEND` | unset | Live render test backend; use the local/private kroki-compatible service |
 | `KR0KI_SYSMLV2_BASE_URL` | unset | Live SysML-v2 client test target (`just sysml-api-up` serves one on `127.0.0.1:9000`; `just test-live-sysml`) |
 | `OPENAI_API_URL` | (in `.env`) | The agent's / `/health`'s LLM. Boot default is Qwen3.8 NEO-CODER + mmproj (vision) on `127.0.0.1:8002/v1` via `deploy/systemd/b00t-hive-inference-heretic-neo-coder.service`; Qwen3.6 units are disabled |
+| `KR0KI_IDENTITIES_FILE` | unset | Per-identity bearer tokens (stored as SHA-256) and capability grants (`render`, `model.read`, `model.commit`, `assurance.read`, `assurance.propose`, `assurance.verify`, `audit.read`, `ui.steer`, `admin`). When set it **replaces** the shared `KR0KI_AUTH_TOKEN`; every route is classified in `kr0ki-server/src/gateway.rs` and an unclassified route needs `admin`. A tool's visibility or annotations are never what enforces anything |
+| `KR0KI_AUDIT_FILE` | `./.kr0ki-audit/audit.jsonl` when identities are set | Hash-chained, append-only audit log (one record per invocation, permitted or denied). If a record cannot be written the request is refused (503) |
+| `KR0KI_ASSURANCE_BASELINE` / `KR0KI_REPO_ROOT` / `KR0KI_EVIDENCE_DIR` / `KR0KI_ASSURANCE_PREFIX` | `docs/assurance/kr0ki.assurance.toml` / `.` / `./.kr0ki-evidence` / `kr0ki:assurance:` | Enable `/assurance/*` (the assurance thread) and where its baseline, repository and evidence live |
 | `KR0KI_SYSML_MCP_URL` | unset | SysML v2 MCP sidecar (`containers/kr0ki-sysml-mcp`, `127.0.0.1:8790`); enables `/sysml/{validate,parse,symbols,summary}` and the `sysml_mcp` health check |
 
 ---

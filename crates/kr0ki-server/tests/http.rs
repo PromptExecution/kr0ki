@@ -115,6 +115,7 @@ fn test_state(tag: &str) -> AppState {
         boot_wall_clock: std::time::SystemTime::now(),
         auth_token: None,
         contract: Arc::new(contract::ContractReference::default()),
+        assurance: None,
     }
 }
 

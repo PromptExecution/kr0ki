@@ -37,7 +37,9 @@ use std::sync::Arc;
 use anyhow::Context;
 use kr0ki_core::{cache::FsCache, render::HttpKrokiBackend, RenderService};
 
-use crate::app::{router, AppState};
+use crate::app::assurance::{AssuranceRuntime, ChangeApi};
+use crate::app::gateway::{AuthMode, Gateway};
+use crate::app::{router_with_gateway, AppState};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -117,6 +119,92 @@ async fn main() -> anyhow::Result<()> {
         FsCache::new(&cache_dir),
     );
     let contract = Arc::new(contract::ContractReference::from_env());
+    // The assurance thread (`/assurance/*`) and the gateway in front of every route.
+    //   KR0KI_ASSURANCE_BASELINE  baseline TOML (default docs/assurance/kr0ki.assurance.toml if present)
+    //   KR0KI_REPO_ROOT           repository root for paths and git revisions (default .)
+    //   KR0KI_EVIDENCE_DIR        evidence store (default ./.kr0ki-evidence)
+    //   KR0KI_IDENTITIES_FILE     per-identity tokens (sha256) and grants; replaces the shared token
+    //   KR0KI_AUDIT_FILE          audit log (default ./.kr0ki-audit/audit.jsonl when identities are set)
+    let repo_root =
+        std::path::PathBuf::from(std::env::var("KR0KI_REPO_ROOT").unwrap_or_else(|_| ".".into()));
+    let baseline_path = std::env::var("KR0KI_ASSURANCE_BASELINE")
+        .map(std::path::PathBuf::from)
+        .ok()
+        .or_else(|| {
+            let default = repo_root.join("docs/assurance/kr0ki.assurance.toml");
+            default.is_file().then_some(default)
+        });
+    let identities_file = std::env::var("KR0KI_IDENTITIES_FILE")
+        .ok()
+        .filter(|p| !p.trim().is_empty());
+    let audit_path = std::env::var("KR0KI_AUDIT_FILE")
+        .ok()
+        .filter(|p| !p.trim().is_empty())
+        .or_else(|| {
+            identities_file
+                .as_ref()
+                .map(|_| "./.kr0ki-audit/audit.jsonl".to_string())
+        });
+    let audit = match &audit_path {
+        Some(path) => Some(Arc::new(
+            kr0ki_core::audit_log::AuditLog::open(path)
+                .with_context(|| format!("opening audit log {path}"))?,
+        )),
+        None => None,
+    };
+    let auth_mode = match &identities_file {
+        Some(path) => {
+            let text = std::fs::read_to_string(path).with_context(|| format!("reading {path}"))?;
+            let identities = crate::app::gateway::parse_identities(&text)
+                .with_context(|| format!("parsing {path}"))?;
+            if auth_token.is_some() {
+                tracing::warn!(
+                    "KR0KI_IDENTITIES_FILE is set: the shared KR0KI_AUTH_TOKEN is ignored"
+                );
+            }
+            tracing::info!(identities = identities.len(), "per-identity grants enabled");
+            AuthMode::Identities(identities)
+        }
+        None => match &auth_token {
+            Some(token) => AuthMode::SharedToken(token.clone()),
+            None => AuthMode::Open,
+        },
+    };
+    let assurance = baseline_path.map(|baseline_path| {
+        let service = Arc::new(kr0ki_core::assurance_service::AssuranceService::new(
+            kr0ki_core::assurance_service::AssuranceConfig {
+                baseline_path,
+                repo_root: repo_root.clone(),
+                evidence_dir: std::env::var("KR0KI_EVIDENCE_DIR")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|_| repo_root.join(".kr0ki-evidence")),
+                run_timeout: std::time::Duration::from_secs(1800),
+            },
+            Arc::new(kr0ki_core::verification_runner::GitRevisionProbe::new(
+                repo_root.clone(),
+            )),
+            Arc::new(kr0ki_core::verification_runner::ProcessExecutor),
+        ));
+        let changes: Option<Arc<dyn ChangeApi>> = sysmlv2_client.clone().map(|client| {
+            Arc::new(kr0ki_core::change_service::ChangeService::new(
+                kr0ki_core::change_service::SysmlBackend::new(client),
+            )) as Arc<dyn ChangeApi>
+        });
+        Arc::new(AssuranceRuntime {
+            service,
+            changes,
+            audit: audit.clone(),
+            managed_prefix: std::env::var("KR0KI_ASSURANCE_PREFIX")
+                .unwrap_or_else(|_| "kr0ki:assurance:".into()),
+        })
+    });
+    let mut gateway = Gateway::new(auth_mode, audit.clone());
+    if let Some(rt) = &assurance {
+        let service = rt.service.clone();
+        gateway = gateway.with_model_revision(move || service.model_revision());
+    }
+    let gateway = Arc::new(gateway);
+
     let state = AppState {
         service: Arc::new(service),
         playbook_dir,
@@ -135,6 +223,7 @@ async fn main() -> anyhow::Result<()> {
         boot_wall_clock: std::time::SystemTime::now(),
         auth_token: auth_token.clone(),
         contract: contract.clone(),
+        assurance,
     };
 
     let listener = tokio::net::TcpListener::bind(&bind)
@@ -146,7 +235,7 @@ async fn main() -> anyhow::Result<()> {
         local_addr.port()
     );
 
-    axum::serve(listener, router(state, auth_token, contract))
+    axum::serve(listener, router_with_gateway(state, gateway, contract))
         .await
         .context("server error")?;
     Ok(())

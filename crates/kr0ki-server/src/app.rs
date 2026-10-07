@@ -27,6 +27,10 @@ pub type Service = RenderService<HttpKrokiBackend>;
 // Declared here (not in main.rs) so every build context that includes app.rs
 // — the bin crate and the integration-test binaries — resolves this module
 // relative to src/, where health.rs lives.
+#[path = "assurance.rs"]
+pub mod assurance;
+#[path = "gateway.rs"]
+pub mod gateway;
 #[path = "health.rs"]
 pub mod health;
 
@@ -72,13 +76,30 @@ pub struct AppState {
     pub auth_token: Option<String>,
     /// Ledgrrr contract reference for response headers.
     pub contract: Arc<super::contract::ContractReference>,
+    /// The assurance thread (`/assurance/*`). `None` makes those routes return 503.
+    pub assurance: Option<Arc<assurance::AssuranceRuntime>>,
 }
 
-/// If `auth_token` is Some, inject a `RequireAuth` layer that rejects requests
-/// missing `Authorization: Bearer <token>`.
+/// The legacy entry point: `auth_token` is the single shared `KR0KI_AUTH_TOKEN` (or none).
+/// It builds a gateway in `SharedToken` / `Open` mode with no audit log; use
+/// [`router_with_gateway`] for per-identity grants and auditing.
+#[allow(dead_code)] // the bin uses router_with_gateway; the integration tests use this
 pub fn router(
     state: AppState,
     auth_token: Option<String>,
+    contract: Arc<super::contract::ContractReference>,
+) -> Router {
+    let mode = match auth_token {
+        Some(token) => gateway::AuthMode::SharedToken(token),
+        None => gateway::AuthMode::Open,
+    };
+    router_with_gateway(state, Arc::new(gateway::Gateway::new(mode, None)), contract)
+}
+
+/// The router with a [`gateway::Gateway`] in front of every route.
+pub fn router_with_gateway(
+    state: AppState,
+    gateway: Arc<gateway::Gateway>,
     contract: Arc<super::contract::ContractReference>,
 ) -> Router {
     let r = Router::new()
@@ -176,45 +197,19 @@ pub fn router(
         .route("/b00t-graph/:tag", get(b00t_graph))
         .route("/cache/:key", get(cache_get))
         .merge(crate::docs::routes())
+        .merge(assurance::routes())
         .with_state(state);
 
-    let r = match auth_token {
-        Some(token) => r.layer(axum::middleware::from_fn(move |req, next| {
-            require_bearer(req, next, token.clone())
-        })),
-        None => r,
-    };
+    let r = r.layer(axum::middleware::from_fn(move |req, next| {
+        gateway::gateway_middleware(req, next, gateway.clone())
+    }));
 
     // Added last so it is the *outermost* layer (axum layers wrap what came before):
-    // every response, including the 401 the auth layer returns itself, then carries the
-    // contract and request-id headers, and handlers still see the RequestId extension.
+    // every response, including a 401/403 the gateway returns itself, then carries the
+    // contract and request-id headers, and the gateway sees the RequestId extension.
     r.layer(axum::middleware::from_fn(move |req, next| {
         super::contract::contract_middleware(req, next, contract.clone())
     }))
-}
-
-async fn require_bearer(
-    req: axum::extract::Request,
-    next: axum::middleware::Next,
-    token: String,
-) -> Response {
-    // /health is always exempt: readiness probes and `just validate-server` must work without
-    // a token. Exact match only -- nothing under /health/ or merely prefixed with it is exempt.
-    if req.uri().path() == "/health" {
-        return next.run(req).await;
-    }
-    let hdr = req
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok());
-    match hdr {
-        Some(v) if v == format!("Bearer {token}") => next.run(req).await,
-        _ => error_json(
-            StatusCode::UNAUTHORIZED,
-            "unauthorized",
-            "missing or invalid bearer token",
-        ),
-    }
 }
 
 async fn health(State(state): State<AppState>) -> Json<health::HealthReport> {

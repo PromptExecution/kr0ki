@@ -1478,10 +1478,13 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
+ "thiserror 2.0.20",
  "tokio",
+ "toml",
  "tower",
  "tracing",
  "tracing-subscriber",
+ "ufo-types",
  "uuid",
  "wiremock",
 ]
@@ -3498,7 +3501,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 [[package]]
 name = "ufo-types"
 version = "0.15.0"
-source = "git+https://github.com/PromptExecution/ufo-types?rev=db8e22fc2c09ff1b58cc4effce6096d17a89f3e4#db8e22fc2c09ff1b58cc4effce6096d17a89f3e4"
+source = "git+https://github.com/PromptExecution/ufo-types?rev=1846e6f20c68e8eb614556386a56cd3077446cdb#1846e6f20c68e8eb614556386a56cd3077446cdb"
 dependencies = [
  "anyhow",
  "chrono",

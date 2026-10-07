@@ -153,19 +153,19 @@ implementation = "crates/kr0ki-core/src/change_service.rs"
 id = "CTL-A06"
 title = "Capability-grant check in the gateway, deny by default, on every transport"
 component = "kr0ki"
-implementation = ""
+implementation = "crates/kr0ki-server/src/gateway.rs; crates/kr0ki-server/src/assurance.rs"
 
 [[control]]
 id = "CTL-A07"
 title = "Read-only mount of the requirement baseline; writes only to declared mounts"
 component = "deployment"
-implementation = ""
+implementation = "deploy/sandbox/run-sandboxed.sh"
 
 [[control]]
 id = "CTL-A08"
 title = "Audit record appended before the response, for permit and deny alike"
 component = "kr0ki"
-implementation = ""
+implementation = "crates/kr0ki-core/src/audit_log.rs; crates/kr0ki-server/src/gateway.rs"
 
 # ── Verification cases ──────────────────────────────────────────────────────────
 # `command` is an argv, never a shell string. The runner only executes commands that match

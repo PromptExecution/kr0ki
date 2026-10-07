@@ -1,4 +1,3 @@
-// DRAFT - NOT YET COMPILED OR WIRED. Not declared as a module in app.rs; see the PR description for what remains.
 //! KR-A06: the tool gateway — authenticate the caller, check its capability grant for the
 //! operation, audit the decision, and only then run the handler. **For every transport.**
 //!
@@ -84,10 +83,6 @@ impl Identity {
     pub fn permits(&self, grant: &str) -> bool {
         self.grants.contains("admin") || self.grants.contains(grant)
     }
-
-    pub fn grants(&self) -> &BTreeSet<String> {
-        &self.grants
-    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -100,7 +95,9 @@ pub enum IdentityError {
     DuplicateToken(String, String),
     #[error("identity `{id}` has unknown grant `{grant}` (known: {})", GRANTS.join(", "))]
     UnknownGrant { id: String, grant: String },
-    #[error("identity `{0}`: token_sha256 must be 64 lowercase hex digits (the SHA-256 of the token)")]
+    #[error(
+        "identity `{0}`: token_sha256 must be 64 lowercase hex digits (the SHA-256 of the token)"
+    )]
     BadDigest(String),
     #[error("the identities file declares no identity")]
     Empty,
@@ -133,12 +130,17 @@ pub fn parse_identities(text: &str) -> Result<Vec<Identity>, IdentityError> {
             return Err(IdentityError::DuplicateId(i.id));
         }
         let digest_ok = i.token_sha256.len() == 64
-            && i.token_sha256.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+            && i.token_sha256
+                .bytes()
+                .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
         if !digest_ok {
             return Err(IdentityError::BadDigest(i.id));
         }
         if let Some(g) = i.grants.iter().find(|g| !GRANTS.contains(&g.as_str())) {
-            return Err(IdentityError::UnknownGrant { id: i.id.clone(), grant: g.clone() });
+            return Err(IdentityError::UnknownGrant {
+                id: i.id.clone(),
+                grant: g.clone(),
+            });
         }
         if let Some(other) = out.iter().find(|o| o.token_sha256 == i.token_sha256) {
             return Err(IdentityError::DuplicateToken(other.id.clone(), i.id));
@@ -153,7 +155,11 @@ pub fn parse_identities(text: &str) -> Result<Vec<Identity>, IdentityError> {
 }
 
 fn constant_time_eq(a: &str, b: &str) -> bool {
-    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.len() == b.len()
+        && a.bytes()
+            .zip(b.bytes())
+            .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+            == 0
 }
 
 #[derive(Debug, Clone)]
@@ -209,7 +215,12 @@ pub const ROUTES: &[(&str, &str, Option<&str>)] = &[
     ("POST", "/render/kubediagram", Some("render")),
     ("POST", "/render/k8s-topology", Some("render")),
     ("POST", "/render/rust-source", Some("render")),
-    ("POST", "/render/sysmlv2/projects/:project_id/commits/:commit_id", Some("render")),
+    ("POST", "/render/rust-behavior", Some("render")),
+    (
+        "POST",
+        "/render/sysmlv2/projects/:project_id/commits/:commit_id",
+        Some("render"),
+    ),
     ("GET", "/cache/:key", Some("render")),
     ("GET", "/ui/:session/events", Some("render")),
     // read-only computation and model reads
@@ -225,40 +236,86 @@ pub const ROUTES: &[(&str, &str, Option<&str>)] = &[
     ("POST", "/requirements/export", Some("model.read")),
     ("POST", "/requirements/views", Some("model.read")),
     ("GET", "/model/projects", Some("model.read")),
-    ("GET", "/model/projects/:project_id/commits", Some("model.read")),
-    ("GET", "/model/projects/:project_id/commits/:commit_id/snapshot", Some("model.read")),
-    ("GET", "/model/projects/:project_id/commits/:commit_id/elements", Some("model.read")),
-    ("GET", "/model/projects/:project_id/commits/:commit_id/roots", Some("model.read")),
+    (
+        "GET",
+        "/model/projects/:project_id/commits",
+        Some("model.read"),
+    ),
+    (
+        "GET",
+        "/model/projects/:project_id/commits/:commit_id/snapshot",
+        Some("model.read"),
+    ),
+    (
+        "GET",
+        "/model/projects/:project_id/commits/:commit_id/elements",
+        Some("model.read"),
+    ),
+    (
+        "GET",
+        "/model/projects/:project_id/commits/:commit_id/roots",
+        Some("model.read"),
+    ),
     (
         "GET",
         "/model/projects/:project_id/commits/:commit_id/elements/:element_id/relationships",
         Some("model.read"),
     ),
-    ("POST", "/model/projects/:project_id/recompute", Some("model.read")),
+    (
+        "POST",
+        "/model/projects/:project_id/recompute",
+        Some("model.read"),
+    ),
     ("GET", "/model/graph/query", Some("model.read")),
     ("GET", "/b00t-graph/:tag", Some("model.read")),
     // writes to the model
-    ("POST", "/model/projects/:project_id/sync", Some("model.commit")),
-    ("POST", "/model/projects/:project_id/requirements", Some("model.commit")),
+    (
+        "POST",
+        "/model/projects/:project_id/sync",
+        Some("model.commit"),
+    ),
+    (
+        "POST",
+        "/model/projects/:project_id/requirements",
+        Some("model.commit"),
+    ),
     // steering the UI
     ("POST", "/ui/:session/navigate", Some("ui.steer")),
     // the assurance thread
     ("GET", "/assurance/requirements", Some("assurance.read")),
     ("GET", "/assurance/requirements/:id", Some("assurance.read")),
-    ("GET", "/assurance/requirements/:id/trace", Some("assurance.read")),
+    (
+        "GET",
+        "/assurance/requirements/:id/trace",
+        Some("assurance.read"),
+    ),
     ("GET", "/assurance/view", Some("assurance.read")),
     ("GET", "/assurance/evidence", Some("assurance.read")),
     ("POST", "/assurance/changes", Some("assurance.propose")),
-    ("GET", "/assurance/changes/:change_id", Some("assurance.read")),
-    ("POST", "/assurance/changes/:change_id/commit", Some("model.commit")),
-    ("POST", "/assurance/verify/:case_id", Some("assurance.verify")),
+    (
+        "GET",
+        "/assurance/changes/:change_id",
+        Some("assurance.read"),
+    ),
+    (
+        "POST",
+        "/assurance/changes/:change_id/commit",
+        Some("model.commit"),
+    ),
+    (
+        "POST",
+        "/assurance/verify/:case_id",
+        Some("assurance.verify"),
+    ),
     ("GET", "/assurance/audit", Some("audit.read")),
-    ("GET", "/assurance/resources/*uri", Some("assurance.read")),
+    ("GET", "/assurance/skills/:name", Some("assurance.read")),
 ];
 
 /// The grant a `(method, pattern)` requires. Unknown → `admin` (deny by default).
 pub fn required_grant(method: &str, pattern: Option<&str>) -> Option<&'static str> {
-    let Some(pattern) = pattern else { return Some("admin") };
+    let Some(pattern) = pattern else {
+        return Some("admin");
+    };
     ROUTES
         .iter()
         .find(|(m, p, _)| *m == method && *p == pattern)
@@ -296,18 +353,22 @@ pub enum Authn {
 
 impl Gateway {
     pub fn new(mode: AuthMode, audit: Option<Arc<AuditLog>>) -> Self {
-        Self { mode, audit, tools: tool_names(), model_revision: None }
+        Self {
+            mode,
+            audit,
+            tools: tool_names(),
+            model_revision: None,
+        }
     }
 
     /// How to learn "the model revision in play" for routes that name none in the request
     /// (the assurance routes evaluate against the service's current model revision).
-    pub fn with_model_revision(mut self, f: impl Fn() -> Option<String> + Send + Sync + 'static) -> Self {
+    pub fn with_model_revision(
+        mut self,
+        f: impl Fn() -> Option<String> + Send + Sync + 'static,
+    ) -> Self {
         self.model_revision = Some(Box::new(f));
         self
-    }
-
-    pub fn audit(&self) -> Option<&Arc<AuditLog>> {
-        self.audit.as_ref()
     }
 
     pub fn authenticate(&self, authorization: Option<&str>) -> Authn {
@@ -315,13 +376,20 @@ impl Gateway {
         match &self.mode {
             AuthMode::Open => Authn::Caller(Identity::new("anonymous", &["admin"], "")),
             AuthMode::SharedToken(token) => match bearer {
-                Some(b) if constant_time_eq(&sha256_hex(b.as_bytes()), &sha256_hex(token.as_bytes())) => {
+                Some(b)
+                    if constant_time_eq(
+                        &sha256_hex(b.as_bytes()),
+                        &sha256_hex(token.as_bytes()),
+                    ) =>
+                {
                     Authn::Caller(Identity::new("shared-token", &["admin"], token))
                 }
                 _ => Authn::Failed,
             },
             AuthMode::Identities(identities) => {
-                let Some(b) = bearer else { return Authn::Failed };
+                let Some(b) = bearer else {
+                    return Authn::Failed;
+                };
                 let presented = sha256_hex(b.as_bytes());
                 // Compare against every identity: no early exit on a match.
                 let mut found: Option<&Identity> = None;
@@ -338,7 +406,10 @@ impl Gateway {
     pub fn operation(&self, method: &Method, pattern: Option<&str>) -> Operation {
         let grant = required_grant(method.as_str(), pattern);
         let name = pattern
-            .and_then(|p| self.tools.get(&(method.as_str().to_string(), p.to_string())))
+            .and_then(|p| {
+                self.tools
+                    .get(&(method.as_str().to_string(), p.to_string()))
+            })
             .map(|n| (*n).to_string())
             .unwrap_or_else(|| format!("{} {}", method, pattern.unwrap_or("(no route)")));
         Operation { name, grant }
@@ -347,7 +418,12 @@ impl Gateway {
     /// The model revision a request is about: a commit id in the path, an `expected_revision`
     /// or `revision` in the query, else the service's current model revision for assurance
     /// routes, else none.
-    fn revision_for(&self, path: &str, query: Option<&str>, pattern: Option<&str>) -> Option<String> {
+    fn revision_for(
+        &self,
+        path: &str,
+        query: Option<&str>,
+        pattern: Option<&str>,
+    ) -> Option<String> {
         let mut segments = path.split('/');
         while let Some(s) = segments.next() {
             if s == "commits" {
@@ -373,7 +449,7 @@ impl Gateway {
 fn deny_response(status: StatusCode, code: &str, detail: &str, request_id: &str) -> Response {
     (
         status,
-        Json(serde_json::json!({"error": code, "detail": detail, "request_id": request_id})),
+        Json(serde_json::json!({"error": code, "message": detail, "detail": detail, "request_id": request_id})),
     )
         .into_response()
 }
@@ -391,13 +467,27 @@ pub async fn gateway_middleware(req: Request, next: Next, gateway: Arc<Gateway>)
         return next.run(req).await;
     }
 
-    let request_id = req.extensions().get::<RequestId>().map(|r| cap(&r.0)).unwrap_or_default();
-    let pattern = req.extensions().get::<MatchedPath>().map(|m| m.as_str().to_string());
-    let transport = match req.headers().get("x-kr0ki-transport").and_then(|v| v.to_str().ok()) {
+    let request_id = req
+        .extensions()
+        .get::<RequestId>()
+        .map(|r| cap(&r.0))
+        .unwrap_or_default();
+    let pattern = req
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|m| m.as_str().to_string());
+    let transport = match req
+        .headers()
+        .get("x-kr0ki-transport")
+        .and_then(|v| v.to_str().ok())
+    {
         Some("mcp") => "mcp",
         _ => "http",
     };
-    let authorization = req.headers().get(header::AUTHORIZATION).and_then(|v| v.to_str().ok());
+    let authorization = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok());
     let authn = gateway.authenticate(authorization);
     let op = gateway.operation(&method, pattern.as_deref());
     let revision = gateway.revision_for(&path, req.uri().query(), pattern.as_deref());
@@ -413,7 +503,10 @@ pub async fn gateway_middleware(req: Request, next: Next, gateway: Arc<Gateway>)
             Some(grant) if !identity.permits(grant) => (
                 identity.id.clone(),
                 Decision::Deny,
-                Some(format!("identity `{}` has no `{grant}` grant for `{}`", identity.id, op.name)),
+                Some(format!(
+                    "identity `{}` has no `{grant}` grant for `{}`",
+                    identity.id, op.name
+                )),
                 StatusCode::FORBIDDEN,
             ),
             _ => (identity.id.clone(), Decision::Permit, None, StatusCode::OK),
@@ -448,17 +541,32 @@ pub async fn gateway_middleware(req: Request, next: Next, gateway: Arc<Gateway>)
     }
 
     if decision == Decision::Deny {
-        let code = if deny_status == StatusCode::UNAUTHORIZED { "unauthorized" } else { "forbidden" };
-        let response = deny_response(deny_status, code, reason.as_deref().unwrap_or("denied"), &request_id);
+        let code = if deny_status == StatusCode::UNAUTHORIZED {
+            "unauthorized"
+        } else {
+            "forbidden"
+        };
+        let response = deny_response(
+            deny_status,
+            code,
+            reason.as_deref().unwrap_or("denied"),
+            &request_id,
+        );
         if let Some(audit) = &gateway.audit {
-            let _ = audit.append(draft(Phase::Outcome, Some(deny_status.as_u16())), &now_rfc3339());
+            let _ = audit.append(
+                draft(Phase::Outcome, Some(deny_status.as_u16())),
+                &now_rfc3339(),
+            );
         }
         return response;
     }
 
     let response = next.run(req).await;
     if let Some(audit) = &gateway.audit {
-        if let Err(e) = audit.append(draft(Phase::Outcome, Some(response.status().as_u16())), &now_rfc3339()) {
+        if let Err(e) = audit.append(
+            draft(Phase::Outcome, Some(response.status().as_u16())),
+            &now_rfc3339(),
+        ) {
             tracing::error!("audit outcome write failed: {e}");
         }
     }
@@ -494,7 +602,8 @@ mod tests {
     #[test]
     fn every_registered_route_is_classified_and_every_classification_names_a_real_route() {
         let registered = registered();
-        let classified: BTreeSet<String> = ROUTES.iter().map(|(_, p, _)| (*p).to_string()).collect();
+        let classified: BTreeSet<String> =
+            ROUTES.iter().map(|(_, p, _)| (*p).to_string()).collect();
         // `/health` is exempt before classification; `/assurance/*` routes are registered by the
         // assurance module, which this scan also reads.
         let mut registered = registered;
@@ -506,7 +615,10 @@ mod tests {
             "routes registered but not classified in gateway::ROUTES (they would require admin): {unclassified:?}"
         );
         let stale: Vec<_> = classified.difference(&registered).collect();
-        assert!(stale.is_empty(), "gateway::ROUTES entries that match no registered route: {stale:?}");
+        assert!(
+            stale.is_empty(),
+            "gateway::ROUTES entries that match no registered route: {stale:?}"
+        );
     }
 
     #[test]
@@ -521,19 +633,29 @@ mod tests {
     #[test]
     fn unknown_and_unmatched_routes_require_admin() {
         assert_eq!(required_grant("POST", Some("/not/a/route")), Some("admin"));
-        assert_eq!(required_grant("DELETE", Some("/model/projects")), Some("admin"), "right path, wrong method");
+        assert_eq!(
+            required_grant("DELETE", Some("/model/projects")),
+            Some("admin"),
+            "right path, wrong method"
+        );
         assert_eq!(required_grant("GET", None), Some("admin"));
     }
 
     #[test]
     fn every_write_to_the_model_requires_model_commit() {
+        // A POST under /model/ (other than the read-only recompute) or one ending `/commit`
+        // writes to the model. `/render/...` routes only read it, whatever their path says.
         for (m, p, g) in ROUTES {
-            let writes_model = (p.starts_with("/model/") || p.contains("/commit")) && *m == "POST";
-            let is_compute = p.ends_with("/recompute");
-            if writes_model && !is_compute {
+            let writes_model = *m == "POST"
+                && (p.starts_with("/model/") || p.ends_with("/commit"))
+                && !p.ends_with("/recompute");
+            if writes_model {
                 assert_eq!(*g, Some("model.commit"), "{m} {p}");
             }
         }
+        assert!(ROUTES.iter().any(|(m, p, g)| *m == "POST"
+            && *p == "/assurance/changes/:change_id/commit"
+            && *g == Some("model.commit")));
     }
 
     #[test]
@@ -541,10 +663,15 @@ mod tests {
         let ok = |s: &str| parse_identities(s);
         let d = sha256_hex(b"t1");
         let d2 = sha256_hex(b"t2");
-        assert!(ok(&format!("[[identity]]\nid=\"a\"\ntoken_sha256=\"{d}\"\ngrants=[\"model.read\"]\n")).is_ok());
+        assert!(ok(&format!(
+            "[[identity]]\nid=\"a\"\ntoken_sha256=\"{d}\"\ngrants=[\"model.read\"]\n"
+        ))
+        .is_ok());
         assert!(matches!(ok(""), Err(IdentityError::Empty)));
         assert!(matches!(
-            ok(&format!("[[identity]]\nid=\"a\"\ntoken_sha256=\"{d}\"\ngrants=[\"root\"]\n")),
+            ok(&format!(
+                "[[identity]]\nid=\"a\"\ntoken_sha256=\"{d}\"\ngrants=[\"root\"]\n"
+            )),
             Err(IdentityError::UnknownGrant { .. })
         ));
         assert!(matches!(
@@ -558,9 +685,15 @@ mod tests {
         let dup_tok = format!(
             "[[identity]]\nid=\"a\"\ntoken_sha256=\"{d}\"\ngrants=[]\n[[identity]]\nid=\"b\"\ntoken_sha256=\"{d}\"\ngrants=[]\n"
         );
-        assert!(matches!(ok(&dup_tok), Err(IdentityError::DuplicateToken(_, _))));
+        assert!(matches!(
+            ok(&dup_tok),
+            Err(IdentityError::DuplicateToken(_, _))
+        ));
         // a typo'd key is an error, not a silently dropped field
-        assert!(ok(&format!("[[identity]]\nid=\"a\"\ntoken_sha256=\"{d}\"\ngrant=[\"admin\"]\n")).is_err());
+        assert!(ok(&format!(
+            "[[identity]]\nid=\"a\"\ntoken_sha256=\"{d}\"\ngrant=[\"admin\"]\n"
+        ))
+        .is_err());
         // a plaintext token in the digest field is rejected, never stored
         assert!(matches!(
             ok("[[identity]]\nid=\"a\"\ntoken_sha256=\"my-secret-token\"\ngrants=[]\n"),
@@ -586,7 +719,9 @@ mod tests {
         assert_eq!(who(None), None);
 
         let shared = Gateway::new(AuthMode::SharedToken("s3cret".into()), None);
-        assert!(matches!(shared.authenticate(Some("Bearer s3cret")), Authn::Caller(i) if i.id == "shared-token" && i.permits("anything")));
+        assert!(
+            matches!(shared.authenticate(Some("Bearer s3cret")), Authn::Caller(i) if i.id == "shared-token" && i.permits("anything"))
+        );
         assert_eq!(shared.authenticate(Some("Bearer other")), Authn::Failed);
 
         let open = Gateway::new(AuthMode::Open, None);
@@ -610,25 +745,48 @@ mod tests {
         let op = gw.operation(&Method::POST, Some("/sparql"));
         assert_eq!(op.name, "POST /sparql");
         let op = gw.operation(&Method::GET, None);
-        assert_eq!((op.name.as_str(), op.grant), ("GET (no route)", Some("admin")));
+        assert_eq!(
+            (op.name.as_str(), op.grant),
+            ("GET (no route)", Some("admin"))
+        );
     }
 
     #[test]
     fn the_model_revision_comes_from_the_path_the_query_or_the_service() {
-        let gw = Gateway::new(AuthMode::Open, None).with_model_revision(|| Some("model-now".into()));
+        let gw =
+            Gateway::new(AuthMode::Open, None).with_model_revision(|| Some("model-now".into()));
         assert_eq!(
-            gw.revision_for("/model/projects/p/commits/c-42/elements", None, Some("/model/projects/:project_id/commits/:commit_id/elements")).as_deref(),
+            gw.revision_for(
+                "/model/projects/p/commits/c-42/elements",
+                None,
+                Some("/model/projects/:project_id/commits/:commit_id/elements")
+            )
+            .as_deref(),
             Some("c-42")
         );
         assert_eq!(
-            gw.revision_for("/assurance/changes/x/commit", Some("expected_revision=r7&x=1"), Some("/assurance/changes/:change_id/commit")).as_deref(),
+            gw.revision_for(
+                "/assurance/changes/x/commit",
+                Some("expected_revision=r7&x=1"),
+                Some("/assurance/changes/:change_id/commit")
+            )
+            .as_deref(),
             Some("r7")
         );
         assert_eq!(
-            gw.revision_for("/assurance/view", None, Some("/assurance/view")).as_deref(),
+            gw.revision_for("/assurance/view", None, Some("/assurance/view"))
+                .as_deref(),
             Some("model-now")
         );
         assert_eq!(gw.revision_for("/formats", None, Some("/formats")), None);
-        assert_eq!(gw.revision_for("/assurance/view", Some("revision="), Some("/assurance/view")).as_deref(), Some("model-now"));
+        assert_eq!(
+            gw.revision_for(
+                "/assurance/view",
+                Some("revision="),
+                Some("/assurance/view")
+            )
+            .as_deref(),
+            Some("model-now")
+        );
     }
 }
