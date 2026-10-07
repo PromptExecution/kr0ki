@@ -20,7 +20,7 @@ confidence: recalled (SysML v2 textual notation; always confirm with /sysml/vali
 SysML v2 keywords cannot be used as element names. Verified against the validator (2026-10-07): `part render : T;` and `attribute subject : String;` fail with
 `no viable alternative at input 'partrender'` / `'attributesubject'`. The message joins the two tokens without a space (that is how the parser prints it): it
 does NOT mean whitespace was lost. Read it as "the name after this keyword is reserved". Rename (`renderer`, `subj`) or quote the name: `'render'`.
-Other keywords that tempt as names: `subject`, `render`, `view`, `viewpoint`, `satisfy`, `verify`, `allocate`, `state`, `action`, `item`, `port`, `flow`, `calc`.
+Also verified as rejected names: `view`, `viewpoint`, `verify`, `state`, `action`, `item`, `port`, `flow`. Quoting (`'render'`) is accepted.
 
 ## Do not
 - Invent library types. If you are unsure a type exists, model it as a local `part def`.
