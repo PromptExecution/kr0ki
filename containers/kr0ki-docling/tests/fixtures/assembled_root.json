@@ -1,0 +1,309 @@
+{
+  "title": "Considering Rust",
+  "claims": [
+    {
+      "statement": "Rust is much faster.",
+      "mentions": [
+        {
+          "name": "Rust"
+        }
+      ],
+      "about": [
+        {
+          "name": "performance"
+        }
+      ]
+    },
+    {
+      "statement": "Rust has much lower memory use",
+      "mentions": [
+        {
+          "name": "Rust"
+        }
+      ],
+      "about": [
+        {
+          "name": "memory use"
+        }
+      ]
+    },
+    {
+      "statement": "Rust supports multi-threading.",
+      "mentions": [
+        {
+          "name": "Rust"
+        }
+      ],
+      "about": [
+        {
+          "name": "multi-threading"
+        }
+      ]
+    },
+    {
+      "statement": "Rust has algebraic data types",
+      "mentions": [
+        {
+          "name": "Rust"
+        }
+      ],
+      "about": [
+        {
+          "name": "algebraic data types"
+        }
+      ]
+    },
+    {
+      "statement": "Rust has pattern matching",
+      "mentions": [
+        {
+          "name": "Rust"
+        }
+      ],
+      "about": [
+        {
+          "name": "pattern matching"
+        }
+      ]
+    },
+    {
+      "statement": "Rust has comprehensive static typing",
+      "mentions": [
+        {
+          "name": "Rust"
+        }
+      ],
+      "about": [
+        {
+          "name": "static typing"
+        }
+      ]
+    },
+    {
+      "statement": "Rust has many fewer runtime crashes",
+      "mentions": [
+        {
+          "name": "Rust"
+        }
+      ],
+      "about": [
+        {
+          "name": "runtime crashes"
+        }
+      ]
+    }
+  ],
+  "entities": [
+    {
+      "name": "Jon Gjengset",
+      "kind": "person",
+      "related_to": [
+        {
+          "name": "MIT",
+          "kind": "organisation"
+        },
+        {
+          "name": "Parallel and Distributed Operating Systems group",
+          "kind": "organisation"
+        },
+        {
+          "name": "Noria",
+          "kind": "product"
+        },
+        {
+          "name": "Rust",
+          "kind": "language"
+        },
+        {
+          "name": "C",
+          "kind": "language"
+        },
+        {
+          "name": "C++",
+          "kind": "language"
+        },
+        {
+          "name": "Go",
+          "kind": "language"
+        },
+        {
+          "name": "Python",
+          "kind": "language"
+        },
+        {
+          "name": "Java",
+          "kind": "language"
+        }
+      ]
+    },
+    {
+      "name": "MIT",
+      "kind": "organisation",
+      "related_to": [
+        {
+          "name": "Parallel and Distributed Operating Systems group",
+          "kind": "organisation"
+        }
+      ]
+    },
+    {
+      "name": "Parallel and Distributed Operating Systems group",
+      "kind": "research group",
+      "related_to": [
+        {
+          "name": "MIT",
+          "kind": "university"
+        },
+        {
+          "name": "Jon Gjengset",
+          "kind": "person"
+        }
+      ]
+    },
+    {
+      "name": "Noria",
+      "kind": "database",
+      "related_to": [
+        {
+          "name": "Rust"
+        }
+      ]
+    },
+    {
+      "name": "Rust",
+      "kind": "language",
+      "related_to": [
+        {
+          "name": "Mozilla"
+        },
+        {
+          "name": "Java"
+        },
+        {
+          "name": "C++"
+        },
+        {
+          "name": "Python"
+        },
+        {
+          "name": "Go"
+        },
+        {
+          "name": "C"
+        }
+      ]
+    },
+    {
+      "name": "Rust std",
+      "kind": "standard library",
+      "related_to": [
+        {
+          "name": "Rust",
+          "kind": "language"
+        }
+      ]
+    },
+    {
+      "name": "C",
+      "kind": "language",
+      "related_to": []
+    },
+    {
+      "name": "C++",
+      "kind": "language",
+      "related_to": []
+    },
+    {
+      "name": "Go",
+      "kind": "language",
+      "related_to": []
+    },
+    {
+      "name": "Python",
+      "kind": "language",
+      "related_to": []
+    },
+    {
+      "name": "Java",
+      "kind": "language",
+      "related_to": []
+    },
+    {
+      "name": "Mozilla",
+      "kind": "organisation",
+      "related_to": []
+    }
+  ],
+  "concepts": [
+    {
+      "name": "systems programming",
+      "definition": null,
+      "broader": []
+    },
+    {
+      "name": "fearless concurrency",
+      "definition": null,
+      "broader": []
+    },
+    {
+      "name": "compiled language",
+      "definition": "A language that is compiled to machine code rather than bytecode.",
+      "broader": []
+    },
+    {
+      "name": "machine code",
+      "definition": null,
+      "broader": []
+    },
+    {
+      "name": "strong, static typing",
+      "definition": null,
+      "broader": []
+    },
+    {
+      "name": "imperative",
+      "definition": null,
+      "broader": []
+    },
+    {
+      "name": "functional aspects",
+      "definition": null,
+      "broader": []
+    },
+    {
+      "name": "garbage collection",
+      "definition": null,
+      "broader": []
+    },
+    {
+      "name": "runtime",
+      "definition": null,
+      "broader": []
+    },
+    {
+      "name": "type system",
+      "definition": null,
+      "broader": []
+    },
+    {
+      "name": "multi-threading",
+      "definition": null,
+      "broader": []
+    },
+    {
+      "name": "algebraic data types",
+      "definition": null,
+      "broader": []
+    },
+    {
+      "name": "pattern matching",
+      "definition": null,
+      "broader": []
+    },
+    {
+      "name": "runtime crashes",
+      "definition": null,
+      "broader": []
+    }
+  ]
+}
