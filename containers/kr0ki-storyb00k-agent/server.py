@@ -44,6 +44,9 @@ MAX_CLARIFYING_QUESTIONS = int(os.environ.get(
     os.environ.get("KR0KI_STORYB00K_MAX_TOOL_ROUNDS", "6"),
 ))
 MAX_OUTPUT_CHARS = int(os.environ.get("KR0KI_STORYB00K_MAX_OUTPUT_CHARS", "20000"))
+# An SVG shown in the UI is a picture, not model context: cutting it mid-document drops whatever the renderer wrote last
+# (D2 writes its connections after its shapes), so it gets its own, much larger cap.
+MAX_PANEL_SVG_CHARS = int(os.environ.get("KR0KI_STORYB00K_MAX_PANEL_SVG_CHARS", "2000000"))
 # Valid input formats for render_diagram (SVG/PNG are output formats, not input)
 VALID_INPUT_FORMATS = frozenset([
     "d2", "plantuml", "c4plantuml", "mermaid", "graphviz", "dot",
@@ -497,7 +500,8 @@ def panel_from_tool_result(name, arguments, content_type, result, tool_call_id=N
         panel["imageDataUrl"] = f"data:{content_type};base64,{base64.b64encode(result).decode('ascii')}"
         panel["content"] = ""
     else:
-        panel["content"] = truncate(result.decode("utf-8", "replace"))
+        text = result.decode("utf-8", "replace")
+        panel["content"] = truncate(text, MAX_PANEL_SVG_CHARS if content_type == "image/svg+xml" else MAX_OUTPUT_CHARS)
     return panel
 
 
