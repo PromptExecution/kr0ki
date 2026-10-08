@@ -1,33 +1,33 @@
 # System baseline — sm3llsl1k3s0ld3r
 
-Captured 2026-10-08T07:27:27Z UTC · kernel 7.0.0-38-generic · 4 CPUs
+Captured 2026-10-08T08:59:36Z UTC · kernel 7.0.0-38-generic · 4 CPUs
 
 ## Memory and swap
 
 ```
                total        used        free      shared  buff/cache   available
-Mem:           32038       18863         540        9043       22456       13174
-Swap:          36863        6555       30308
+Mem:           32038       10160        2668         373       20361       21877
+Swap:          36863        3858       33005
 
 NAME                TYPE SIZE USED PRIO
 /swap.img           file   4G   0B   -1
-/c0de/swap/swapfile file  32G 6.4G  100
+/c0de/swap/swapfile file  32G 3.8G  100
 
-Cached:         21339972 kB
-SwapCached:       116024 kB
-Dirty:              6220 kB
-Mapped:          1489716 kB
-Shmem:           9260160 kB
+Cached:         12547860 kB
+SwapCached:       122100 kB
+Dirty:              1716 kB
+Mapped:          1482656 kB
+Shmem:            382056 kB
 vm.swappiness=60 vm.page-cluster=0
 ```
 
 ## Pressure (PSI) and load
 
 ```
-cpu: some avg10=1.25 avg60=1.09 avg300=1.03 total=1952094421
-memory: some avg10=0.00 avg60=0.00 avg300=0.06 total=245595628
-io: some avg10=83.67 avg60=79.85 avg300=68.97 total=3805792283
-loadavg: 5.71 4.69 2.77 1/1195 3999723
+cpu: some avg10=0.80 avg60=0.98 avg300=1.00 total=2021747944
+memory: some avg10=0.00 avg60=0.00 avg300=0.00 total=246204516
+io: some avg10=10.80 avg60=57.07 avg300=74.69 total=7819758245
+loadavg: 3.52 4.21 4.12 1/1173 75054
 ```
 
 ## tmpfs (RAM-backed; counts against memory)
@@ -36,7 +36,7 @@ loadavg: 5.71 4.69 2.77 1/1195 3999723
 Filesystem      Size  Used Avail Use% Mounted on
 tmpfs           3.2G  3.3M  3.2G   1% /run
 tmpfs            16G  168K   16G   1% /dev/shm
-tmpfs            16G   12G  4.5G  72% /tmp
+tmpfs            16G   39M   16G   1% /tmp
 tmpfs           3.2G  416K  3.2G   1% /run/user/1000
 ```
 
@@ -51,7 +51,7 @@ Filesystem                         Size  Used Avail Use% Mounted on
 ## GPU
 
 ```
-NVIDIA GeForce RTX 3090, 20678 MiB, 24576 MiB, 0 %, 37
+NVIDIA GeForce RTX 3090, 20678 MiB, 24576 MiB, 0 %, 36
 ```
 
 ## Listening sockets
@@ -112,7 +112,6 @@ b00t-hive-opencode-agent.service
 buildkit.service
 container-spire-agent.service
 containerd.service
-d35d3961e3bd9927ff06fe22628efeb4126e4f849894e83fa21aa7de6a5c1949-3f2513007f457aad.service
 dbus.service
 hive-b00t-relay.service
 kr0ki-agent.service
@@ -142,25 +141,32 @@ logrotate.service
 ## Containers
 
 ```
-kr0ki-sysml-mcp	Up 22 hours	localhost/kr0ki-sysml-mcp:dev
-kr0ki-dev-kroki	Up 22 hours	localhost/kr0ki-kroki-compat:dev
-valkey	Up 20 hours (healthy)	docker.io/valkey/valkey:8-alpine
-spire-agent	Up 18 hours	ghcr.io/spiffe/spire-agent:1.15.3
-b00t-heretic	Up 11 hours	ghcr.io/ggml-org/llama.cpp:server-cuda
+kr0ki-sysml-mcp	Up 24 hours	localhost/kr0ki-sysml-mcp:dev
+kr0ki-dev-kroki	Up 24 hours	localhost/kr0ki-kroki-compat:dev
+valkey	Up 21 hours (healthy)	docker.io/valkey/valkey:8-alpine
+spire-agent	Up 20 hours	ghcr.io/spiffe/spire-agent:1.15.3
+b00t-heretic	Up 12 hours	ghcr.io/ggml-org/llama.cpp:server-cuda
 ```
+
+## Kernel log: OOM kills, hung tasks, GPU Xid
+
+UNREADABLE: /var/log/kern.log is syslog:adm 0640 and this user is not in adm.
+
+Run: `sudo grep -iE "out of memory|oom-kill|hung task|blocked for more|Xid" /var/log/kern.log.1 /var/log/kern.log`
+Or: `sudo usermod -aG adm "$USER"` and log in again so this section can run unattended.
 
 ## Largest resident processes
 
 ```
   RSS COMMAND
-5263696 llama-server
-514684 kube-apiserver
-423272 claude
-230124 opencode
-227224 systemd-journal
-218088 codex
+5238164 llama-server
+490388 kube-apiserver
+393200 claude
+260212 opencode
+234952 systemd-journal
+218292 codex
+171984 codebase-memory
 161636 java
-150736 mlflow
 ```
 
 _Thresholds for reading this are in docs/ops/OPS-PATTERNS.md._

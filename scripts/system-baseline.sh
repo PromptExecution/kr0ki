@@ -58,6 +58,19 @@ systemctl list-units --state=failed --no-legend --plain 2>/dev/null | awk '{prin
 section "Containers"
 if have podman; then podman ps --format '{{.Names}}\t{{.Status}}\t{{.Image}}' | cut -c1-140 | fence; else echo "n/a"; fi
 
+section "Kernel log: OOM kills, hung tasks, GPU Xid"
+# Needs the adm group (or root). Without it this section says so rather than reporting a false "clean".
+pat='out of memory|oom-kill|hung task|blocked for more|Xid'
+if [ -r /var/log/kern.log ]; then
+  hits=$(grep -ihE "$pat" /var/log/kern.log /var/log/kern.log.1 2>/dev/null | tail -20)
+  if [ -n "$hits" ]; then printf '%s\n' "$hits" | cut -c1-200 | fence; else echo "none in kern.log / kern.log.1"; fi
+else
+  echo "UNREADABLE: /var/log/kern.log is syslog:adm 0640 and this user is not in adm."
+  echo
+  echo 'Run: `sudo grep -iE "'"$pat"'" /var/log/kern.log.1 /var/log/kern.log`'
+  echo 'Or: `sudo usermod -aG adm "$USER"` and log in again so this section can run unattended.'
+fi
+
 section "Largest resident processes"
 ps -eo rss,comm --sort=-rss | head -9 | fence
 
