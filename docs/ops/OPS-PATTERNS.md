@@ -67,9 +67,26 @@ readers were the Kubernetes API server and its datastore, plus long-lived CLI pr
 
 **P8 — The kernel log needs the `adm` group.** `/var/log/kern.log*` is `syslog:adm 0640` and `dmesg` is restricted, so
 an agent running as the user cannot check for OOM kills. Either add the user to `adm` or use
-`sudo grep -iE "out of memory|oom-kill|hung task|blocked for more|Xid" /var/log/kern.log /var/log/kern.log.1`.
+`sudo grep -iE "out of memory|oom-kill|hung task|blocked for more|NVRM: Xid" /var/log/kern.log.1 /var/log/kern.log`
+(use `NVRM: Xid`, not bare `Xid`: the bare form also matches the r8169 NIC line "XID 480" and overlayfs layer names).
 
-## 3. Standing rules
+## 3. Kernel-log findings (read 2026-10-08, `kern.log.1` + `kern.log`)
+
+| When (UTC) | Event | Reading |
+|---|---|---|
+| 2026-09-29 15:42–15:46 | `containerd` tasks blocked 122–245 s, then "future hung task reports are suppressed" | disk stall; the kernel stopped reporting further ones |
+| 2026-10-02 14:37–14:43 | **global OOM**: kernel killed k0s pods first (envoy-gateway, coredns, metrics-server, mlflow, kube-rbac-proxy, local-path-prov, envoy), then **`llama-server` (8.3 GB resident) in the Qwen container** | the only real out-of-memory event in the log; Kubernetes pods carry `oom_score_adj` ~1000 so they die before the model |
+| 2026-10-05 09:11 and 14:28 | `containerd-shim` blocked >122 s | same disk-stall signature as 29 Sep |
+| 2026-10-07 | **no OOM-kill, no hung-task, no GPU error** | see below |
+| any | GPU `NVRM: Xid` | **none**; the two "XID" hits were a NIC and an overlayfs layer name |
+
+**What this means for the 7 Oct stall.** The kernel logged nothing on 7 Oct. That fits a stall in which the machine stopped
+responding without the kernel noticing an out-of-memory condition (heavy swap and IO wait), or one that ended in a hard reset
+that gave the kernel no chance to write. It does *not* confirm either; it only rules out an OOM kill and a reported hung task as
+the visible cause. The pattern is recurring, though: three separate disk-stall or OOM episodes in nine days, all involving
+containerd/k0s on the spinning root disk, which supports moving `/var/lib/k0s` and container storage to `/c0de` (P7).
+
+## 4. Standing rules
 
 1. Before changing a unit, read its journal and confirm the failure is the unit's own (P1–P4).
 2. Never run a `Conflicts=` unit to test it (P5).

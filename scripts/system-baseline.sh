@@ -60,7 +60,7 @@ if have podman; then podman ps --format '{{.Names}}\t{{.Status}}\t{{.Image}}' | 
 
 section "Kernel log: OOM kills, hung tasks, GPU Xid"
 # Needs the adm group (or root). Without it this section says so rather than reporting a false "clean".
-pat='out of memory|oom-kill|hung task|blocked for more|Xid'
+pat='out of memory|oom-kill|hung task|blocked for more|NVRM: Xid'
 if [ -r /var/log/kern.log ]; then
   hits=$(grep -ihE "$pat" /var/log/kern.log /var/log/kern.log.1 2>/dev/null | tail -20)
   if [ -n "$hits" ]; then printf '%s\n' "$hits" | cut -c1-200 | fence; else echo "none in kern.log / kern.log.1"; fi
