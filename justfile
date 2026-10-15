@@ -568,6 +568,10 @@ assurance-gaps:
 delegate +prompt:
     scripts/delegate-qwen38.sh {{prompt}}
 
+# Read-only host snapshot (memory, PSI, swap, tmpfs, units, containers) as markdown. See docs/ops/OPS-PATTERNS.md.
+ops-baseline:
+    scripts/system-baseline.sh
+
 # Revision-bound compiler evidence and compressed derived artifacts.
 docgen-image revision="HEAD":
     bash scripts/docgen.sh image "{{revision}}"
