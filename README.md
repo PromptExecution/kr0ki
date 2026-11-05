@@ -331,7 +331,8 @@ This is for iteration speed only — it can drift from the real k0s deployment
 full `just pod-up` cycle below before calling format or fixture work done.
 `podman run` needs explicit `--memory`/`--cpus` (b00t's OCI limits hook rejects a
 run without them); `dev-kroki-up` already sets them to match the pod manifest's
-own 2Gi/1 CPU budget.
+own 2Gi/1 CPU budget. x86_64 only for now (kr0ki#150); on arm64, run Kroki on an
+x86_64 host.
 
 ### Local k0s renderer compatibility
 
