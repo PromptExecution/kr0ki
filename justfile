@@ -114,7 +114,17 @@ dev_kroki_port := "8010"
 # Build (if needed) and (re)start the local kroki-compat container in the background.
 # --memory/--cpus are required: b00t's OCI limits hook rejects any `podman run`
 # without an explicit resource budget (matches the pod manifest's own 2Gi/1 CPU).
-dev-kroki-up:
+# The kroki-compat base image is amd64-only (kr0ki#150): fail fast, with a reason, instead of `Exec format error` mid-build.
+_dev-kroki-arch-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    arch="$(uname -m)"
+    case "$arch" in x86_64|amd64) exit 0 ;; esac
+    [ -e /proc/sys/fs/binfmt_misc/qemu-x86_64 ] && exit 0
+    echo "dev-kroki-up builds the amd64-only kroki-compat image; this host is $arch with no x86_64 emulation. Run Kroki on an x86_64 host and point your client at it (see kr0ki#150)." >&2
+    exit 1
+
+dev-kroki-up: _dev-kroki-arch-check
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-kroki-compat:dev -f containers/kroki-compat/Containerfile .
     podman build --memory=16g --memory-swap=16g -t localhost/kr0ki-storyb00k-agent:dev -f containers/kr0ki-storyb00k-agent/Containerfile .
     podman rm -f kr0ki-dev-kroki >/dev/null 2>&1 || true
